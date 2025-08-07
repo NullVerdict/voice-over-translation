@@ -1,4 +1,6 @@
-import "requestidlecallback-polyfill";
+if (typeof window.requestIdleCallback === "undefined") {
+  await import("requestidlecallback-polyfill");
+}
 import { sitesPoketube } from "@vot.js/shared/alternativeUrls";
 import { EventImpl } from "../core/eventImpl.ts";
 import debug from "./debug.ts";

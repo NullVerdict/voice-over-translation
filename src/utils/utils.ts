@@ -1,5 +1,5 @@
-import Bowser from "bowser";
-import { ID3Writer } from "browser-id3-writer";
+// Removed heavy Bowser dependency in favor of a lightweight UA parser
+// ID3 tagging is loaded on demand to avoid pulling it into the initial bundle
 
 import { availableTTS } from "@vot.js/shared/consts";
 import { ResponseLang } from "@vot.js/shared/types/data";
@@ -37,9 +37,59 @@ export const calculatedResLang: ResponseLang = (() => {
 
   return "en";
 })();
-export const browserInfo = Bowser.getParser(
-  window.navigator.userAgent,
-).getResult();
+
+type ParsedInfo = {
+  browser: { name: string; version: string };
+  os: { name: string; version: string };
+};
+
+function parseUserAgent(): ParsedInfo {
+  const ua = navigator.userAgent;
+  // Browser
+  let browserName = "Unknown";
+  let browserVersion = "";
+  const browserRegexes: Array<[RegExp, string]> = [
+    [/Edg\/(\d+\.\d+(?:\.\d+)?)/, "Edge"],
+    [/OPR\/(\d+\.\d+(?:\.\d+)?)/, "Opera"],
+    [/Chrome\/(\d+\.\d+(?:\.\d+)?)/, "Chrome"],
+    [/Firefox\/(\d+\.\d+(?:\.\d+)?)/, "Firefox"],
+    [/Version\/(\d+\.\d+(?:\.\d+)?)\s+Safari\//, "Safari"],
+  ];
+  for (const [re, name] of browserRegexes) {
+    const m = ua.match(re);
+    if (m) {
+      browserName = name;
+      browserVersion = m[1] || "";
+      break;
+    }
+  }
+
+  // OS
+  let osName = "Unknown";
+  let osVersion = "";
+  const osMatchers: Array<[RegExp, (m: RegExpMatchArray) => [string, string]]> = [
+    [/Windows NT (\d+\.\d+)/, (m) => ["Windows", m[1]]],
+    [/Android\s(\d+(?:\.\d+)?)/, (m) => ["Android", m[1]]],
+    [/iPhone OS (\d+_\d+(?:_\d+)?)/, (m) => ["iOS", m[1].replaceAll("_", ".")]],
+    [/iPad; CPU OS (\d+_\d+(?:_\d+)?)/, (m) => ["iPadOS", m[1].replaceAll("_", ".")]],
+    [/Mac OS X (\d+_\d+(?:_\d+)?)/, (m) => ["macOS", m[1].replaceAll("_", ".")]],
+    [/Linux/, () => ["Linux", ""]],
+  ];
+  for (const [re, fn] of osMatchers) {
+    const m = ua.match(re);
+    if (m) {
+      [osName, osVersion] = fn(m);
+      break;
+    }
+  }
+
+  return {
+    browser: { name: browserName, version: browserVersion },
+    os: { name: osName, version: osVersion },
+  };
+}
+
+export const browserInfo: ParsedInfo = parseUserAgent();
 
 export const isPiPAvailable = () =>
   "pictureInPictureEnabled" in document && document.pictureInPictureEnabled;
@@ -221,6 +271,7 @@ async function downloadTranslation(
     ? res.arrayBuffer()
     : _downloadTranslationWithProgress(res, contentLength, onProgress));
   onProgress(100);
+  const { ID3Writer } = await import("browser-id3-writer");
   const writer = new ID3Writer(arrayBuffer);
   writer.setFrame("TIT2", filename);
   writer.addTag();

@@ -158,6 +158,9 @@ export default (env) => {
         DEBUG_MODE,
         AVAILABLE_LOCALES: JSON.stringify(availableLocales),
         REPO_BRANCH: JSON.stringify(REPO_BRANCH),
+        "process.env.NODE_ENV": JSON.stringify(
+          DEBUG_MODE ? "development" : "production",
+        ),
         ...(() => {
           if (!DEBUG_MODE) {
             return {
@@ -173,10 +176,15 @@ export default (env) => {
       }),
     ],
     optimization: {
-      emitOnErrors: true,
-      moduleIds: "named",
+      emitOnErrors: false,
+      moduleIds: DEBUG_MODE ? "named" : "deterministic",
+      usedExports: true,
+      sideEffects: true,
+      mangleExports: "size",
       minimize: true,
       minimizer: [new OxcMinifyWebpackPlugin(BUILD_MINIFIED ? {} : minimalOxc)],
+      // Keep single bundle due to userscript delivery, but enable max treeshaking
+      concatenateModules: true,
     },
   });
 };

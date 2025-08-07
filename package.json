@@ -15,6 +15,10 @@
     "vot",
     "voice-over-translation"
   ],
+  "sideEffects": [
+    "**/*.css",
+    "**/*.scss"
+  ],
   "devDependencies": {
     "@sucrase/webpack-loader": "^2.0.0",
     "@toil/gm-types": "^1.0.4",
@@ -58,7 +62,6 @@
   "dependencies": {
     "@vot.js/ext": "^2.4.12",
     "@vot.js/shared": "^2.4.12",
-    "bowser": "^2.11.0",
     "chaimu": "^1.0.6",
     "lit": "^3.3.0",
     "requestidlecallback-polyfill": "^1.0.2"
