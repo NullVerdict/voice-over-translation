@@ -7,7 +7,7 @@
 // @name:ru         [VOT] - Закадровый перевод видео
 // @name:zh         [VOT] - 画外音视频翻译
 // @namespace       vot
-// @version         1.11.2.5
+// @version         1.11.3.4
 // @author          Toil, SashaXser, MrSoczekXD, mynovelhost, sodapng
 // @description     A small extension that adds a Yandex Browser video translation to other browsers
 // @description:de  Eine kleine Erweiterung, die eine Voice-over-Übersetzung von Videos aus dem Yandex-Browser zu anderen Browsern hinzufügt
@@ -137,7 +137,7 @@
 // @match           *://*.bunkr.ac/*
 // @match           *://*.bunkr.ax/*
 // @match           *://web.telegram.org/k/*
-// @match           *://t2mc.toil.cc/*
+// @match           *://rust-server-531j.onrender.com/*
 // @match           *://mylearn.oracle.com/*
 // @match           *://learn.deeplearning.ai/*
 // @match           *://learn-staging.deeplearning.ai/*
@@ -148,6 +148,7 @@
 // @match           *://iframe.mediadelivery.net/*
 // @match           *://video.bunnycdn.com/*
 // @match           *://*.weibo.com/*
+// @match           *://*.jove.com/v/*
 // @match           *://*/*.mp4*
 // @match           *://*/*.webm*
 // @match           *://*.yewtu.be/*
@@ -3437,6 +3438,7 @@ string() {
         VideoService2["coursehunterLike"] = "coursehunterLike";
         VideoService2["sap"] = "sap";
         VideoService2["watchpornto"] = "watchpornto";
+        VideoService2["jove"] = "jove";
         VideoService2["linkedin"] = "linkedin";
         VideoService2["incestflix"] = "incestflix";
         VideoService2["porntn"] = "porntn";
@@ -4091,7 +4093,7 @@ string() {
       });
       const sharedSelectors = {
         bilibiliPlayer: ".bpx-player-video-wrap, div.player-mobile-box.player-mobile-autoplay",
-        flowplayer: ".fp-player",
+        flowplayer: ".fp-player, div.flowplayer",
         idPlayer: "#player",
         jwPlayer: ".jwplayer, .jw-media",
         player: ".player",
@@ -4105,6 +4107,13 @@ string() {
           url: "https://youtu.be/",
           match: /^m.youtube.com$/,
           selector: ".player-container",
+          needExtraData: true
+        },
+        {
+          host: VideoService.youtube,
+          url: "https://youtu.be/",
+          match: (enteredUrl) => /^(www.)?youtube(-nocookie|kids)?.com$/.test(enteredUrl.hostname) && enteredUrl.pathname.startsWith("/tv"),
+          selector: "#container",
           needExtraData: true
         },
         {
@@ -4532,6 +4541,12 @@ string() {
           host: VideoService.watchpornto,
           url: "https://watchporn.to/",
           match: /^watchporn.to$/,
+          selector: sharedSelectors.flowplayer
+        },
+        {
+          host: VideoService.jove,
+          url: "https://app.jove.com/",
+          match: (url) => /^app\.jove\.com$/i.test(url.hostname) && /^\/(?:[a-z]{2}\/)?v\/\d+\/[^/?#]+\/?$/i.test(url.pathname),
           selector: sharedSelectors.flowplayer
         },
         {
@@ -5009,7 +5024,6 @@ string() {
         "ja"
       ];
       const availableTTS = ["ru", "en", "kk"];
-      const subtitlesFormats = ["srt", "vtt", "json"];
       class VideoJSHelper extends BaseHelper {
         SUBTITLE_SOURCE = "videojs";
         SUBTITLE_FORMAT = "vtt";
@@ -5442,6 +5456,16 @@ string() {
           return /\/watch\/([^/]+)/.exec(url.pathname)?.[1];
         }
       }
+      class JoveHelper extends BaseHelper {
+        async getVideoId(url) {
+          const parts = /^\/(?:[a-z]{2}\/)?v\/(?<id>\d+)\/(?<slug>[^/]+)\/?$/i.exec(url.pathname);
+          if (!parts?.groups) {
+            return void 0;
+          }
+          const { id, slug } = parts.groups;
+          return `v/${id}/${slug}`;
+        }
+      }
       class KickHelper extends BaseHelper {
         API_ORIGIN = "https://kick.com/api";
         async getClipInfo(clipId) {
@@ -5649,101 +5673,6 @@ string() {
         TypeName2["Channel"] = "Channel";
         TypeName2["Video"] = "Video";
       })(TypeName || (TypeName = {}));
-      function convertToStrTime(ms, delimiter = ",") {
-        const seconds = ms / 1e3;
-        const hours = Math.floor(seconds / 3600);
-        const minutes = Math.floor(seconds % 3600 / 60);
-        const remainingSeconds = Math.floor(seconds % 60);
-        const milliseconds = Math.floor(ms % 1e3);
-        return `${hours.toString().padStart(2, "0")}:${minutes.toString().padStart(2, "0")}:${remainingSeconds.toString().padStart(2, "0")}${delimiter}${milliseconds.toString().padStart(3, "0")}`;
-      }
-      function convertToMSTime(time) {
-        const parts = time.split(" ")?.[0]?.split(":");
-        if (parts.length < 3) {
-          parts.unshift("00");
-        }
-        const [strHours, strMinutes, strSeconds] = parts;
-        const secs2 = +strSeconds.replace(/[,.]/, "");
-        const mins = +strMinutes * 6e4;
-        const hours = +strHours * 36e5;
-        return hours + mins + secs2;
-      }
-      function convertSubsFromJSON(data, output = "srt") {
-        const isVTT = output === "vtt";
-        const delimiter = isVTT ? "." : ",";
-        const subs = data.subtitles.map((sub, idx) => {
-          const result = isVTT ? "" : `${idx + 1}
-`;
-          return result + `${convertToStrTime(sub.startMs, delimiter)} --> ${convertToStrTime(sub.startMs + sub.durationMs, delimiter)}
-${sub.text}
-
-`;
-        }).join("").trim();
-        return isVTT ? `WEBVTT
-
-${subs}` : subs;
-      }
-      function convertSubsToJSON(data, from = "srt") {
-        const parts = data.split(/\r?\n\r?\n/g);
-        if (from === "vtt") {
-          parts.shift();
-        }
-        if (/^\d+\r?\n/.exec(parts?.[0] ?? "")) {
-          from = "srt";
-        }
-        const offset = +(from === "srt");
-        const subtitles = parts.reduce((result, part) => {
-          const lines = part.trim().split("\n");
-          const time = lines[offset];
-          const text = lines.slice(offset + 1).join("\n");
-          if ((lines.length !== 2 || !part.includes(" --> ")) && !time?.includes(" --> ")) {
-            if (result.length === 0) {
-              return result;
-            }
-            result[result.length - 1].text += `
-
-${lines.join("\n")}`;
-            return result;
-          }
-          const [start, end] = time.split(" --> ");
-          const startMs = convertToMSTime(start);
-          const endMs = convertToMSTime(end);
-          const durationMs = endMs - startMs;
-          result.push({
-            text,
-            startMs,
-            durationMs,
-            speakerId: "0"
-          });
-          return result;
-        }, []);
-        return {
-          containsTokens: false,
-          subtitles
-        };
-      }
-      function getSubsFormat(data) {
-        if (typeof data !== "string") {
-          return "json";
-        }
-        if (/^(WEBVTT([^\n]+)?)(\r?\n)/.exec(data)) {
-          return "vtt";
-        }
-        return "srt";
-      }
-      function convertSubs(data, output = "srt") {
-        const from = getSubsFormat(data);
-        if (from === output)
-          return data;
-        if (from === "json") {
-          return convertSubsFromJSON(data, output);
-        }
-        data = convertSubsToJSON(data, from);
-        if (output === "json") {
-          return data;
-        }
-        return convertSubsFromJSON(data, output);
-      }
       class LoomHelper extends BaseHelper {
         getClientVersion() {
           if (typeof SENTRY_RELEASE === "undefined") {
@@ -7313,6 +7242,38 @@ ${lines.join("\n")}`;
         static isMobile() {
           return /^m\.youtube\.com$/.test(window.location.hostname);
         }
+        static extractVideoId(url) {
+          const rawHash = url.hash.replace(/^#/, "");
+          if (rawHash) {
+            const normalizedHash = rawHash.startsWith("!") ? rawHash.slice(1) : rawHash;
+            let decodedHash = normalizedHash;
+            try {
+              decodedHash = decodeURIComponent(normalizedHash);
+            } catch {
+            }
+            try {
+              const hashUrl = decodedHash.startsWith("http") ? new URL(decodedHash) : new URL(decodedHash.startsWith("/") ? decodedHash : `/${decodedHash}`, url.origin);
+              const hashVideoId = YoutubeHelper.extractVideoId(hashUrl);
+              if (hashVideoId) {
+                return hashVideoId;
+              }
+            } catch {
+              const hashVideoId = /(?:^|[?&#])v=([^&#]+)/.exec(decodedHash)?.[1];
+              if (hashVideoId) {
+                return hashVideoId;
+              }
+            }
+          }
+          if (url.hostname === "youtu.be") {
+            const id = url.pathname.replace(/^\/+/, "").split("/")[0];
+            return id || void 0;
+          }
+          const pathVideoId = /\/(?:watch|embed|shorts|live|v|e)\/([^/?#]+)/.exec(url.pathname)?.[1] ?? void 0;
+          if (pathVideoId) {
+            return pathVideoId;
+          }
+          return url.searchParams.get("v") ?? void 0;
+        }
         static getPlayer() {
           if (window.location.pathname.startsWith("/shorts/") && !YoutubeHelper.isMobile()) {
             return document.querySelector("#shorts-player");
@@ -7464,15 +7425,11 @@ ${lines.join("\n")}`;
           };
         }
         async getVideoId(url) {
-          if (url.hostname === "youtu.be") {
-            url.search = `?v=${url.pathname.replace("/", "")}`;
-            url.pathname = "/watch";
-          }
           if (url.searchParams.has("enablejsapi")) {
             const videoUrl = YoutubeHelper.getPlayer()?.getVideoUrl();
             url = videoUrl ? new URL(videoUrl) : url;
           }
-          return /(?:watch|embed|shorts|live)\/([^/]+)/.exec(url.pathname)?.[1] ?? url.searchParams.get("v");
+          return YoutubeHelper.extractVideoId(url);
         }
       }
       const zdfPlayPathRe = /^\/play\/([^/?#]+)\/([^/?#]+)\/([^/?#]+)\/?$/i;
@@ -7501,6 +7458,7 @@ ${lines.join("\n")}`;
         [VideoService.coursehunterLike]: CoursehunterLikeHelper,
         [VideoService.twitch]: TwitchHelper,
         [VideoService.sap]: SapHelper,
+        [VideoService.jove]: JoveHelper,
         [VideoService.linkedin]: LinkedinHelper,
         [VideoService.vimeo]: VimeoHelper,
         [VideoService.yandexdisk]: YandexDiskHelper,
@@ -8200,7 +8158,7 @@ ${lines.join("\n")}`;
       const votBackendUrl = "https://vot.toil.cc/v1";
       const foswlyTranslateUrl = "https://translate-backend.transly.workers.dev/v2";
       const detectRustServerUrl = "https://rust-server-531j.onrender.com/detect";
-      const authServerUrl = "https://t2mc.toil.cc";
+      const authServerUrl = "https://rust-server-531j.onrender.com";
       const avatarServerUrl = "https://avatars.mds.yandex.net/get-yapic";
       const repoPath = "ilyhalight/voice-over-translation";
       const contentUrl = `https://raw.githubusercontent.com/${repoPath}`;
@@ -8210,7 +8168,6 @@ ${lines.join("\n")}`;
       const minLongWaitingCount = 5;
       const defaultTranslationService = "yandexbrowser";
       const defaultDetectService = "yandexbrowser";
-      const nonProxyExtensions = ["Tampermonkey", "Violentmonkey"];
       const proxyOnlyCountries = ["UA", "LV", "LT"];
       const defaultAutoHideDelay = 1e3;
       const actualCompatVersion = "2025-05-09";
@@ -8231,6 +8188,7 @@ ${lines.join("\n")}`;
         "subtitlesSmartLayout",
         "highlightWords",
         "subtitlesFontSize",
+        "subtitlesFontFamily",
         "subtitlesOpacity",
         "subtitlesDownloadFormat",
         "responseLanguage",
@@ -8255,6 +8213,7 @@ ${lines.join("\n")}`;
         "localePhrases",
         "localeLang",
         "localeHash",
+        "localeVersion",
         "localeUpdatedAt",
         "localeLangOverride",
         "account"
@@ -8453,27 +8412,98 @@ ${lines.join("\n")}`;
         }
         return out;
       }
-      async function exitFullscreen() {
-        const doc = document;
-        if (!doc.fullscreenElement && !doc.webkitFullscreenElement) return;
-        if (doc.exitFullscreen) {
-          await doc.exitFullscreen();
-          return;
-        }
-        if (doc.webkitExitFullscreen) {
-          await doc.webkitExitFullscreen();
-        }
-      }
       const YANDEX_TTL_MS = 2 * 60 * 60 * 1e3;
       const RESPONSE_CACHE_CREATED_AT_HEADER = "x-vot-cache-created-at";
       const RESPONSE_CACHE_KEY_HEADER = "x-vot-cache-key";
       const DEFAULT_RESPONSE_CACHE_NAME = "vot-http-cache-v1";
       const MAX_MEMORY_CACHE_ENTRIES = 500;
+      const VOT_SESSION_STORAGE_KEY = "VOTSession";
       const EXPIRY_FIELD_BY_FIELD = {
         translation: "translationExpiresAt",
         subtitles: "subtitlesExpiresAt"
       };
-      class CacheManager {
+      function getCurrentUnixTimestampSeconds() {
+        return Math.floor(Date.now() / 1e3);
+      }
+      function isVOTSession(value) {
+        if (!value || typeof value !== "object") {
+          return false;
+        }
+        const candidate = value;
+        return typeof candidate.expires === "number" && Number.isFinite(candidate.expires) && typeof candidate.timestamp === "number" && Number.isFinite(candidate.timestamp) && typeof candidate.uuid === "string" && candidate.uuid.length > 0 && typeof candidate.secretKey === "string" && candidate.secretKey.length > 0;
+      }
+      function sanitizeVOTSessions(value) {
+        if (!value || typeof value !== "object") {
+          return {};
+        }
+        const now2 = getCurrentUnixTimestampSeconds();
+        const entries = Object.entries(value).flatMap(
+          ([module, session]) => {
+            if (!isVOTSession(session)) {
+              return [];
+            }
+            if (session.timestamp + session.expires <= now2) {
+              return [];
+            }
+            return [[module, session]];
+          }
+        );
+        return Object.fromEntries(entries);
+      }
+      function isStoredVOTSession(value) {
+        if (!value || typeof value !== "object") {
+          return false;
+        }
+        const candidate = value;
+        return typeof candidate.expiresAt === "number" && Number.isFinite(candidate.expiresAt) && typeof candidate.secretKey === "string" && candidate.secretKey.length > 0 && typeof candidate.uuid === "string" && candidate.uuid.length > 0;
+      }
+      class VOTSessionStorageCache {
+        constructor(storage = votStorage) {
+          this.storage = storage;
+        }
+        getStorageKey() {
+          return VOT_SESSION_STORAGE_KEY;
+        }
+        async restore(_host, currentSessions = {}) {
+          const storageKey = this.getStorageKey();
+          const rawStoredSession = await this.storage.getRaw(storageKey);
+          if (!isStoredVOTSession(rawStoredSession)) {
+            return currentSessions;
+          }
+          const nowMs = Date.now();
+          if (rawStoredSession.expiresAt <= nowMs) {
+            await this.storage.deleteRaw(storageKey);
+            return currentSessions;
+          }
+          const remainingSeconds = Math.max(
+            1,
+            Math.ceil((rawStoredSession.expiresAt - nowMs) / 1e3)
+          );
+          return {
+            ...currentSessions,
+            "video-translation": {
+              secretKey: rawStoredSession.secretKey,
+              uuid: rawStoredSession.uuid,
+              expires: remainingSeconds,
+              timestamp: Math.floor(nowMs / 1e3)
+            }
+          };
+        }
+        async persist(_host, sessions) {
+          const storageKey = this.getStorageKey();
+          const translationSession = sanitizeVOTSessions(sessions)["video-translation"];
+          if (!translationSession) {
+            await this.storage.deleteRaw(storageKey);
+            return;
+          }
+          await this.storage.setRaw(storageKey, {
+            secretKey: translationSession.secretKey,
+            uuid: translationSession.uuid,
+            expiresAt: (translationSession.timestamp + translationSession.expires) * 1e3
+          });
+        }
+      }
+      class InMemoryCacheManager {
         cache = new Map();
 clear() {
           this.cache.clear();
@@ -8541,11 +8571,11 @@ clear() {
         inFlightRequests = new Map();
         async execute(context, options, fetcher) {
           if (!options || options.ttlMs <= 0) {
-            return await fetcher();
+            return fetcher();
           }
           const key = options.key ?? this.buildDefaultCacheKey(context);
           if (!key) {
-            return await fetcher();
+            return fetcher();
           }
           const method = this.normalizeMethod(context.method);
           const ttlMs = options.ttlMs;
@@ -8556,81 +8586,134 @@ clear() {
           const dedupe = options.dedupe !== false;
           const allowStaleOnError = options.allowStaleOnError !== false;
           const nowMs = Date.now();
-          let staleFallback;
-          if (useMemory) {
-            const memoryHit = this.readMemoryCache(key, nowMs);
-            if (memoryHit.fresh) {
-              return memoryHit.fresh;
-            }
-            staleFallback = memoryHit.stale ?? staleFallback;
+          const staleFallback = await this.readCachedResponse({
+            key,
+            nowMs,
+            useMemory,
+            useCacheApi,
+            cacheName,
+            url: context.url,
+            cacheApiKey,
+            ttlMs,
+            allowStaleOnError
+          });
+          if (staleFallback.fresh) {
+            return staleFallback.fresh;
           }
-          if (useCacheApi) {
-            const cacheApiHit = await this.readCacheApi(
-              cacheName,
-              context.url,
-              cacheApiKey,
-              ttlMs,
-              nowMs,
-              allowStaleOnError
-            );
-            if (cacheApiHit.fresh) {
-              if (useMemory) {
-                this.writeMemoryCache(
-                  key,
-                  cacheApiHit.fresh.clone(),
-                  cacheApiHit.expiresAt ?? nowMs + ttlMs
-                );
-              }
-              return cacheApiHit.fresh;
-            }
-            staleFallback = staleFallback ?? cacheApiHit.stale;
-          }
-          const runNetworkRequest = async () => {
-            const response = await fetcher();
-            if (!response.ok) {
-              return response;
-            }
-            const createdAtMs = Date.now();
-            const expiresAt = this.computeExpiresAt(createdAtMs, ttlMs);
-            if (useMemory) {
-              this.writeMemoryCache(key, response.clone(), expiresAt);
-            }
-            if (useCacheApi) {
-              const storable = this.toStorableResponse(response.clone(), createdAtMs);
-              await this.writeCacheApi(cacheName, context.url, cacheApiKey, storable);
-            }
-            return response;
-          };
           if (!dedupe) {
-            try {
-              return await runNetworkRequest();
-            } catch (err) {
-              if (allowStaleOnError && staleFallback) {
-                return staleFallback;
-              }
-              throw err;
-            }
+            return await this.runNetworkRequestWithFallback(
+              {
+                key,
+                cacheName,
+                url: context.url,
+                cacheApiKey,
+                ttlMs,
+                useMemory,
+                useCacheApi
+              },
+              fetcher,
+              allowStaleOnError ? staleFallback.stale : void 0
+            );
           }
           const inFlight = this.inFlightRequests.get(key);
-          if (inFlight) {
+          if (inFlight !== void 0) {
             return (await inFlight).clone();
           }
-          const networkPromise = (async () => {
-            try {
-              return await runNetworkRequest();
-            } catch (err) {
-              if (allowStaleOnError && staleFallback) {
-                return staleFallback.clone();
-              }
-              throw err;
-            }
-          })();
+          const networkPromise = this.runNetworkRequestWithFallback(
+            {
+              key,
+              cacheName,
+              url: context.url,
+              cacheApiKey,
+              ttlMs,
+              useMemory,
+              useCacheApi
+            },
+            fetcher,
+            allowStaleOnError ? staleFallback.stale?.clone() : void 0
+          );
           this.inFlightRequests.set(key, networkPromise);
           try {
             return (await networkPromise).clone();
           } finally {
             this.inFlightRequests.delete(key);
           }
+        }
+        async readCachedResponse({
+          key,
+          nowMs,
+          useMemory,
+          useCacheApi,
+          cacheName,
+          url,
+          cacheApiKey,
+          ttlMs,
+          allowStaleOnError
+        }) {
+          let staleFallback;
+          if (useMemory) {
+            const memoryHit = this.readMemoryCache(key, nowMs);
+            if (memoryHit.fresh) {
+              return { fresh: memoryHit.fresh };
+            }
+            staleFallback = memoryHit.stale;
+          }
+          if (!useCacheApi) {
+            return { stale: staleFallback };
+          }
+          const cacheApiHit = await this.readCacheApi(
+            cacheName,
+            url,
+            cacheApiKey,
+            ttlMs,
+            nowMs,
+            allowStaleOnError
+          );
+          if (cacheApiHit.fresh) {
+            if (useMemory) {
+              this.writeMemoryCache(
+                key,
+                cacheApiHit.fresh.clone(),
+                cacheApiHit.expiresAt ?? nowMs + ttlMs
+              );
+            }
+            return { fresh: cacheApiHit.fresh };
+          }
+          return { stale: staleFallback ?? cacheApiHit.stale };
+        }
+        async runNetworkRequestWithFallback(cacheConfig, fetcher, staleFallback) {
+          try {
+            return await this.runNetworkRequest(cacheConfig, fetcher);
+          } catch (err) {
+            if (staleFallback) {
+              return staleFallback;
+            }
+            throw err;
+          }
+        }
+        async runNetworkRequest({
+          key,
+          cacheName,
+          url,
+          cacheApiKey,
+          ttlMs,
+          useMemory,
+          useCacheApi
+        }, fetcher) {
+          const response = await fetcher();
+          if (!response.ok) {
+            return response;
+          }
+          const createdAtMs = Date.now();
+          const expiresAt = this.computeExpiresAt(createdAtMs, ttlMs);
+          if (useMemory) {
+            this.writeMemoryCache(key, response.clone(), expiresAt);
+          }
+          if (useCacheApi) {
+            const storable = this.toStorableResponse(response.clone(), createdAtMs);
+            await this.writeCacheApi(cacheName, url, cacheApiKey, storable);
+          }
+          return response;
         }
         computeExpiresAt(createdAtMs, ttlMs) {
           if (!Number.isFinite(ttlMs) || ttlMs <= 0) {
@@ -8653,7 +8736,7 @@ clear() {
         }
         buildDefaultCacheKey(context) {
           const method = this.normalizeMethod(context.method);
-          if (method === "GET" || method === "HEAD") {
+          if (method === "GET") {
             return `${method}:${context.url}`;
           }
           const bodyKey = this.resolveBodyKey(context.body);
@@ -8675,8 +8758,10 @@ clear() {
             headers.set("vary", RESPONSE_CACHE_KEY_HEADER);
             return;
           }
-          const varyParts = varyRaw.split(",").map((part) => part.trim().toLowerCase());
-          if (!varyParts.includes("*") && !varyParts.includes(RESPONSE_CACHE_KEY_HEADER)) {
+          const varyParts = new Set(
+            varyRaw.split(",").map((part) => part.trim().toLowerCase())
+          );
+          if (!varyParts.has("*") && !varyParts.has(RESPONSE_CACHE_KEY_HEADER)) {
             headers.set("vary", `${varyRaw}, ${RESPONSE_CACHE_KEY_HEADER}`);
           }
         }
@@ -8754,8 +8839,10 @@ clear() {
               await cache.delete(request);
               return {};
             }
+            const stale = cached.clone();
+            await cache.delete(request);
             return {
-              stale: cached.clone(),
+              stale,
               expiresAt
             };
           } catch {
@@ -8778,7 +8865,7 @@ clear() {
       }
       const responseCacheManager = new ResponseCacheManager();
       async function executeWithResponseCache(context, options, fetcher) {
-        return await responseCacheManager.execute(context, options, fetcher);
+        return responseCacheManager.execute(context, options, fetcher);
       }
       function stringifyUnknownObject(value) {
         const seen2 = new WeakSet();
@@ -8798,6 +8885,43 @@ clear() {
           return null;
         }
       }
+      function extractNestedMessage(error2) {
+        const candidates = [
+          error2?.data?.message,
+          error2?.error?.message,
+          error2?.message
+        ];
+        for (const candidate of candidates) {
+          if (typeof candidate === "string" && candidate) {
+            return candidate;
+          }
+        }
+        return null;
+      }
+      function formatObjectError(error2, fallback) {
+        const nestedMessage = extractNestedMessage(error2);
+        if (nestedMessage) {
+          return nestedMessage;
+        }
+        const serialized = stringifyUnknownObject(error2);
+        if (serialized && serialized !== "{}") {
+          return serialized;
+        }
+        const ctorName = error2.constructor?.name;
+        return ctorName ? `[${ctorName}]` : fallback;
+      }
+      function formatPrimitiveError(error2, fallback) {
+        if (typeof error2 === "number" || typeof error2 === "boolean" || typeof error2 === "bigint") {
+          return `${error2}`;
+        }
+        if (typeof error2 === "symbol") {
+          return error2.description ? `Symbol(${error2.description})` : "Symbol";
+        }
+        if (typeof error2 === "function") {
+          return error2.name ? `[Function ${error2.name}]` : "[Function]";
+        }
+        return fallback;
+      }
       function toErrorMessage(error2, fallback = "Unknown error") {
         if (error2 instanceof Error) {
           return error2.message || fallback;
@@ -8809,33 +8933,9 @@ clear() {
           return fallback;
         }
         if (typeof error2 === "object") {
-          const anyErr = error2;
-          if (typeof anyErr?.data?.message === "string" && anyErr.data.message) {
-            return anyErr.data.message;
-          }
-          if (typeof anyErr?.error?.message === "string" && anyErr.error.message) {
-            return anyErr.error.message;
-          }
-          if (typeof anyErr?.message === "string" && anyErr.message) {
-            return anyErr.message;
-          }
-          const serialized = stringifyUnknownObject(error2);
-          if (serialized && serialized !== "{}") {
-            return serialized;
-          }
-          const ctorName = error2.constructor?.name;
-          return ctorName ? `[${ctorName}]` : fallback;
+          return formatObjectError(error2, fallback);
         }
-        if (typeof error2 === "number" || typeof error2 === "boolean" || typeof error2 === "bigint") {
-          return `${error2}`;
-        }
-        if (typeof error2 === "symbol") {
-          return error2.description ? `Symbol(${error2.description})` : "Symbol";
-        }
-        if (typeof error2 === "function") {
-          return error2.name ? `[Function ${error2.name}]` : "[Function]";
-        }
-        return fallback;
+        return formatPrimitiveError(error2, fallback);
       }
       function getErrorMessage(error2) {
         return toErrorMessage(error2, "");
@@ -8917,12 +9017,21 @@ clear() {
       const HEADER_LINE_RE = /^([\w-]+):\s*(.+)$/;
       const URL_SCHEME_RE = /^[a-zA-Z][a-zA-Z\d+.-]*:/;
       const scriptHandler = typeof GM_info === "undefined" ? void 0 : GM_info?.scriptHandler;
-      const isProxyOnlyExtension = (
-
-!(typeof IS_EXTENSION !== "undefined" && IS_EXTENSION) && !!scriptHandler && !nonProxyExtensions.includes(scriptHandler)
-      );
-      const isSupportGM4 = typeof GM !== "undefined";
-      const isSupportGMXhr = typeof GM_xmlhttpRequest !== "undefined";
+      function getCallbackGmXhr() {
+        const gmXhr = typeof GM_xmlhttpRequest === "undefined" ? globalThis.GM_xmlhttpRequest : GM_xmlhttpRequest;
+        return typeof gmXhr === "function" ? gmXhr : void 0;
+      }
+      function getPromiseGmXhr() {
+        const gm = typeof GM === "undefined" ? globalThis.GM : GM;
+        const gmXhr = gm?.xmlHttpRequest ?? gm?.xmlhttpRequest;
+        return typeof gmXhr === "function" ? gmXhr.bind(gm) : void 0;
+      }
+      function hasSupportedGmXhr() {
+        return !!(getCallbackGmXhr() || getPromiseGmXhr());
+      }
+      const isProxyOnlyExtension = !(typeof IS_EXTENSION !== "undefined" && IS_EXTENSION) && !!scriptHandler && !hasSupportedGmXhr();
+      const isSupportGM4 = typeof GM !== "undefined" || typeof globalThis.GM !== "undefined";
+      const isSupportGMXhr = hasSupportedGmXhr();
       function getRequestHost(url) {
         const normalizedUrl = url.trim();
         try {
@@ -8994,66 +9103,112 @@ clear() {
       }
       async function gmXhrFetch(urlStr, timeout2, fetchOptions) {
         const headers = getHeaders(fetchOptions.headers);
-        return await new Promise((resolve, reject) => {
-          const gmXhr = typeof GM_xmlhttpRequest === "undefined" ? globalThis.GM_xmlhttpRequest : GM_xmlhttpRequest;
-          if (typeof gmXhr !== "function") {
-            reject(new TypeError("GM_xmlhttpRequest is not available"));
-            return;
-          }
-          let settled = false;
-          let onAbort;
-          const cleanupAbort = () => {
-            if (onAbort) {
-              fetchOptions.signal?.removeEventListener("abort", onAbort);
-            }
-          };
-          const failOnce = (error2) => {
-            if (settled) return;
-            settled = true;
-            cleanupAbort();
-            reject(error2);
-          };
-          const request = gmXhr({
-            method: fetchOptions.method || "GET",
-            url: urlStr,
-            responseType: "blob",
-            data: fetchOptions.body,
-            timeout: timeout2,
-            headers,
-            onload: (resp) => {
+        const callbackGmXhr = getCallbackGmXhr();
+        const promiseGmXhr = getPromiseGmXhr();
+        if (callbackGmXhr) {
+          return await new Promise((resolve, reject) => {
+            let settled = false;
+            let onAbort;
+            const cleanupAbort = () => {
+              if (onAbort) {
+                fetchOptions.signal?.removeEventListener("abort", onAbort);
+              }
+            };
+            const failOnce = (error2) => {
               if (settled) return;
               settled = true;
               cleanupAbort();
-              const responseHeaders = parseResponseHeaders(resp.responseHeaders);
-              const response = new Response(resp.response, {
-                status: resp.status,
-                statusText: typeof resp.statusText === "string" ? resp.statusText : "",
-                headers: responseHeaders
-              });
-              Object.defineProperty(response, "url", {
-                value: resp.finalUrl ?? urlStr
-              });
-              resolve(response);
-            },
-            ontimeout: () => failOnce(new Error("Timeout")),
-            onerror: (error2) => failOnce(new Error(getGmXhrErrorMessage(error2))),
-            onabort: () => failOnce(makeAbortError())
-          });
-          onAbort = () => {
-            try {
-              request?.abort?.();
-            } catch {
+              reject(error2);
+            };
+            const request2 = callbackGmXhr({
+              method: fetchOptions.method || "GET",
+              url: urlStr,
+              responseType: "blob",
+              data: fetchOptions.body,
+              timeout: timeout2,
+              headers,
+              onload: (resp) => {
+                if (settled) return;
+                settled = true;
+                cleanupAbort();
+                const responseHeaders = parseResponseHeaders(resp.responseHeaders);
+                const response = new Response(resp.response, {
+                  status: resp.status,
+                  statusText: typeof resp.statusText === "string" ? resp.statusText : "",
+                  headers: responseHeaders
+                });
+                Object.defineProperty(response, "url", {
+                  value: resp.finalUrl ?? urlStr
+                });
+                resolve(response);
+              },
+              ontimeout: () => failOnce(new Error("Timeout")),
+              onerror: (error2) => failOnce(new Error(getGmXhrErrorMessage(error2))),
+              onabort: () => failOnce(makeAbortError())
+            });
+            onAbort = () => {
+              try {
+                request2?.abort?.();
+              } catch {
+              }
+              failOnce(makeAbortError());
+            };
+            if (fetchOptions.signal) {
+              fetchOptions.signal.addEventListener("abort", onAbort, { once: true });
+              if (fetchOptions.signal.aborted) {
+                onAbort();
+                return;
+              }
             }
-            failOnce(makeAbortError());
-          };
-          if (fetchOptions.signal) {
-            fetchOptions.signal.addEventListener("abort", onAbort, { once: true });
-            if (fetchOptions.signal.aborted) {
-              onAbort();
+          });
+        }
+        if (!promiseGmXhr) {
+          throw new TypeError("GM_xmlhttpRequest is not available");
+        }
+        const request = promiseGmXhr({
+          method: fetchOptions.method || "GET",
+          url: urlStr,
+          responseType: "blob",
+          data: fetchOptions.body,
+          timeout: timeout2,
+          headers
+        });
+        let abortHandler;
+        try {
+          const abortPromise = new Promise((_2, reject) => {
+            if (!fetchOptions.signal) {
               return;
             }
+            abortHandler = () => {
+              try {
+                request.abort?.();
+              } catch {
+              }
+              reject(makeAbortError());
+            };
+            fetchOptions.signal.addEventListener("abort", abortHandler, {
+              once: true
+            });
+            if (fetchOptions.signal.aborted) {
+              abortHandler();
+            }
+          });
+          const resp = await Promise.race([request, abortPromise]);
+          const responseHeaders = parseResponseHeaders(resp.responseHeaders);
+          const response = new Response(resp.response, {
+            status: resp.status,
+            statusText: typeof resp.statusText === "string" ? resp.statusText : "",
+            headers: responseHeaders
+          });
+          Object.defineProperty(response, "url", {
+            value: resp.finalUrl ?? urlStr
+          });
+          return response;
+        } finally {
+          if (abortHandler) {
+            fetchOptions.signal?.removeEventListener("abort", abortHandler);
           }
-        });
+        }
       }
       async function GM_fetch(url, opts = {}) {
         const {
@@ -9249,7 +9404,7 @@ get isSupportOnlyLS() {
           const support = this.resolveSupport();
           return !support.legacyGet && !support.legacySet && !support.legacyDelete && !support.legacyList && !support.promiseGet && !support.promiseGetValues && !support.promiseSet && !support.promiseDelete && !support.promiseList;
         }
-        syncGet(name, def, support) {
+        syncGetByName(name, def, support) {
           if (support.legacyGet) {
             return GM_getValue(name, def);
           }
@@ -9263,12 +9418,15 @@ get isSupportOnlyLS() {
             return def;
           }
         }
-        async get(name, def) {
+        async getRaw(name, def) {
           const support = this.resolveSupport();
           if (support.promiseGet && GM.getValue) {
             return await GM.getValue(name, def);
           }
-          return this.syncGet(name, def, support);
+          return this.syncGetByName(name, def, support);
+        }
+        async get(name, def) {
+          return this.getRaw(name, def);
         }
         async getValues(data) {
           const support = this.resolveSupport();
@@ -9286,34 +9444,43 @@ get isSupportOnlyLS() {
             return Object.fromEntries(values);
           }
           return Object.fromEntries(
-            entries.map(([key, value]) => [key, this.syncGet(key, value, support)])
+            entries.map(([key, value]) => [
+              key,
+              this.syncGetByName(key, value, support)
+            ])
           );
         }
-        syncSet(name, value, support) {
+        syncSetByName(name, value, support) {
           if (support.legacySet) {
             return GM_setValue(name, value);
           }
           return globalThis.localStorage.setItem(name, JSON.stringify(value));
         }
-        async set(name, value) {
+        async setRaw(name, value) {
           const support = this.resolveSupport();
           if (support.promiseSet && GM.setValue) {
             return await GM.setValue(name, value);
           }
-          return this.syncSet(name, value, support);
+          return this.syncSetByName(name, value, support);
         }
-        syncDelete(name, support) {
+        async set(name, value) {
+          return this.setRaw(name, value);
+        }
+        syncDeleteByName(name, support) {
           if (support.legacyDelete) {
             return GM_deleteValue(name);
           }
           return globalThis.localStorage.removeItem(name);
         }
-        async delete(name) {
+        async deleteRaw(name) {
           const support = this.resolveSupport();
           if (support.promiseDelete && GM.deleteValue) {
             return await GM.deleteValue(name);
           }
-          return this.syncDelete(name, support);
+          return this.syncDeleteByName(name, support);
+        }
+        async delete(name) {
+          return this.deleteRaw(name);
         }
         syncList(support) {
           if (support.legacyList) {
@@ -9340,6 +9507,20 @@ get isSupportOnlyLS() {
         scope[VOT_STORAGE_GLOBAL_KEY] = created;
         return created;
       })();
+      function getProfilePayload() {
+        const payload = globalThis._userData;
+        if (!payload || typeof payload !== "object") {
+          return null;
+        }
+        const candidate = payload;
+        if (typeof candidate.avatar_id !== "string" || typeof candidate.username !== "string" || candidate.avatar_id.length === 0 || candidate.username.length === 0) {
+          return null;
+        }
+        return {
+          avatar_id: candidate.avatar_id,
+          username: candidate.username
+        };
+      }
       async function handleAuthCallbackPage() {
         const { access_token: token, expires_in: expiresIn } = Object.fromEntries(
           new URLSearchParams(globalThis.location.hash.slice(1))
@@ -9359,10 +9540,11 @@ get isSupportOnlyLS() {
         });
       }
       async function handleProfilePage() {
-        const { avatar_id: avatarId, username } = _userData;
-        if (!avatarId || !username) {
+        const payload = getProfilePayload();
+        if (!payload) {
           throw new Error("[VOT] Invalid user data");
         }
+        const { avatar_id: avatarId, username } = payload;
         const data = await votStorage.get("account");
         if (!data) {
           throw new Error("[VOT] No account data found");
@@ -9375,10 +9557,10 @@ get isSupportOnlyLS() {
       }
       async function initAuth() {
         if (globalThis.location.pathname === "/auth/callback") {
-          return await handleAuthCallbackPage();
+          return handleAuthCallbackPage();
         }
         if (globalThis.location.pathname === "/my/profile") {
-          return await handleProfilePage();
+          return handleProfilePage();
         }
       }
       const recommended = "recommended";
@@ -9436,6 +9618,7 @@ get isSupportOnlyLS() {
       const translationTakeApproximatelyMinute2 = "The translation will take approximately {0} minutes";
       const VOTAudioBooster = "Extended translation volume increase";
       const VOTSubtitlesDesign = "Subtitles design";
+      const VOTSubtitlesFont = "Subtitle font";
       const VOTSubtitlesFontSize = "Font size of subtitles";
       const VOTSubtitlesOpacity = "Transparency of the subtitle background";
       const VOTSubtitlesDownloadFormat = "The format for downloading subtitles";
@@ -9544,6 +9727,7 @@ get isSupportOnlyLS() {
         translationTakeApproximatelyMinute2,
         VOTAudioBooster,
         VOTSubtitlesDesign,
+        VOTSubtitlesFont,
         VOTSubtitlesFontSize,
         VOTSubtitlesOpacity,
         VOTSubtitlesDownloadFormat,
@@ -9602,23 +9786,28 @@ get isSupportOnlyLS() {
         "localePhrases",
         "localeLang",
         "localeHash",
+        "localeVersion",
         "localeUpdatedAt",
         "localeLangOverride"
       ];
-      const DEFAULT_LOCALE$1 = toFlatObj(rawDefaultLocale);
-      const CACHE_TTL_SECONDS = 7200;
-      const HASHES_REQUEST_CACHE_TTL_MS = 5 * 60 * 1e3;
-      const LOCALE_REQUEST_CACHE_TTL_MS = 24 * 60 * 60 * 1e3;
+      const DEFAULT_LOCALE = toFlatObj(rawDefaultLocale);
       const repoBranch = "master";
       const availableLocales = (() => {
         const locales = typeof define_AVAILABLE_LOCALES_default !== "undefined" && Array.isArray(define_AVAILABLE_LOCALES_default) ? define_AVAILABLE_LOCALES_default : ["en"];
         return locales.includes("auto") ? locales : ["auto", ...locales];
       })();
+      function resolveRuntimeLocaleVersion(buildVersion, scriptVersion) {
+        return buildVersion || scriptVersion || "unknown";
+      }
+      function getRuntimeLocaleVersion() {
+        const buildVersion = String("1.11.3.4");
+        const scriptVersion = typeof GM_info !== "undefined" ? String(GM_info?.script?.version || "") : "";
+        return resolveRuntimeLocaleVersion(buildVersion, scriptVersion);
+      }
       class LocalizationProvider {
 lang;
 locale;
-        defaultLocale = DEFAULT_LOCALE$1;
-        cacheTTL = CACHE_TTL_SECONDS;
+        defaultLocale = DEFAULT_LOCALE;
         localesUrl = `${contentUrl}/${repoBranch}/src/localization/locales`;
         hashesUrl = `${contentUrl}/${repoBranch}/src/localization/hashes.json`;
         warnedMissingKeys = new Set();
@@ -9667,13 +9856,7 @@ locale;
         }
         async checkUpdates(force = false) {
           try {
-            const res = await GM_fetch(this.buildUrl(this.hashesUrl, "", force), {
-              responseCache: force ? void 0 : {
-                ttlMs: HASHES_REQUEST_CACHE_TTL_MS,
-                cacheName: "vot-locales-hashes-v1",
-                allowStaleOnError: true
-              }
-            });
+            const res = await GM_fetch(this.buildUrl(this.hashesUrl, "", force));
             if (!res.ok) throw res.status;
             const hashes = await res.json();
             if (!hashes || typeof hashes !== "object") {
@@ -9694,34 +9877,25 @@ locale;
           }
         }
         async update(force = false) {
-          const timestamp = getTimestamp();
-          if (!force) {
-            const [localeUpdatedAt, localeLang] = await Promise.all([
-              votStorage.get("localeUpdatedAt", 0),
-              votStorage.get("localeLang", "")
-            ]);
-            if (localeUpdatedAt + this.cacheTTL > timestamp && localeLang === this.lang) {
-              return this;
-            }
+          const runtimeLocaleVersion = getRuntimeLocaleVersion();
+          const storedLocaleVersion = await votStorage.get(
+            "localeVersion",
+            ""
+          );
+          if (!force && storedLocaleVersion === runtimeLocaleVersion) {
+            return this;
           }
           const hash = await this.checkUpdates(force);
           if (hash === null) {
             return this;
           }
           if (!hash) {
-            await votStorage.set("localeUpdatedAt", timestamp);
             return this;
           }
+          const timestamp = getTimestamp();
           try {
             const res = await GM_fetch(
-              this.buildUrl(this.localesUrl, `/${this.lang}.json`, force),
-              {
-                responseCache: force ? void 0 : {
-                  ttlMs: LOCALE_REQUEST_CACHE_TTL_MS,
-                  cacheName: "vot-locales-files-v1",
-                  allowStaleOnError: true
-                }
-              }
+              this.buildUrl(this.localesUrl, `/${this.lang}.json`, force)
             );
             if (!res.ok) throw res.status;
             const text = await res.text();
@@ -9730,6 +9904,7 @@ locale;
               votStorage.set("localePhrases", text),
               votStorage.set("localeHash", hash),
               votStorage.set("localeLang", this.lang),
+              votStorage.set("localeVersion", runtimeLocaleVersion),
               votStorage.set("localeUpdatedAt", timestamp)
             ]);
           } catch (err) {
@@ -9874,10 +10049,8 @@ locale;
           runtimeActivationPromise = null;
         }
       }
-      let observerListenersBound = false;
+      const boundObservers = new WeakSet();
       function bindObserverListeners(options) {
-        if (observerListenersBound) return;
-        observerListenersBound = true;
         const {
           videoObserver: videoObserver2,
           videosWrappers: videosWrappers2,
@@ -9886,6 +10059,8 @@ locale;
           findContainer: findContainer2,
           createVideoHandler
         } = options;
+        if (boundObservers.has(videoObserver2)) return;
+        boundObservers.add(videoObserver2);
         const initializingVideos = new WeakSet();
         const containerOwners = new WeakMap();
         const videoContainers = new WeakMap();
@@ -9903,6 +10078,32 @@ locale;
             return;
           }
           pendingVideoByContainer.delete(container);
+        };
+        const releaseVideoHandler = async (video, reason) => {
+          const videoHandler = videosWrappers2.get(video);
+          if (!videoHandler) {
+            return;
+          }
+          try {
+            await videoHandler.release();
+          } catch (error2) {
+            console.error(`[VOT] Failed to release videoHandler (${reason})`, error2);
+          } finally {
+            videosWrappers2.delete(video);
+          }
+        };
+        const getMatchedSiteAndContainer = (video) => {
+          for (const candidate of getServicesCached2()) {
+            const container = findContainer2(candidate, video);
+            if (container) {
+              return { site: candidate, container };
+            }
+          }
+          return null;
+        };
+        const withRuntimeSiteUrl = (site) => {
+          const host = String(site.host);
+          return host === "peertube" || host === "directlink" ? { ...site, url: globalThis.location.origin } : site;
         };
         const promotePendingVideo = async (container) => {
           if (!container) {
@@ -9928,32 +10129,25 @@ locale;
               console.error("[VOT] Failed to activate runtime", err);
               return;
             }
-            let container = null;
-            const site = getServicesCached2().find((candidate) => {
-              container = findContainer2(candidate, video);
-              return Boolean(container);
-            });
-            if (!site || !container) {
+            const match = getMatchedSiteAndContainer(video);
+            if (!match) {
               return;
             }
+            const { site, container } = match;
             const activeVideoForContainer = containerOwners.get(container);
             if (activeVideoForContainer && activeVideoForContainer !== video) {
               if (activeVideoForContainer.isConnected) {
                 pendingVideoByContainer.set(container, video);
                 return;
               }
-              try {
-                await videosWrappers2.get(activeVideoForContainer)?.release();
-              } catch (err) {
-                console.error("[VOT] Failed to release stale videoHandler", err);
-              }
-              videosWrappers2.delete(activeVideoForContainer);
+              await releaseVideoHandler(activeVideoForContainer, "stale container");
               clearContainerOwner(activeVideoForContainer);
             }
-            if (["peertube", "directlink"].includes(site.host)) {
-              site.url = globalThis.location.origin;
-            }
-            const videoHandler = createVideoHandler(video, container, site);
+            const videoHandler = createVideoHandler(
+              video,
+              container,
+              withRuntimeSiteUrl(site)
+            );
             videosWrappers2.set(video, videoHandler);
             videoContainers.set(video, container);
             containerOwners.set(container, video);
@@ -9969,15 +10163,13 @@ locale;
               }
             } catch (err) {
               if (videosWrappers2.get(video) === videoHandler) {
-                videosWrappers2.delete(video);
+                await releaseVideoHandler(video, "init failed");
                 const container2 = clearContainerOwner(video);
                 clearPendingVideo(container2);
                 await promotePendingVideo(container2);
               }
-              throw err;
+              console.error("[VOT] Failed to initialize videoHandler", err);
             }
-          } catch (err) {
-            console.error("[VOT] Failed to initialize videoHandler", err);
           } finally {
             initializingVideos.delete(video);
           }
@@ -9985,10 +10177,7 @@ locale;
         videoObserver2.onVideoAdded.addListener(handleVideoAdded);
         videoObserver2.onVideoRemoved.addListener(async (video) => {
           const container = clearContainerOwner(video);
-          if (videosWrappers2.has(video)) {
-            await videosWrappers2.get(video)?.release();
-            videosWrappers2.delete(video);
-          }
+          await releaseVideoHandler(video, "video removed");
           initializingVideos.delete(video);
           if (container && pendingVideoByContainer.get(container) === video) {
             clearPendingVideo(container);
@@ -10024,41 +10213,65 @@ locale;
         }
         return false;
       }
+      function isDocumentViewportElement(element) {
+        return element === document.body || element === document.documentElement;
+      }
+      function resolveScopedFullscreenElement(fullscreenEl, anchors, options = {}) {
+        const { allowDocumentViewport = false } = options;
+        if (!(fullscreenEl instanceof HTMLElement)) {
+          return null;
+        }
+        if (isDocumentViewportElement(fullscreenEl) && !allowDocumentViewport) {
+          return null;
+        }
+        for (const anchor of anchors) {
+          if (anchor && (containsCrossShadow(fullscreenEl, anchor) || containsCrossShadow(anchor, fullscreenEl))) {
+            return fullscreenEl;
+          }
+        }
+        return null;
+      }
       function closestCrossShadow(element, selector) {
         if (!element || !selector) return null;
         const origin = element instanceof Document ? null : element;
-        const walk = (current) => {
-          if (!current) return null;
-          if (current instanceof Document) {
-            if (origin) {
-              const matches = current.querySelectorAll(selector);
-              for (const match of matches) {
-                if (containsCrossShadow(match, origin)) {
-                  return match;
-                }
-              }
-              return null;
-            }
-            return current.querySelector(selector);
+        return walkCrossShadow(element, selector, origin);
+      }
+      function findMatchingDocumentElement(current, selector, origin) {
+        if (!origin) {
+          return current.querySelector(selector);
+        }
+        const matches = current.querySelectorAll(selector);
+        for (const match of matches) {
+          if (containsCrossShadow(match, origin)) {
+            return match;
           }
-          const closest = current.closest(selector);
-          if (closest) return closest;
-          const root = current.getRootNode();
-          if (root instanceof ShadowRoot) {
-            return walk(root.host);
+        }
+        return null;
+      }
+      function getNextCrossShadowTarget(current) {
+        const root = current.getRootNode();
+        if (root instanceof ShadowRoot) {
+          return root.host;
+        }
+        if (root instanceof Document) {
+          return root;
+        }
+        if (root !== current) {
+          const parent = getComposableParent(root);
+          if (parent && parent !== current && parent instanceof Element) {
+            return parent;
           }
-          if (root instanceof Document) {
-            return walk(root);
-          }
-          if (root !== current) {
-            const parent = getComposableParent(root);
-            if (parent && parent !== current && parent instanceof Element) {
-              return walk(parent);
-            }
-          }
-          return null;
-        };
-        return walk(element);
+        }
+        return null;
+      }
+      function walkCrossShadow(current, selector, origin) {
+        if (!current) return null;
+        if (current instanceof Document) {
+          return findMatchingDocumentElement(current, selector, origin);
+        }
+        const closest = current.closest(selector);
+        if (closest) return closest;
+        return walkCrossShadow(getNextCrossShadowTarget(current), selector, origin);
       }
       function findConnectedContainerBySelector(video, selector) {
         if (!selector) {
@@ -10069,6 +10282,19 @@ locale;
           return matched;
         }
         return null;
+      }
+      function resolveOverlayBaseContainer(container, site) {
+        return site.host === "youtube" && site.additionalData !== "mobile" ? container.parentElement ?? container : container;
+      }
+      function resolveOverlayMountTargets(input) {
+        const base = resolveOverlayBaseContainer(input.container, input.site);
+        const root = input.fullscreenRoot ?? base;
+        return {
+          base,
+          root,
+          portalContainer: base,
+          subtitlesMountContainer: root
+        };
       }
       class EventImpl {
         listeners = new Set();
@@ -10296,31 +10522,32 @@ locale;
         }
         const hostname = url.hostname.toLowerCase();
         if (hostname === "youtu.be" || hostname.endsWith(".youtu.be")) {
-          const id = url.pathname.split("/").find(Boolean);
+          return getValidatedVideoId(url.pathname.split("/").find(Boolean), input);
+        }
+        const searchId = url.searchParams.get("v");
+        if (searchId && VIDEO_ID_PATTERN.test(searchId)) return searchId;
+        const pathSegments = url.pathname.split("/").filter(Boolean);
+        const pathId = getVideoIdFromPathSegments(pathSegments);
+        if (pathId) return pathId;
+        throw new Error(`Cannot extract YouTube video id from: ${input}`);
+      }
+      function getValidatedVideoId(id, input) {
+        if (id && VIDEO_ID_PATTERN.test(id)) {
+          return id;
+        }
+        throw new Error(`Cannot extract YouTube video id from: ${input}`);
+      }
+      function getVideoIdFromPathSegments(pathSegments) {
+        const pathMarkers = ["shorts", "embed"];
+        for (const marker of pathMarkers) {
+          const markerIndex = pathSegments.indexOf(marker);
+          if (markerIndex === -1) continue;
+          const id = pathSegments[markerIndex + 1];
           if (id && VIDEO_ID_PATTERN.test(id)) {
             return id;
           }
         }
-        const searchId = url.searchParams.get("v");
-        if (searchId && VIDEO_ID_PATTERN.test(searchId)) {
-          return searchId;
-        }
-        const pathSegments = url.pathname.split("/").filter(Boolean);
-        const shortsIndex = pathSegments.indexOf("shorts");
-        if (shortsIndex !== -1) {
-          const shortsId = pathSegments[shortsIndex + 1];
-          if (shortsId && VIDEO_ID_PATTERN.test(shortsId)) {
-            return shortsId;
-          }
-        }
-        const embedIndex = pathSegments.indexOf("embed");
-        if (embedIndex !== -1) {
-          const embedId = pathSegments[embedIndex + 1];
-          if (embedId && VIDEO_ID_PATTERN.test(embedId)) {
-            return embedId;
-          }
-        }
-        throw new Error(`Cannot extract YouTube video id from: ${input}`);
+        return null;
       }
       function decodeEscapedJsonString(input) {
         return input.replaceAll("\\u0026", "&").replaceAll("\\/", "/");
@@ -10499,30 +10726,16 @@ locale;
           if (options.chunkSize <= 0) {
             throw new RangeError("Audio downloader. ytAudio. chunkSize must be > 0");
           }
-          const videoId = getRequiredVideoId(request);
-          const { signal } = request;
-          const watchContext = await this.fetchWatchContext(videoId, signal);
-          const quality = request.videoQuality ?? "best";
-          const clientAttempts = buildClientAttemptOrder(request.client);
-          const attemptErrors = [];
-          for (const client of clientAttempts) {
-            try {
-              const resolved = await this.resolvePlayableFormatForClient({
-                videoId,
-                watchContext,
-                client,
-                quality,
-                signal
-              });
-              if (!isAudioOnlyMimeType(resolved.chosenFormat.mimeType)) {
-                throw new Error(
-                  "Chunk mode requires an adaptive audio stream format"
-                );
-              }
+          return this.withResolvedPlayableAudioFormat(
+            request,
+            request.videoQuality ?? "best",
+            "Chunk mode requires an adaptive audio stream format",
+            "Unable to resolve streamable format for chunk mode",
+            async ({ resolved, signal }) => {
               const fileSize = await this.resolveStreamContentLength(
                 resolved.streamUrl,
                 resolved.chosenFormat.contentLength,
-                request.signal,
+                signal,
                 true
               );
               const mediaPartsLength = Math.max(
@@ -10542,19 +10755,13 @@ locale;
                       resolved.streamUrl,
                       start,
                       end,
-                      request.signal
+                      signal
                     );
                     yield bytes;
                   }
                 }).bind(this)
               };
-            } catch (error2) {
-              const message = error2 instanceof Error ? error2.message : String(error2);
-              attemptErrors.push(`${client}: ${message}`);
             }
-          }
-          throw new Error(
-            `Unable to resolve streamable format for chunk mode. Attempts: ${attemptErrors.join(" | ")}`
           );
         }
         async downloadAudioToUint8Array(request) {
@@ -10578,10 +10785,34 @@ locale;
           };
         }
         async extractAndWriteAudio(request, sink) {
+          return this.withResolvedPlayableAudioFormat(
+            request,
+            request.videoQuality ?? "bestefficiency",
+            "Selected stream is not audio-only",
+            "Unable to download playable stream format",
+            async ({ resolved, signal }) => {
+              const streamBytes = await this.downloadStreamByRanges(
+                resolved.streamUrl,
+                resolved.chosenFormat.contentLength,
+                signal
+              );
+              const hints = this.getExtractionHints(resolved.chosenFormat);
+              await sink.write(streamBytes);
+              return {
+                videoId: resolved.videoId,
+                bytesWritten: streamBytes.byteLength,
+                mimeType: getAudioMimeType(resolved.chosenFormat.mimeType),
+                codec: hints.codec,
+                sampleRate: hints.sampleRate,
+                channels: hints.channels
+              };
+            }
+          );
+        }
+        async withResolvedPlayableAudioFormat(request, quality, audioOnlyErrorMessage, failurePrefix, onResolved) {
           const videoId = getRequiredVideoId(request);
           const { signal } = request;
           const watchContext = await this.fetchWatchContext(videoId, signal);
-          const quality = request.videoQuality ?? "bestefficiency";
           const clientAttempts = buildClientAttemptOrder(request.client);
           const attemptErrors = [];
           for (const client of clientAttempts) {
@@ -10594,31 +10825,15 @@ locale;
                 signal
               });
               if (!isAudioOnlyMimeType(resolved.chosenFormat.mimeType)) {
-                throw new Error("Selected stream is not audio-only");
+                throw new Error(audioOnlyErrorMessage);
               }
-              const streamBytes = await this.downloadStreamByRanges(
-                resolved.streamUrl,
-                resolved.chosenFormat.contentLength,
-                request.signal
-              );
-              const hints = this.getExtractionHints(resolved.chosenFormat);
-              await sink.write(streamBytes);
-              return {
-                videoId: resolved.videoId,
-                bytesWritten: streamBytes.byteLength,
-                mimeType: getAudioMimeType(resolved.chosenFormat.mimeType),
-                codec: hints.codec,
-                sampleRate: hints.sampleRate,
-                channels: hints.channels
-              };
+              return await onResolved({ resolved, signal });
             } catch (error2) {
               const message = error2 instanceof Error ? error2.message : String(error2);
               attemptErrors.push(`${client}: ${message}`);
             }
           }
-          throw new Error(
-            `Unable to download playable stream format. Attempts: ${attemptErrors.join(" | ")}`
-          );
+          throw new Error(`${failurePrefix}. Attempts: ${attemptErrors.join(" | ")}`);
         }
         async resolvePlayableFormatForClient({
           videoId,
@@ -11342,7 +11557,13 @@ isLivelyVoiceUnavailableError(value) {
             }
           });
         }
-        async translateVideoImpl(videoData, requestLang, responseLang, translationHelp = null, shouldSendFailedAudio = false, signal = NEVER_ABORTED_SIGNAL, disableLivelyVoice = false) {
+        getVideoTranslationRetryDelayMs(retryAttempt, videoDurationSeconds) {
+          if (retryAttempt > 0) {
+            return 25e3;
+          }
+          return videoDurationSeconds <= 10 * 60 ? 6e4 : 75e3;
+        }
+        async translateVideoImpl(videoData, requestLang, responseLang, translationHelp = null, shouldSendFailedAudio = false, signal = NEVER_ABORTED_SIGNAL, disableLivelyVoice = false, retryAttempt = 0) {
           clearTimeout(this.videoHandler.autoRetry);
           this.finishDownloadSuccess();
           const requestLangForApi = this.videoHandler.getRequestLangForTranslation(
@@ -11356,45 +11577,18 @@ isLivelyVoiceUnavailableError(value) {
               requestLangForApi,
               responseLang
             );
-            let useLivelyVoice = !livelyDisabled && livelyVoiceAllowed && Boolean(this.videoHandler.data?.useLivelyVoice);
-            let res;
-            for (let attempt = 0; attempt < 2; attempt++) {
-              try {
-                res = await this.videoHandler.votClient.translateVideo({
-                  videoData,
-                  requestLang: requestLangForApi,
-                  responseLang,
-                  translationHelp,
-                  extraOpts: {
-                    useLivelyVoice,
-                    videoTitle: this.videoHandler.videoData?.title
-                  },
-                  shouldSendFailedAudio
-                });
-              } catch (err) {
-                if (useLivelyVoice && this.isLivelyVoiceUnavailableError(err)) {
-                  debug.log(
-                    "[translateVideoImpl] Lively voices are unavailable. Falling back to standard translation.",
-                    err
-                  );
-                  livelyDisabled = true;
-                  useLivelyVoice = false;
-                  continue;
-                }
-                throw err;
-              }
-              if (useLivelyVoice && this.isLivelyVoiceUnavailableError(res)) {
-                debug.log(
-                  "[translateVideoImpl] Server responded that lively voices are unavailable. Falling back to standard translation.",
-                  res
-                );
-                livelyDisabled = true;
-                useLivelyVoice = false;
-                res = void 0;
-                continue;
-              }
-              break;
-            }
+            const translationAttempt = await this.requestTranslationWithLivelyFallback({
+              videoData,
+              requestLangForApi,
+              responseLang,
+              translationHelp,
+              shouldSendFailedAudio,
+              livelyDisabled,
+              livelyVoiceAllowed
+            });
+            livelyDisabled = translationAttempt.livelyDisabled;
+            const useLivelyVoice = translationAttempt.useLivelyVoice;
+            const res = translationAttempt.response;
             if (!res) {
               throw new Error("Failed to get translation response");
             }
@@ -11430,7 +11624,8 @@ isLivelyVoiceUnavailableError(value) {
                 translationHelp,
                 true,
                 signal,
-                livelyDisabled
+                livelyDisabled,
+                retryAttempt
               );
             }
           } catch (err) {
@@ -11466,11 +11661,68 @@ isLivelyVoiceUnavailableError(value) {
               translationHelp,
               shouldSendFailedAudio,
               signal,
-              livelyDisabled
+              livelyDisabled,
+              retryAttempt + 1
             ),
-            2e4,
+            this.getVideoTranslationRetryDelayMs(retryAttempt, videoData.duration),
             signal
           );
+        }
+        async requestTranslationWithLivelyFallback({
+          videoData,
+          requestLangForApi,
+          responseLang,
+          translationHelp,
+          shouldSendFailedAudio,
+          livelyDisabled,
+          livelyVoiceAllowed
+        }) {
+          let useLivelyVoice = !livelyDisabled && livelyVoiceAllowed && Boolean(this.videoHandler.data?.useLivelyVoice);
+          let response;
+          for (let attempt = 0; attempt < 2; attempt += 1) {
+            response = await this.tryTranslateVideoRequest({
+              videoData,
+              requestLangForApi,
+              responseLang,
+              translationHelp,
+              shouldSendFailedAudio,
+              useLivelyVoice
+            });
+            if (!useLivelyVoice || !this.isLivelyVoiceUnavailableError(response)) {
+              break;
+            }
+            livelyDisabled = true;
+            useLivelyVoice = false;
+            response = void 0;
+          }
+          return { response, useLivelyVoice, livelyDisabled };
+        }
+        async tryTranslateVideoRequest({
+          videoData,
+          requestLangForApi,
+          responseLang,
+          translationHelp,
+          shouldSendFailedAudio,
+          useLivelyVoice
+        }) {
+          try {
+            return await this.videoHandler.votClient.translateVideo({
+              videoData,
+              requestLang: requestLangForApi,
+              responseLang,
+              translationHelp,
+              extraOpts: {
+                useLivelyVoice,
+                videoTitle: this.videoHandler.videoData?.title
+              },
+              shouldSendFailedAudio
+            });
+          } catch (err) {
+            if (useLivelyVoice && this.isLivelyVoiceUnavailableError(err)) {
+              return void 0;
+            }
+            throw err;
+          }
         }
         waitForAudioDownloadCompletion(signal, timeoutMs) {
           if (!this.downloading) {
@@ -11557,8 +11809,8 @@ isLivelyVoiceUnavailableError(value) {
           }
           this.setState({ status: "pending", reason: "auto" });
           try {
-            this.deps.setFirstPlay(false);
             await this.deps.scheduleAutoTranslate();
+            this.deps.setFirstPlay(false);
             this.reset();
           } catch (err) {
             this.setState({ status: "error", message: err });
@@ -11638,6 +11890,11 @@ isLivelyVoiceUnavailableError(value) {
           );
           return true;
         }
+        showOverlayButton(overlayView) {
+          overlayView.votButton.container.hidden = false;
+          overlayView.votButton.opacity = 1;
+          this.host.queueOverlayAutoHide?.();
+        }
         teardown() {
           this.setCanPlayRequested = false;
           this.invalidateActiveSession("teardown");
@@ -11647,9 +11904,6 @@ isLivelyVoiceUnavailableError(value) {
           if (this.host.site.host === "youtube") {
             const path = globalThis.location.pathname;
             const stableUrlKey = `${globalThis.location.origin}${path}${globalThis.location.search}`;
-            if (path.startsWith("/shorts/")) {
-              return `${stableUrlKey}||${hasSrcObject}`;
-            }
             return `${stableUrlKey}||${hasSrcObject}`;
           }
           const src = this.host.video.currentSrc || this.host.video.src || "";
@@ -11700,8 +11954,9 @@ isLivelyVoiceUnavailableError(value) {
           if (this.host.videoData?.videoId && sourceKey === this.lastSetCanPlaySourceKey) {
             return;
           }
+          let nextVideoData;
           try {
-            this.host.videoData = await this.host.getVideoData();
+            nextVideoData = await this.host.getVideoData();
           } catch (err) {
             this.host.videoData = void 0;
             hideLifecycleOverlay(this.host.uiManager.votOverlayView, {
@@ -11709,6 +11964,10 @@ isLivelyVoiceUnavailableError(value) {
             });
             return;
           }
+          if (this.getCurrentSourceKey() !== sourceKey) {
+            return;
+          }
+          this.host.videoData = nextVideoData;
           this.activeSetCanPlaySourceKey = sourceKey;
           const currentId = this.startSession(`setCanPlay (source: ${sourceKey})`);
           try {
@@ -11771,9 +12030,7 @@ isLivelyVoiceUnavailableError(value) {
           if (this.shouldAbortHandleSrcChanged(sessionId, "before getVideoData")) {
             return;
           }
-          overlayView.votButton.container.hidden = false;
-          overlayView.votButton.opacity = 1;
-          this.host.queueOverlayAutoHide?.();
+          this.showOverlayButton(overlayView);
           if (this.shouldAbortHandleSrcChanged(sessionId, "after getVideoData")) {
             return;
           }
@@ -11786,7 +12043,9 @@ isLivelyVoiceUnavailableError(value) {
             this.host.videoData.detectedLanguage,
             this.host.videoData.responseLanguage
           );
-          this.host.subtitles = this.host.cacheManager.getSubtitles(cacheKey) ?? [];
+          const cachedSubtitles = this.host.cacheManager.getSubtitles(cacheKey);
+          this.host.subtitles = cachedSubtitles ?? [];
+          this.host.subtitlesCacheKey = cachedSubtitles !== void 0 ? cacheKey : null;
           await this.host.updateSubtitlesLangSelect();
           if (this.shouldAbortHandleSrcChanged(sessionId, "after subtitles update")) {
             return;
@@ -11796,9 +12055,7 @@ isLivelyVoiceUnavailableError(value) {
             this.host.videoData.detectedLanguage,
             this.host.videoData.responseLanguage
           );
-          overlayView.votButton.container.hidden = false;
-          overlayView.votButton.opacity = 1;
-          this.host.queueOverlayAutoHide?.();
+          this.showOverlayButton(overlayView);
           this.lastSetCanPlaySourceKey = sourceKey;
         }
       }
@@ -12069,6 +12326,7 @@ String.raw`\b(?:-1|0):[a-f0-9]{64}\b`
       };
       const YT_VOLUME_NOW_SELECTOR = ".ytp-volume-panel [aria-valuenow]";
       const MIN_DETECT_TEXT_LENGTH = 35;
+      const MAX_SHARED_LANGUAGE_STATES = 500;
       const REQUEST_LANG_SET = new Set(
         availableLangs
       );
@@ -12080,6 +12338,13 @@ String.raw`\b(?:-1|0):[a-f0-9]{64}\b`
         }
         const createdState = {};
         sharedLanguageStateByVideoId.set(videoId, createdState);
+        while (sharedLanguageStateByVideoId.size > MAX_SHARED_LANGUAGE_STATES) {
+          const oldestVideoId = sharedLanguageStateByVideoId.keys().next().value;
+          if (typeof oldestVideoId !== "string") {
+            break;
+          }
+          sharedLanguageStateByVideoId.delete(oldestVideoId);
+        }
         return createdState;
       }
       function normalizeToRequestLang(value) {
@@ -12106,6 +12371,83 @@ String.raw`\b(?:-1|0):[a-f0-9]{64}\b`
         }
         return void 0;
       }
+      function resolveYoutubeDetectedLanguageFromSubtitles(subtitles) {
+        if (!Array.isArray(subtitles) || subtitles.length === 0) {
+          return void 0;
+        }
+        const pickLanguage = (preferManual) => {
+          for (const subtitle of subtitles) {
+            if (!subtitle || typeof subtitle !== "object") {
+              continue;
+            }
+            const candidate = subtitle;
+            if (candidate.source !== "youtube") {
+              continue;
+            }
+            if (typeof candidate.translatedFromLanguage === "string") {
+              continue;
+            }
+            if (preferManual && candidate.isAutoGenerated === true) {
+              continue;
+            }
+            const language = normalizeToRequestLang(candidate.language);
+            if (isResolvedLanguage(language)) {
+              return language;
+            }
+          }
+          return void 0;
+        };
+        return pickLanguage(true) ?? pickLanguage(false);
+      }
+      async function resolveDetectedLanguageForVideo(options) {
+        if (options.isStream) {
+          return { detectedLanguage: "auto" };
+        }
+        if (options.userOverrideLanguage) {
+          return { detectedLanguage: options.userOverrideLanguage };
+        }
+        const hostDetectedLanguage = resolveHostDetectedLanguage(options.host);
+        if (isResolvedLanguage(hostDetectedLanguage)) {
+          return {
+            detectedLanguage: hostDetectedLanguage,
+            cacheLanguage: hostDetectedLanguage
+          };
+        }
+        const normalizedPossibleLanguage = normalizeToRequestLang(
+          options.possibleLanguage
+        );
+        if (isResolvedLanguage(normalizedPossibleLanguage)) {
+          return {
+            detectedLanguage: normalizedPossibleLanguage,
+            cacheLanguage: normalizedPossibleLanguage
+          };
+        }
+        const youtubeSubtitleDetectedLanguage = options.host === "youtube" ? resolveYoutubeDetectedLanguageFromSubtitles(options.subtitles) : void 0;
+        if (isResolvedLanguage(youtubeSubtitleDetectedLanguage)) {
+          return {
+            detectedLanguage: youtubeSubtitleDetectedLanguage,
+            cacheLanguage: youtubeSubtitleDetectedLanguage
+          };
+        }
+        if (options.cachedDetectedLanguage) {
+          return { detectedLanguage: options.cachedDetectedLanguage };
+        }
+        if (!options.allowTextLanguageDetection) {
+          return { detectedLanguage: "auto" };
+        }
+        const text = buildDetectText(options.title, options.description);
+        if (!text || text.length < MIN_DETECT_TEXT_LENGTH) {
+          return { detectedLanguage: "auto" };
+        }
+        const detectedLanguage = await options.detectLanguage(text);
+        if (!detectedLanguage) {
+          return { detectedLanguage: "auto" };
+        }
+        return {
+          detectedLanguage,
+          cacheLanguage: detectedLanguage
+        };
+      }
       function getAriaValueNowPercent(selector) {
         const el = document.querySelector(selector);
         const rawNow = el?.getAttribute("aria-valuenow");
@@ -12124,11 +12466,7 @@ String.raw`\b(?:-1|0):[a-f0-9]{64}\b`
           this.videoHandler = videoHandler;
         }
         setDetectedLanguageCache(videoId, language) {
-          const normalizedLanguage = normalizeToRequestLang(language);
-          if (!isResolvedLanguage(normalizedLanguage)) {
-            return;
-          }
-          getSharedLanguageState(videoId).detectedLanguage = normalizedLanguage;
+          getSharedLanguageState(videoId).detectedLanguage = language;
         }
         rememberUserLanguageSelection(videoId, language) {
           const normalizedLanguage = normalizeToRequestLang(language);
@@ -12148,7 +12486,7 @@ String.raw`\b(?:-1|0):[a-f0-9]{64}\b`
           if (!isResolvedLanguage(normalizedLanguage)) {
             return;
           }
-          getSharedLanguageState(videoId).detectedLanguage = normalizedLanguage;
+          this.setDetectedLanguageCache(videoId, normalizedLanguage);
           if (this.videoHandler.videoData?.videoId === videoId) {
             this.videoHandler.videoData.detectedLanguage = normalizedLanguage;
           }
@@ -12172,7 +12510,35 @@ String.raw`\b(?:-1|0):[a-f0-9]{64}\b`
             }
           }
         }
-        async getVideoData({ allowLanguageDetection = false } = {}) {
+        async ensureDetectedLanguageForTranslation(videoData) {
+          if (!videoData?.videoId || videoData.detectedLanguage !== "auto") {
+            return;
+          }
+          const sharedLanguageState = getSharedLanguageState(videoData.videoId);
+          const { detectedLanguage, cacheLanguage } = await resolveDetectedLanguageForVideo({
+            isStream: videoData.isStream,
+            host: this.videoHandler.site.host,
+            possibleLanguage: videoData.detectedLanguage,
+            subtitles: videoData.subtitles,
+            userOverrideLanguage: sharedLanguageState.userLanguageOverride,
+            cachedDetectedLanguage: sharedLanguageState.detectedLanguage,
+            title: videoData.title,
+            description: videoData.description,
+            allowTextLanguageDetection: true,
+            detectLanguage: async (text) => await this.detectLanguageSingleFlight(videoData.videoId, text)
+          });
+          if (cacheLanguage) {
+            this.setDetectedLanguageCache(videoData.videoId, cacheLanguage);
+          }
+          if (detectedLanguage === "auto") {
+            return;
+          }
+          videoData.detectedLanguage = detectedLanguage;
+          if (this.videoHandler.translateFromLang === "auto") {
+            this.videoHandler.translateFromLang = detectedLanguage;
+          }
+        }
+        async getVideoData() {
           const {
             duration,
             url,
@@ -12191,37 +12557,20 @@ String.raw`\b(?:-1|0):[a-f0-9]{64}\b`
             language: localizationProvider.lang
           });
           const sharedLanguageState = getSharedLanguageState(videoId);
-          const userOverrideLanguage = sharedLanguageState.userLanguageOverride;
-          const cachedDetectedLanguage = sharedLanguageState.detectedLanguage;
-          const normalizedPossibleLanguage = normalizeToRequestLang(possibleLanguage);
-          let detectedLanguage = "auto";
-          if (!isStream) {
-            detectedLanguage = userOverrideLanguage ?? cachedDetectedLanguage ?? "auto";
-            if (allowLanguageDetection && !userOverrideLanguage) {
-              const hostDetectedLanguage = resolveHostDetectedLanguage(
-                this.videoHandler.site.host
-              );
-              if (hostDetectedLanguage) {
-                detectedLanguage = hostDetectedLanguage;
-                this.setDetectedLanguageCache(videoId, hostDetectedLanguage);
-              } else if (normalizedPossibleLanguage) {
-                detectedLanguage = normalizedPossibleLanguage;
-                this.setDetectedLanguageCache(videoId, normalizedPossibleLanguage);
-              } else if (!cachedDetectedLanguage) {
-                const text = buildDetectText(title, description);
-                if (text.length >= MIN_DETECT_TEXT_LENGTH) {
-                  const language = await this.detectLanguageSingleFlight(videoId, text);
-                  if (language) {
-                    detectedLanguage = language;
-                    this.setDetectedLanguageCache(videoId, language);
-                  }
-                } else if (text) {
-                  debug.log(
-                    `Skipping language detection: text too short (${text.length} < ${MIN_DETECT_TEXT_LENGTH})`
-                  );
-                }
-              }
-            }
+          const { detectedLanguage, cacheLanguage } = await resolveDetectedLanguageForVideo({
+            isStream,
+            host: this.videoHandler.site.host,
+            possibleLanguage,
+            subtitles,
+            userOverrideLanguage: sharedLanguageState.userLanguageOverride,
+            cachedDetectedLanguage: sharedLanguageState.detectedLanguage,
+            title,
+            description,
+            allowTextLanguageDetection: false,
+            detectLanguage: async (text) => await this.detectLanguageSingleFlight(videoId, text)
+          });
+          if (cacheLanguage) {
+            this.setDetectedLanguageCache(videoId, cacheLanguage);
           }
           const videoData = {
             translationHelp,
@@ -12238,7 +12587,7 @@ videoId,
             description,
             downloadTitle: localizedTitle ?? title ?? videoId
           };
-          if (detectedLanguage !== "auto" && sharedLanguageState.lastLoggedDetectedLanguage !== detectedLanguage) {
+          if (sharedLanguageState.lastLoggedDetectedLanguage !== detectedLanguage) {
             console.log("[VOT] Detected language:", detectedLanguage);
             sharedLanguageState.lastLoggedDetectedLanguage = detectedLanguage;
           }
@@ -12314,7 +12663,7 @@ syncVideoVolumeSlider() {
           const normalizedFrom = normalizeToRequestLang(from) ?? "auto";
           const langPairLogKey = `${normalizedFrom}->${to}`;
           const sharedLanguageState = getSharedLanguageState(videoData.videoId);
-          if (normalizedFrom !== "auto" && sharedLanguageState.lastLoggedLangPair !== langPairLogKey) {
+          if (sharedLanguageState.lastLoggedLangPair !== langPairLogKey) {
             console.log(`[VOT] Set translation from ${normalizedFrom} to ${to}`);
             sharedLanguageState.lastLoggedLangPair = langPairLogKey;
           }
@@ -12330,6 +12679,7 @@ syncVideoVolumeSlider() {
           overlayView.languagePairSelect.toSelect.selectTitle = localizationProvider.getLangLabel(to);
           overlayView.languagePairSelect.fromSelect.setSelectedValue(normalizedFrom);
           overlayView.languagePairSelect.toSelect.setSelectedValue(to);
+          return this;
         }
       }
       const t = globalThis, i = (t2) => t2, s = t.trustedTypes, e = s ? s.createPolicy("lit-html", { createHTML: (t2) => t2 }) : void 0, h = "$lit$", o = `lit$${Math.random().toFixed(9).slice(2)}$`, n = "?" + o, r = `<${n}>`, l = document, c = () => l.createComment(""), a = (t2) => null === t2 || "object" != typeof t2 && "function" != typeof t2, u = Array.isArray, d = (t2) => u(t2) || "function" == typeof t2?.[Symbol.iterator], f = "[ 	\n\f\r]", v = /<(?:(!--|\/[^a-zA-Z])|(\/?[a-zA-Z][^>\s]*)|(\/?$))/g, _ = /-->/g, m = />/g, p = RegExp(`>|${f}(?:([^\\s"'>=/]+)(${f}*=${f}*(?:[^ 	
@@ -12556,7 +12906,7 @@ syncVideoVolumeSlider() {
         }
         return h2._$AI(t2), h2;
       };
-      const mainScss = '.vot-button{--vot-helper-theme:var(--vot-theme-rgb,var(--vot-primary-rgb,33, 150, 243));--vot-helper-ontheme:var(--vot-ontheme-rgb,var(--vot-onprimary-rgb,255, 255, 255));box-sizing:border-box;vertical-align:middle;text-align:center;text-overflow:ellipsis;cursor:pointer;min-width:64px;height:36px;color:rgb(var(--vot-helper-ontheme));background-color:rgb(var(--vot-helper-theme));box-shadow:var(--vot-shadow-1);transition:box-shadow var(--vot-duration-medium) var(--vot-easing-standard);outline:none;font-size:14px;line-height:36px;display:inline-block;position:relative;border-radius:var(--vot-radius-s)!important;padding:0 var(--vot-space-4)!important;font-family:var(--vot-font-family,"Roboto", "Segoe UI", system-ui, sans-serif)!important;border:none!important;font-weight:500!important}.vot-button:before,.vot-button:after{content:"";opacity:0;position:absolute;inset:0;border-radius:inherit!important}.vot-button:before{background-color:rgb(var(--vot-helper-ontheme));transition:opacity var(--vot-duration-medium) var(--vot-easing-standard)}.vot-button:after{transition:opacity var(--vot-duration-slow) var(--vot-easing-standard),background-size var(--vot-duration-slow) var(--vot-easing-standard);background:radial-gradient(circle,currentColor 1%,#0000 1%) 50%/10000% 10000% no-repeat}.vot-button:hover:before{opacity:.08}.vot-button:active:after{opacity:.32;background-size:100% 100%;transition:background-size}.vot-button:hover,.vot-button:active{box-shadow:var(--vot-shadow-2)}.vot-button[disabled=true]{background-color:rgba(var(--vot-onsurface-rgb,0, 0, 0),.12);color:rgba(var(--vot-onsurface-rgb,0, 0, 0),.38);box-shadow:none;cursor:initial}.vot-button[disabled=true]:before,.vot-button[disabled=true]:after{opacity:0}.vot-outlined-button{--vot-helper-theme:var(--vot-theme-rgb,var(--vot-primary-rgb,33, 150, 243));box-sizing:border-box;vertical-align:middle;text-align:center;text-overflow:ellipsis;cursor:pointer;min-width:64px;height:36px;color:rgb(var(--vot-helper-theme));background-color:#0000;outline:none;font-size:14px;line-height:34px;display:inline-block;position:relative;border-radius:var(--vot-radius-s)!important;padding:0 var(--vot-space-4)!important;font-family:var(--vot-font-family,"Roboto", "Segoe UI", system-ui, sans-serif)!important;border:solid 1px var(--vot-border-color)!important;margin:0!important;font-weight:500!important}.vot-outlined-button:before,.vot-outlined-button:after{content:"";opacity:0;position:absolute;inset:0;border-radius:inherit!important}.vot-outlined-button:before{background-color:rgb(var(--vot-helper-theme));transition:opacity var(--vot-duration-medium) var(--vot-easing-standard)}.vot-outlined-button:after{transition:opacity var(--vot-duration-slow) var(--vot-easing-standard),background-size var(--vot-duration-slow) var(--vot-easing-standard);background:radial-gradient(circle,currentColor 1%,#0000 1%) 50%/10000% 10000% no-repeat}.vot-outlined-button:hover:before{opacity:.04}.vot-outlined-button:active:after{opacity:.16;background-size:100% 100%;transition:background-size}.vot-outlined-button[disabled=true]{color:rgba(var(--vot-onsurface-rgb,0, 0, 0),.38);cursor:initial;background-color:#0000}.vot-outlined-button[disabled=true]:before,.vot-outlined-button[disabled=true]:after{opacity:0}.vot-text-button{--vot-helper-theme:var(--vot-theme-rgb,var(--vot-primary-rgb,33, 150, 243));box-sizing:border-box;vertical-align:middle;text-align:center;text-overflow:ellipsis;cursor:pointer;min-width:64px;height:36px;color:rgb(var(--vot-helper-theme));background-color:#0000;outline:none;font-size:14px;line-height:36px;display:inline-block;position:relative;border-radius:var(--vot-radius-s)!important;padding:0 var(--vot-space-2)!important;font-family:var(--vot-font-family,"Roboto", "Segoe UI", system-ui, sans-serif)!important;border:none!important;margin:0!important;font-weight:500!important}.vot-text-button:before,.vot-text-button:after{content:"";opacity:0;position:absolute;inset:0;border-radius:inherit!important}.vot-text-button:before{background-color:rgb(var(--vot-helper-theme));transition:opacity var(--vot-duration-medium) var(--vot-easing-standard)}.vot-text-button:after{transition:opacity var(--vot-duration-slow) var(--vot-easing-standard),background-size var(--vot-duration-slow) var(--vot-easing-standard);background:radial-gradient(circle,currentColor 1%,#0000 1%) 50%/10000% 10000% no-repeat}.vot-text-button:hover:before{opacity:.04}.vot-text-button:active:after{opacity:.16;background-size:100% 100%;transition:background-size}.vot-text-button[disabled=true]{color:rgba(var(--vot-onsurface-rgb,0, 0, 0),.38);cursor:initial;background-color:#0000}.vot-text-button[disabled=true]:before,.vot-text-button[disabled=true]:after{opacity:0}.vot-icon-button{--vot-helper-onsurface:rgba(var(--vot-onsurface-rgb,0, 0, 0), .87);box-sizing:border-box;vertical-align:middle;text-align:center;text-overflow:ellipsis;cursor:pointer;width:36px;min-width:36px;height:36px;fill:var(--vot-helper-onsurface);color:var(--vot-helper-onsurface);background-color:#0000;outline:none;font-size:14px;line-height:36px;display:inline-block;position:relative;font-family:var(--vot-font-family,"Roboto", "Segoe UI", system-ui, sans-serif)!important;border:none!important;border-radius:50%!important;margin:0!important;padding:0!important;font-weight:500!important}.vot-icon-button:before,.vot-icon-button:after{content:"";opacity:0;position:absolute;inset:0;border-radius:inherit!important}.vot-icon-button:before{background-color:var(--vot-helper-onsurface);transition:opacity var(--vot-duration-medium) var(--vot-easing-standard)}.vot-icon-button:after{transition:opacity var(--vot-duration-slow) var(--vot-easing-standard),background-size var(--vot-duration-slow) var(--vot-easing-standard);background:radial-gradient(circle,currentColor 1%,#0000 1%) 50%/10000% 10000% no-repeat}.vot-icon-button:hover:before{opacity:.04}.vot-icon-button:active:after{opacity:.32;background-size:100% 100%;transition:background-size}.vot-icon-button[disabled=true]{color:rgba(var(--vot-onsurface-rgb,0, 0, 0),.38);fill:rgba(var(--vot-onsurface-rgb,0, 0, 0),.38);cursor:initial;background-color:#0000}.vot-icon-button[disabled=true]:before,.vot-icon-button[disabled=true]:after{opacity:0}.vot-icon-button svg{fill:inherit;stroke:inherit;width:24px;height:36px}.vot-hotkey{justify-content:flex-start;align-items:center;gap:var(--vot-space-3,12px);flex-wrap:wrap;display:flex}.vot-hotkey-label{word-break:break-word;max-width:80%}.vot-hotkey-button{--vot-helper-theme:var(--vot-theme-rgb,var(--vot-primary-rgb,33, 150, 243));box-sizing:border-box;vertical-align:middle;text-align:center;text-overflow:ellipsis;cursor:pointer;background-color:#0000;outline:none;width:fit-content;min-width:32px;height:fit-content;font-size:15px;line-height:1.5;display:inline-block;position:relative;border-radius:var(--vot-radius-s)!important;padding:0 var(--vot-space-2)!important;font-family:var(--vot-font-family,"Roboto", "Segoe UI", system-ui, sans-serif)!important;border:solid 1px var(--vot-border-color)!important;margin:0!important;font-weight:400!important}.vot-hotkey-button:before,.vot-hotkey-button:after{content:"";opacity:0;position:absolute;inset:0;border-radius:inherit!important}.vot-hotkey-button:before{background-color:rgb(var(--vot-helper-theme));transition:opacity var(--vot-duration-medium) var(--vot-easing-standard)}.vot-hotkey-button:after{transition:opacity var(--vot-duration-slow) var(--vot-easing-standard),background-size var(--vot-duration-slow) var(--vot-easing-standard);background:radial-gradient(circle,currentColor 1%,#0000 1%) 50%/10000% 10000% no-repeat}.vot-hotkey-button:hover:before{opacity:.04}.vot-hotkey-button:active:after{opacity:.16;background-size:100% 100%;transition:background-size}.vot-hotkey-button[data-status=active]{color:rgb(var(--vot-helper-theme))}.vot-hotkey-button[data-status=active]:before{opacity:.04}.vot-hotkey-button[disabled=true]{color:rgba(var(--vot-onsurface-rgb,0, 0, 0),.38);cursor:initial;background-color:#0000}.vot-hotkey-button[disabled=true]:before,.vot-hotkey-button[disabled=true]:after{opacity:0}.vot-textfield{display:inline-block;--vot-helper-theme:rgb(var(--vot-theme-rgb,var(--vot-primary-rgb,33, 150, 243)))!important;--vot-helper-safari1:rgba(var(--vot-onsurface-rgb,0, 0, 0), .38)!important;--vot-helper-safari2:rgba(var(--vot-onsurface-rgb,0, 0, 0), .6)!important;--vot-helper-safari3:rgba(var(--vot-onsurface-rgb,0, 0, 0), .87)!important;font-family:var(--vot-font-family,"Roboto", "Segoe UI", system-ui, sans-serif)!important;text-align:start!important;padding-top:6px!important;font-size:16px!important;line-height:1.5!important;position:relative!important}.vot-textfield>:is(input,textarea){box-sizing:border-box!important;border-style:solid!important;border-width:1px!important;border-color:transparent var(--vot-helper-safari2) var(--vot-helper-safari2)!important;width:100%!important;height:inherit!important;color:rgba(var(--vot-onsurface-rgb,0, 0, 0),.87)!important;-webkit-text-fill-color:currentColor!important;font-family:inherit!important;font-size:inherit!important;line-height:inherit!important;caret-color:var(--vot-helper-theme)!important;background-color:#0000!important;border-radius:4px!important;margin:0!important;padding:15px 13px!important;transition:border .2s,box-shadow .2s!important;box-shadow:inset 1px 0 #0000,inset -1px 0 #0000,inset 0 -1px #0000!important}.vot-textfield>:is(input,textarea):not(:focus):not(:is(.vot-show-placeholder,.vot-show-placeholer))::placeholder{color:#0000!important}.vot-textfield>:is(input,textarea):not(:focus):placeholder-shown{border-top-color:var(--vot-helper-safari2)!important}.vot-textfield>:is(input,textarea)+span{font-family:inherit;width:100%!important;max-height:100%!important;color:rgba(var(--vot-onsurface-rgb,0, 0, 0),.6)!important;cursor:text!important;pointer-events:none!important;font-size:75%!important;line-height:15px!important;transition:color .2s,font-size .2s,line-height .2s!important;display:flex!important;position:absolute!important;top:0!important;left:0!important}.vot-textfield>:is(input,textarea):not(:focus):placeholder-shown+span{font-size:inherit!important;line-height:68px!important}.vot-textfield>input+span:before,.vot-textfield>input+span:after,.vot-textfield>textarea+span:before,.vot-textfield>textarea+span:after{content:""!important;box-sizing:border-box!important;border-top:solid 1px var(--vot-helper-safari2)!important;pointer-events:none!important;min-width:10px!important;height:8px!important;margin-top:6px!important;transition:border .2s,box-shadow .2s!important;display:block!important;box-shadow:inset 0 1px #0000!important}.vot-textfield>input+span:before,.vot-textfield>textarea+span:before{border-left:1px solid #0000!important;border-radius:4px 0!important;margin-right:4px!important}.vot-textfield>input+span:after,.vot-textfield>textarea+span:after{border-right:1px solid #0000!important;border-radius:0 4px!important;flex-grow:1!important;margin-left:4px!important}.vot-textfield>input:is(.vot-show-placeholder,.vot-show-placeholer)+span:before,.vot-textfield>textarea:is(.vot-show-placeholder,.vot-show-placeholer)+span:before{margin-right:0!important}.vot-textfield>input:is(.vot-show-placeholder,.vot-show-placeholer)+span:after,.vot-textfield>textarea:is(.vot-show-placeholder,.vot-show-placeholer)+span:after{margin-left:0!important}.vot-textfield>input:not(:focus):placeholder-shown+span:before,.vot-textfield>input:not(:focus):placeholder-shown+span:after,.vot-textfield>textarea:not(:focus):placeholder-shown+span:before,.vot-textfield>textarea:not(:focus):placeholder-shown+span:after{border-top-color:#0000!important}.vot-textfield:hover>input:not(:disabled),.vot-textfield:hover>textarea:not(:disabled){border-color:transparent var(--vot-helper-safari3) var(--vot-helper-safari3)!important}.vot-textfield:hover>input:not(:disabled)+span:before,.vot-textfield:hover>input:not(:disabled)+span:after,.vot-textfield:hover>textarea:not(:disabled)+span:before,.vot-textfield:hover>textarea:not(:disabled)+span:after{border-top-color:var(--vot-helper-safari3)!important}.vot-textfield:hover>input:not(:disabled):not(:focus):placeholder-shown,.vot-textfield:hover>textarea:not(:disabled):not(:focus):placeholder-shown{border-color:var(--vot-helper-safari3)!important}.vot-textfield>input:focus,.vot-textfield>textarea:focus{border-color:transparent var(--vot-helper-theme) var(--vot-helper-theme)!important;box-shadow:inset 1px 0 var(--vot-helper-theme),inset -1px 0 var(--vot-helper-theme),inset 0 -1px var(--vot-helper-theme)!important;outline:none!important}.vot-textfield>input:focus+span,.vot-textfield>textarea:focus+span{color:var(--vot-helper-theme)!important}.vot-textfield>input:focus+span:before,.vot-textfield>input:focus+span:after,.vot-textfield>textarea:focus+span:before,.vot-textfield>textarea:focus+span:after{border-top-color:var(--vot-helper-theme)!important;box-shadow:inset 0 1px var(--vot-helper-theme)!important}.vot-textfield>input:disabled,.vot-textfield>input:disabled+span,.vot-textfield>textarea:disabled,.vot-textfield>textarea:disabled+span{border-color:transparent var(--vot-helper-safari1) var(--vot-helper-safari1)!important;color:rgba(var(--vot-onsurface-rgb,0, 0, 0),.38)!important;pointer-events:none!important}.vot-textfield>input:disabled+span:before,.vot-textfield>input:disabled+span:after,.vot-textfield>textarea:disabled+span:before,.vot-textfield>textarea:disabled+span:after,.vot-textfield>input:disabled:placeholder-shown,.vot-textfield>input:disabled:placeholder-shown+span,.vot-textfield>textarea:disabled:placeholder-shown,.vot-textfield>textarea:disabled:placeholder-shown+span{border-top-color:var(--vot-helper-safari1)!important}.vot-textfield>input:disabled:placeholder-shown+span:before,.vot-textfield>input:disabled:placeholder-shown+span:after,.vot-textfield>textarea:disabled:placeholder-shown+span:before,.vot-textfield>textarea:disabled:placeholder-shown+span:after{border-top-color:#0000!important}@media not all and (min-resolution:.001dpcm){@supports ((-webkit-appearance:none)){.vot-textfield>input,.vot-textfield>input+span,.vot-textfield>textarea,.vot-textfield>textarea+span,.vot-textfield>input+span:before,.vot-textfield>input+span:after,.vot-textfield>textarea+span:before,.vot-textfield>textarea+span:after{transition-duration:.1s!important}}}.vot-checkbox{--vot-checkbox-label-offset:30px;--vot-helper-theme:var(--vot-theme-rgb,var(--vot-primary-rgb,33, 150, 243));--vot-helper-ontheme:var(--vot-ontheme-rgb,var(--vot-onprimary-rgb,255, 255, 255));z-index:0;color:rgba(var(--vot-onsurface-rgb,0, 0, 0),.87);text-align:start;font-size:16px;line-height:1.5;display:inline-block;position:relative;font-family:var(--vot-font-family,"Roboto", "Segoe UI", system-ui, sans-serif)!important;text-transform:none!important}.vot-checkbox-sub{padding-left:var(--vot-checkbox-label-offset)!important}.vot-checkbox>input{appearance:none;z-index:10000;box-sizing:border-box;opacity:1;cursor:pointer;background:0 0;outline:none;width:18px;height:18px;transition:border-color .2s,background-color .2s;display:block;position:absolute;border:2px solid!important;border-color:rgba(var(--vot-onsurface-rgb,0, 0, 0),.6)!important;border-radius:2px!important;margin:3px 1px!important;padding:0!important}.vot-checkbox>input+span{box-sizing:border-box;width:inherit;cursor:pointer;font-family:inherit;display:inline-block;position:relative;padding-left:var(--vot-checkbox-label-offset)!important;font-weight:400!important}.vot-checkbox>input+span:before{content:"";background-color:rgb(var(--vot-onsurface-rgb,0, 0, 0));opacity:0;pointer-events:none;width:40px;height:40px;transition:opacity .3s,transform .2s;display:block;position:absolute;top:-8px;left:-10px;transform:scale(1);border-radius:50%!important}.vot-checkbox>input+span:after{content:"";z-index:10000;pointer-events:none;width:10px;height:5px;transition:border-color .2s;display:block;position:absolute;top:3px;left:1px;transform:translate(3px,4px)rotate(-45deg);box-sizing:content-box!important;border:0 solid #0000!important;border-width:0 0 2px 2px!important}.vot-checkbox>input:checked,.vot-checkbox>input:indeterminate{background-color:rgb(var(--vot-helper-theme));border-color:rgb(var(--vot-helper-theme))!important}.vot-checkbox>input:checked+span:before,.vot-checkbox>input:indeterminate+span:before{background-color:rgb(var(--vot-helper-theme))}.vot-checkbox>input:checked+span:after,.vot-checkbox>input:indeterminate+span:after{border-color:rgb(var(--vot-helper-ontheme,255, 255, 255))!important}.vot-checkbox>input:hover{box-shadow:none!important}.vot-checkbox>input:indeterminate+span:after{transform:translate(4px,3px);border-left-width:0!important}.vot-checkbox:hover>input+span:before{opacity:.04}.vot-checkbox:active>input,.vot-checkbox:active:hover>input:not(:disabled){border-color:rgb(var(--vot-helper-theme))!important}.vot-checkbox:active>input:checked{background-color:rgba(var(--vot-onsurface-rgb,0, 0, 0),.6);border-color:#0000!important}.vot-checkbox:active>input+span:before{opacity:1;transition:transform,opacity;transform:scale(0)}.vot-checkbox>input:disabled{cursor:initial;border-color:rgba(var(--vot-onsurface-rgb,0, 0, 0),.38)!important}.vot-checkbox>input:disabled:checked,.vot-checkbox>input:disabled:indeterminate{background-color:rgba(var(--vot-onsurface-rgb,0, 0, 0),.38);border-color:#0000!important}.vot-checkbox>input:disabled+span{color:rgba(var(--vot-onsurface-rgb,0, 0, 0),.38);cursor:initial}.vot-checkbox>input:disabled+span:before{opacity:0;transform:scale(0)}html.vot-keyboard-nav .vot-checkbox>input:focus-visible{box-shadow:var(--vot-focus-ring),var(--vot-focus-ring-offset)!important}@supports not selector(:focus-visible){html.vot-keyboard-nav .vot-checkbox>input:focus{box-shadow:var(--vot-focus-ring),var(--vot-focus-ring-offset)!important}}.vot-slider{flex-direction:column;gap:6px;display:flex;width:100%!important;color:rgba(var(--vot-onsurface-rgb,0, 0, 0),.87)!important;font-family:var(--vot-font-family,"Roboto", "Segoe UI", BlinkMacSystemFont, system-ui, -apple-system)!important;text-align:start!important;font-size:16px!important;line-height:1.5!important}.vot-slider>span{order:1;margin:0!important;display:block!important}.vot-slider .vot-slider-label{flex-wrap:wrap;align-items:baseline;gap:6px;width:100%;display:inline-flex}.vot-slider-label-value{font-variant-numeric:tabular-nums;margin-left:0!important;font-weight:500!important}.vot-slider .vot-slider-label-text{min-width:0}.vot-slider>input{order:2;appearance:none!important;cursor:pointer!important;background-color:#0000!important;border:none!important;width:100%!important;height:32px!important;margin:0!important;padding:0!important;display:block!important;position:relative!important;top:0!important}.vot-slider>input:hover{box-shadow:none!important}.vot-slider>input:before{content:""!important;width:calc(100% * var(--vot-progress,0))!important;background:rgb(var(--vot-primary-rgb,33, 150, 243))!important;height:2px!important;display:block!important;position:absolute!important;top:calc(50% - 1px)!important}.vot-slider>input:disabled{cursor:default!important;opacity:.38!important}.vot-slider>input:disabled+span{color:rgba(var(--vot-onsurface-rgb,0, 0, 0),.38)!important}.vot-slider>input:disabled::-webkit-slider-runnable-track{background-color:rgba(var(--vot-onsurface-rgb,0, 0, 0),.38)!important}.vot-slider>input:disabled::-moz-range-track{background-color:rgba(var(--vot-onsurface-rgb,0, 0, 0),.38)!important}.vot-slider>input:disabled::-webkit-slider-thumb{background-color:rgb(var(--vot-onsurface-rgb,0, 0, 0))!important;box-shadow:0 0 0 1px rgb(var(--vot-surface-rgb,255, 255, 255))!important;transform:scale(4)!important}.vot-slider>input:disabled::-moz-range-thumb{background-color:rgb(var(--vot-onsurface-rgb,0, 0, 0))!important;box-shadow:0 0 0 1px rgb(var(--vot-surface-rgb,255, 255, 255))!important;transform:scale(4)!important}.vot-slider>input:disabled::-moz-range-progress{background-color:rgba(var(--vot-onsurface-rgb,0, 0, 0),.87)!important}.vot-slider>input:focus{outline:none!important}.vot-slider>input::-webkit-slider-runnable-track{background-color:rgba(var(--vot-primary-rgb,33, 150, 243),.24)!important;border-radius:1px!important;width:100%!important;height:2px!important;margin:15px 0!important}.vot-slider>input::-moz-range-track{background-color:rgba(var(--vot-primary-rgb,33, 150, 243),.24)!important;border-radius:1px!important;width:100%!important;height:2px!important;margin:15px 0!important}.vot-slider>input::-webkit-slider-thumb{appearance:none!important;background-color:rgb(var(--vot-primary-rgb,33, 150, 243))!important;width:2px!important;height:2px!important;box-shadow:none!important;border:none!important;border-radius:50%!important;transition:box-shadow .2s!important;transform:scale(6)!important}.vot-slider>input::-moz-range-thumb{appearance:none!important;background-color:rgb(var(--vot-primary-rgb,33, 150, 243))!important;width:2px!important;height:2px!important;box-shadow:none!important;border:none!important;border-radius:50%!important;transition:box-shadow .2s!important;transform:scale(6)!important}.vot-slider>input::-webkit-slider-thumb{-webkit-appearance:none!important;margin:0!important}.vot-slider>input::-moz-range-progress{background-color:rgb(var(--vot-primary-rgb,33, 150, 243))!important;border-radius:1px!important;height:2px!important}.vot-slider>input:focus:not(:focus-visible)::-webkit-slider-thumb{box-shadow:none!important}.vot-slider>input:focus:not(:focus-visible)::-moz-range-thumb{box-shadow:none!important}html.vot-keyboard-nav .vot-slider>input:focus-visible::-webkit-slider-thumb{box-shadow:0 0 0 2px rgba(var(--vot-primary-rgb,33, 150, 243),.24)!important}html.vot-keyboard-nav .vot-slider>input:focus-visible::-moz-range-thumb{box-shadow:0 0 0 2px rgba(var(--vot-primary-rgb,33, 150, 243),.24)!important}@supports not selector(:focus-visible){html.vot-keyboard-nav .vot-slider>input:focus::-webkit-slider-thumb{box-shadow:0 0 0 2px rgba(var(--vot-primary-rgb,33, 150, 243),.24)!important}html.vot-keyboard-nav .vot-slider>input:focus::-moz-range-thumb{box-shadow:0 0 0 2px rgba(var(--vot-primary-rgb,33, 150, 243),.24)!important}}.vot-select{--vot-helper-theme-rgb:var(--vot-onsurface-rgb,0, 0, 0);--vot-helper-theme:rgba(var(--vot-helper-theme-rgb), .87);--vot-helper-safari1:rgba(var(--vot-onsurface-rgb,0, 0, 0), .6);--vot-helper-safari2:rgba(var(--vot-onsurface-rgb,0, 0, 0), .87);font-family:var(--vot-font-family,"Roboto", "Segoe UI", system-ui, sans-serif);text-align:start;color:var(--vot-helper-theme);fill:var(--vot-helper-theme);justify-content:space-between;align-items:center;font-size:14px;line-height:1.5;display:flex;font-weight:400!important}.vot-select-outer{cursor:pointer;justify-content:space-between;align-items:center;width:120px;max-width:120px;display:flex;border:1px solid var(--vot-helper-safari1)!important;border-radius:4px!important;padding:0 5px!important;transition:border .2s!important}.vot-select-outer:hover{border-color:var(--vot-helper-safari2)!important}.vot-select-outer[disabled=true]{opacity:.5;cursor:default}.vot-select-outer[disabled=true]:hover{border-color:var(--vot-helper-safari1)!important}.vot-select-title{text-overflow:ellipsis;white-space:nowrap;font-family:inherit;overflow:hidden}.vot-select-arrow-icon{justify-content:center;align-items:center;width:20px;height:32px;display:flex}.vot-select-arrow-icon svg{fill:inherit;stroke:inherit}.vot-select-content-list{flex-direction:column;display:flex}.vot-select-content-list .vot-select-content-item{cursor:pointer;border-radius:8px!important;padding:5px 10px!important}.vot-select-content-list .vot-select-content-item:not([inert]):hover{background-color:#2a2c31}.vot-select-content-list .vot-select-content-item[data-vot-selected=true]{color:rgb(var(--vot-primary-rgb,33, 150, 243));background-color:rgba(var(--vot-primary-rgb,33, 150, 243),.2)}.vot-select-content-list .vot-select-content-item[data-vot-selected=true]:hover{background-color:rgba(var(--vot-primary-rgb,33, 150, 243),.1)!important}.vot-select-content-list .vot-select-content-item[inert]{cursor:default;color:rgba(var(--vot-onsurface-rgb,0, 0, 0),.38)}.vot-header{color:rgba(var(--vot-helper-onsurface-rgb),.87);font-family:var(--vot-font-family,"Roboto", "Segoe UI", system-ui, sans-serif);text-align:start;line-height:1.5;font-weight:700!important}.vot-header:not(:first-child){padding-top:8px}.vot-header-level-1{font-size:2em}.vot-header-level-2{font-size:1.5em}.vot-header-level-3{font-size:1.17em}.vot-header-level-4{font-size:1em}.vot-header-level-5{font-size:.83em}.vot-header-level-6{font-size:.67em}.vot-info{color:rgba(var(--vot-helper-onsurface-rgb),.87);font-family:var(--vot-font-family,"Roboto", "Segoe UI", system-ui, sans-serif);text-align:start;-webkit-user-select:text;user-select:text;font-size:16px;line-height:1.5;display:flex}.vot-info>:not(:first-child){color:rgba(var(--vot-helper-onsurface-rgb),.5);flex:1;margin-left:8px!important}.vot-details{color:rgba(var(--vot-helper-onsurface-rgb),.87);font-family:var(--vot-font-family,"Roboto", "Segoe UI", system-ui, sans-serif);text-align:start;cursor:pointer;transition:background var(--vot-duration-medium) var(--vot-easing-standard);justify-content:space-between;align-items:center;font-size:16px;line-height:1.5;display:flex;border-radius:.5em!important;margin:-.5em!important;padding:.5em!important}.vot-details-arrow-icon{width:20px;height:32px;fill:rgba(var(--vot-helper-onsurface-rgb),.87);justify-content:center;align-items:center;display:flex;transform:scale(1.25)rotate(-90deg)}.vot-details:hover{background:rgba(var(--vot-onsurface-rgb,0, 0, 0),.06)}.vot-settings-section{border:1px solid var(--vot-border-color);border-radius:var(--vot-radius-l);padding:var(--vot-space-2);background:rgba(var(--vot-helper-onsurface-rgb),.03);flex-direction:column;display:flex}.vot-settings-section>*{margin:0!important}.vot-settings-section>*+*{margin-top:var(--vot-space-2)!important}.vot-settings-section-header{border-radius:var(--vot-radius-m);margin:0!important;padding:.45em .5em!important}.vot-settings-section-header .vot-details-arrow-icon{transition:transform var(--vot-duration-medium) var(--vot-easing-standard)}.vot-settings-section-header[data-open=true] .vot-details-arrow-icon{transform:scale(1.25)rotate(0)}.vot-settings-section-content{--vot-settings-control-width:200px;--vot-settings-row-gap:var(--vot-space-2);padding:0 var(--vot-space-1) var(--vot-space-1);flex-direction:column;display:flex}.vot-settings-section-content>*{margin:0!important}.vot-settings-section-content>*+*{margin-top:var(--vot-settings-row-gap)!important}.vot-settings-section-content>.vot-checkbox,.vot-settings-section-content>.vot-hotkey,.vot-settings-section-content>.vot-textfield,.vot-settings-section-content>.vot-select,.vot-settings-section-content>.vot-slider{padding:var(--vot-space-1);box-sizing:border-box;width:100%!important}.vot-settings-section-content>.vot-textfield{gap:var(--vot-space-1);flex-direction:column;padding-top:0!important;display:flex!important}.vot-settings-section-content>.vot-textfield>span{order:0;width:auto!important;max-height:none!important;color:rgba(var(--vot-helper-onsurface-rgb),.72)!important;cursor:default!important;pointer-events:none!important;font-size:13px!important;line-height:1.2!important;display:block!important;position:static!important}.vot-settings-section-content>.vot-textfield>span:before,.vot-settings-section-content>.vot-textfield>span:after{content:none!important;display:none!important}.vot-settings-section-content>.vot-textfield>input,.vot-settings-section-content>.vot-textfield>textarea{transition:border-color var(--vot-duration-fast) var(--vot-easing-standard),background-color var(--vot-duration-fast) var(--vot-easing-standard);order:1;width:100%!important;height:36px!important;padding:0 var(--vot-space-3)!important;border:1px solid var(--vot-border-color)!important;border-radius:var(--vot-radius-s)!important;background:rgba(var(--vot-helper-onsurface-rgb),.04)!important;color:rgba(var(--vot-helper-onsurface-rgb),.9)!important;-webkit-text-fill-color:currentColor!important;box-shadow:none!important}.vot-settings-section-content>.vot-textfield>textarea{resize:vertical;height:auto!important;min-height:84px!important;padding:var(--vot-space-2) var(--vot-space-3)!important}.vot-settings-section-content>.vot-textfield>input::placeholder,.vot-settings-section-content>.vot-textfield>textarea::placeholder{color:rgba(var(--vot-helper-onsurface-rgb),.55)!important}.vot-settings-section-content>.vot-textfield:hover>input,.vot-settings-section-content>.vot-textfield:hover>textarea{border-color:var(--vot-border-color-hover)!important}.vot-settings-section-content>.vot-textfield>input:not(:focus):placeholder-shown,.vot-settings-section-content>.vot-textfield>textarea:not(:focus):placeholder-shown{border-color:var(--vot-border-color)!important}.vot-settings-section-content>.vot-textfield>input:focus,.vot-settings-section-content>.vot-textfield>textarea:focus{border-color:rgba(var(--vot-primary-rgb),.7)!important}.vot-lang-select{--vot-helper-theme-rgb:var(--vot-onsurface-rgb,0, 0, 0);--vot-helper-theme:rgba(var(--vot-helper-theme-rgb), .87);color:var(--vot-helper-theme);fill:var(--vot-helper-theme);justify-content:space-between;align-items:center;display:flex}.vot-lang-select-icon{justify-content:center;align-items:center;width:32px;height:32px;display:flex}.vot-lang-select-icon svg{fill:inherit;stroke:inherit}.vot-segmented-button{--vot-helper-theme-rgb:var(--vot-onsurface-rgb,0, 0, 0);--vot-helper-theme:rgba(var(--vot-helper-theme-rgb), .87);-webkit-user-select:none;user-select:none;background:rgb(var(--vot-surface-rgb,255, 255, 255));max-width:100vw;height:36px;color:var(--vot-helper-theme);fill:var(--vot-helper-theme);cursor:default;transition:opacity var(--vot-duration-slow) var(--vot-easing-standard);z-index:2147483647;align-items:center;font-size:16px;line-height:1.5;display:flex;position:absolute;top:5rem;left:50%;overflow:hidden;transform:translate(-50%);opacity:1!important;pointer-events:auto!important;touch-action:none!important;border:1px solid var(--vot-border-color)!important;border-radius:var(--vot-radius-s)!important;box-shadow:var(--vot-shadow-1)!important;font-family:var(--vot-font-family,"Roboto", "Segoe UI", system-ui, sans-serif)!important}.vot-segmented-button.vot-segmented-button--hidden{opacity:0!important;pointer-events:none!important}.vot-segmented-button *{box-sizing:border-box!important}.vot-segmented-button .vot-separator{background:rgba(var(--vot-helper-theme-rgb),.1);width:1px;height:50%}.vot-segmented-button .vot-segment,.vot-segmented-button .vot-segment-only-icon{height:100%;color:inherit;transition:background-color var(--vot-duration-fast) var(--vot-easing-standard);-webkit-tap-highlight-color:transparent;background-color:#0000;outline:none;justify-content:center;align-items:center;display:flex;position:relative;overflow:hidden;padding:0 var(--vot-space-2)!important;border:none!important}.vot-segmented-button .vot-segment:focus,.vot-segmented-button .vot-segment-only-icon:focus{box-shadow:inset 0 0 0 2px var(--vot-focus-ring-color);outline:none}.vot-segmented-button .vot-segment:focus:not(:focus-visible),.vot-segmented-button .vot-segment-only-icon:focus:not(:focus-visible){box-shadow:none}.vot-segmented-button .vot-segment:before,.vot-segmented-button .vot-segment-only-icon:before,.vot-segmented-button .vot-segment:after,.vot-segmented-button .vot-segment-only-icon:after{content:"";opacity:0;position:absolute;inset:0;border-radius:inherit!important}.vot-segmented-button .vot-segment:before,.vot-segmented-button .vot-segment-only-icon:before{background-color:rgb(var(--vot-helper-theme-rgb));transition:opacity var(--vot-duration-medium) var(--vot-easing-standard)}.vot-segmented-button .vot-segment:after,.vot-segmented-button .vot-segment-only-icon:after{transition:opacity var(--vot-duration-slow) var(--vot-easing-standard),background-size var(--vot-duration-slow) var(--vot-easing-standard);background:radial-gradient(circle,currentColor 1%,#0000 1%) 50%/10000% 10000% no-repeat}.vot-segmented-button .vot-segment:hover:before,.vot-segmented-button .vot-segment-only-icon:hover:before{opacity:.04}.vot-segmented-button .vot-segment:active:after,.vot-segmented-button .vot-segment-only-icon:active:after{opacity:.16;background-size:100% 100%;transition:background-size}.vot-segmented-button .vot-segment-only-icon{min-width:36px;padding:0!important}.vot-segmented-button .vot-segment-label{white-space:nowrap;color:inherit;margin-left:var(--vot-space-2)!important;font-weight:400!important}.vot-segmented-button[data-status=success] .vot-translate-button{color:rgb(var(--vot-primary-rgb,33, 150, 243));fill:rgb(var(--vot-primary-rgb,33, 150, 243))}.vot-segmented-button[data-status=error] .vot-translate-button{color:#f28b82;fill:#f28b82}.vot-segmented-button[data-loading=true] #vot-loading-icon{display:block!important}.vot-segmented-button[data-loading=true] #vot-translate-icon{display:none!important}.vot-segmented-button[data-direction=column]{flex-direction:column;height:fit-content}.vot-segmented-button[data-direction=column] .vot-segment-label{display:none}.vot-segmented-button[data-direction=column]>.vot-segment-only-icon,.vot-segmented-button[data-direction=column]>.vot-segment{padding:8px!important}.vot-segmented-button[data-direction=column] .vot-separator{width:50%;height:1px}.vot-segmented-button[data-position=left]{top:12.5vh;left:50px}.vot-segmented-button[data-position=right]{top:12.5vh;left:auto;right:0}.vot-segmented-button svg{width:24px;fill:inherit;stroke:inherit}.vot-tooltip{--vot-helper-theme-rgb:var(--vot-onsurface-rgb,0, 0, 0);--vot-helper-theme:rgba(var(--vot-helper-theme-rgb), .87);--vot-helper-ondialog:rgb(var(--vot-ondialog-rgb,37, 38, 40));--vot-helper-border:rgb(var(--vot-tooltip-border,69, 69, 69));-webkit-user-select:none;user-select:none;background:rgb(var(--vot-surface-rgb,255, 255, 255));color:var(--vot-helper-theme);fill:var(--vot-helper-theme);cursor:default;z-index:2147483647;opacity:0;align-items:center;width:max-content;max-width:calc(100vw - 10px);height:max-content;font-size:14px;line-height:1.5;transition:opacity .5s;display:flex;position:absolute;inset:0;overflow:hidden;box-shadow:0 1px 3px #0000001f;font-family:var(--vot-font-family,"Roboto", "Segoe UI", system-ui, sans-serif)!important;border-radius:4px!important;padding:4px 8px!important}.vot-tooltip[data-trigger=click]{-webkit-user-select:text;user-select:text}.vot-tooltip.vot-tooltip-bordered{border:1px solid var(--vot-helper-border)}.vot-tooltip *{box-sizing:border-box!important;font-family:inherit!important}.vot-menu{--vot-helper-surface-rgb:var(--vot-surface-rgb,255, 255, 255);--vot-helper-surface:rgb(var(--vot-helper-surface-rgb));--vot-helper-onsurface-rgb:var(--vot-onsurface-rgb,0, 0, 0);--vot-helper-onsurface:rgba(var(--vot-helper-onsurface-rgb), .87);--vot-settings-control-width:clamp(120px, 45%, 200px);-webkit-user-select:none;user-select:none;background-color:var(--vot-helper-surface);color:var(--vot-helper-onsurface);cursor:default;z-index:2147483646;visibility:visible;opacity:1;transform-origin:top;width:fit-content;min-width:320px;max-width:min(90vw,560px);transition:opacity var(--vot-duration-medium) var(--vot-easing-standard),transform var(--vot-duration-medium) var(--vot-easing-standard);font-size:16px;line-height:1.5;position:absolute;top:calc(5rem + 48px);left:50%;overflow:hidden;transform:translate(-50%)scale(1);border:1px solid var(--vot-border-color)!important;border-radius:var(--vot-radius-m)!important;box-shadow:var(--vot-shadow-2)!important;font-family:var(--vot-font-family,"Roboto", "Segoe UI", system-ui, sans-serif)!important}.vot-menu *{box-sizing:border-box!important}.vot-menu[hidden]{pointer-events:none;visibility:hidden;opacity:0;transform:translate(-50%,-4px)scale(.98);display:block!important}.vot-menu-content-wrapper{min-width:320px;min-height:100px;max-height:calc(var(--vot-container-height,75vh) - (5rem + 32px + 16px) * 2);flex-direction:column;display:flex;overflow:auto}.vot-menu-header-container{flex-shrink:0;align-items:center;min-height:31px;display:flex;padding-inline-end:var(--vot-space-2)!important}.vot-menu-header-container:empty{padding:0 0 16px!important}.vot-menu-header-container>.vot-icon-button{margin-inline-end:var(--vot-space-1)!important;margin-top:var(--vot-space-1)!important}.vot-menu-title-container{font-size:inherit;text-align:start;outline:0;flex:1;display:flex;font-weight:inherit!important;margin:0!important}.vot-menu-title{flex:1;font-size:16px;line-height:1;padding:var(--vot-space-4)!important;font-weight:500!important}.vot-menu-body-container{box-sizing:border-box;gap:var(--vot-space-2);overscroll-behavior:contain;flex-direction:column;min-height:1.375rem;display:flex;overflow:auto;padding:0 var(--vot-space-4)!important;scrollbar-color:rgba(var(--vot-helper-onsurface-rgb),.1) var(--vot-helper-surface)!important}.vot-menu-body-container::-webkit-scrollbar{background:var(--vot-helper-surface)!important;width:12px!important;height:12px!important}.vot-menu-body-container::-webkit-scrollbar-track{background:var(--vot-helper-surface)!important;width:12px!important;height:12px!important}.vot-menu-body-container::-webkit-scrollbar-thumb{border-radius:1ex;background:rgba(var(--vot-helper-onsurface-rgb),.1)!important;border:5px solid var(--vot-helper-surface)!important}.vot-menu-body-container::-webkit-scrollbar-thumb:hover{border-width:3px!important}.vot-menu-body-container::-webkit-scrollbar-corner{background:var(--vot-helper-surface)!important}.vot-menu-footer-container{flex-shrink:0;justify-content:flex-end;display:flex;padding:var(--vot-space-4)!important}.vot-menu-footer-container:empty{padding:var(--vot-space-4) 0 0 0!important}.vot-menu .vot-select--labeled>.vot-select-outer{margin-left:auto}.vot-menu[data-position=left]{transform-origin:0;top:12.5vh;left:240px}.vot-menu[data-position=right]{transform-origin:100%;top:12.5vh;left:auto;right:-80px}.vot-dialog{--vot-helper-surface-rgb:var(--vot-surface-rgb,255, 255, 255);--vot-helper-surface:rgb(var(--vot-helper-surface-rgb));--vot-helper-onsurface-rgb:var(--vot-onsurface-rgb,0, 0, 0);--vot-helper-onsurface:rgba(var(--vot-helper-onsurface-rgb), .87);--vot-dialog-viewport-margin:16px;--vot-dialog-max-height:75vh;max-width:initial;max-height:initial;width:min(var(--vot-dialog-width,512px),100%);border:1px solid var(--vot-border-color);border-radius:var(--vot-radius-l);background-color:var(--vot-helper-surface);height:fit-content;color:var(--vot-helper-onsurface);box-shadow:var(--vot-shadow-2);-webkit-user-select:none;user-select:none;visibility:visible;opacity:1;transform-origin:50%;transition:opacity var(--vot-duration-medium) var(--vot-easing-standard),transform var(--vot-duration-medium) var(--vot-easing-standard);font-size:16px;line-height:1.5;display:block;position:fixed;inset-block:0;inset-inline:0;overflow:auto hidden;transform:scale(1);font-family:var(--vot-font-family,"Roboto", "Segoe UI", system-ui, sans-serif)!important;margin:auto!important;padding:0!important}[hidden]>.vot-dialog{pointer-events:none;opacity:0;transition:opacity var(--vot-duration-fast) var(--vot-easing-standard),transform var(--vot-duration-medium) var(--vot-easing-standard);transform:translateY(-4px)scale(.98)}.vot-dialog[data-vertical-align=top]{inset-block-start:var(--vot-dialog-viewport-margin);inset-block-end:auto;margin:0 auto!important}.vot-dialog-container{visibility:visible;z-index:2147483647;position:absolute}.vot-dialog-container[hidden]{pointer-events:none;visibility:hidden;display:block!important}.vot-dialog-container *{box-sizing:border-box!important}.vot-dialog-backdrop{opacity:1;background-color:#0009;transition:opacity .3s;position:fixed;inset:0}[hidden]>.vot-dialog-backdrop{pointer-events:none;opacity:0}.vot-dialog-content-wrapper{max-height:var(--vot-dialog-max-height,75vh);flex-direction:column;display:flex;overflow:auto}.vot-dialog-header-container{flex-shrink:0;align-items:flex-start;min-height:31px;display:flex}.vot-dialog-header-container:empty{padding:0 0 20px}.vot-dialog-header-container>.vot-icon-button{margin-inline-end:var(--vot-space-1)!important;margin-top:var(--vot-space-1)!important}.vot-dialog-title-container{font-size:inherit;outline:0;flex:1;display:flex;font-weight:inherit!important;margin:0!important}.vot-dialog-title{flex:1;font-size:115.385%;line-height:1;padding:var(--vot-space-5) var(--vot-space-5) var(--vot-space-4)!important;font-weight:700!important}.vot-dialog-body-container{box-sizing:border-box;gap:var(--vot-space-4);overscroll-behavior:contain;flex-direction:column;min-height:1.375rem;display:flex;overflow:auto;padding:0 var(--vot-space-5)!important;scrollbar-color:rgba(var(--vot-helper-onsurface-rgb),.1) var(--vot-helper-surface)!important}.vot-dialog-body-container::-webkit-scrollbar{background:var(--vot-helper-surface)!important;width:12px!important;height:12px!important}.vot-dialog-body-container::-webkit-scrollbar-track{background:var(--vot-helper-surface)!important;width:12px!important;height:12px!important}.vot-dialog-body-container::-webkit-scrollbar-thumb{border-radius:1ex;background:rgba(var(--vot-helper-onsurface-rgb),.1)!important;border:5px solid var(--vot-helper-surface)!important}.vot-dialog-body-container::-webkit-scrollbar-thumb:hover{border-width:3px!important}.vot-dialog-body-container::-webkit-scrollbar-corner{background:var(--vot-helper-surface)!important}.vot-dialog-footer-container{justify-content:flex-end;gap:var(--vot-space-2);flex-wrap:wrap;flex-shrink:0;display:flex;padding:var(--vot-space-4)!important}.vot-dialog-footer-container:empty{padding:var(--vot-space-5) 0 0 0!important}@media(max-width:480px){.vot-dialog-footer-container{flex-direction:column;align-items:stretch}.vot-dialog-footer-container>:is(.vot-button,.vot-outlined-button,.vot-text-button){white-space:normal;text-overflow:clip;text-align:center;justify-content:center;align-items:center;width:100%;height:auto;min-height:36px;padding:8px 16px;line-height:1.2;display:flex;overflow:visible}}.vot-inline-loader{aspect-ratio:5;--vot-loader-bg:no-repeat radial-gradient(farthest-side, rgba(var(--vot-onsurface-rgb,0, 0, 0), .38) 94%, transparent);background:var(--vot-loader-bg),var(--vot-loader-bg),var(--vot-loader-bg),var(--vot-loader-bg);background-size:20% 100%;height:8px;animation:.75s infinite alternate dotsSlide,1.5s infinite alternate dotsFlip}.vot-loader-progress{--vot-helper-theme:var(--vot-theme-rgb,var(--vot-primary-rgb,33, 150, 243));fill:none;stroke:rgb(var(--vot-helper-theme));stroke-width:2px;stroke-linecap:round;transform-origin:50%;transform:rotate(-90deg)}@keyframes dotsSlide{0%,10%{background-position:0 0,0 0,0 0,0 0}33%{background-position:0 0,33.3333% 0,33.3333% 0,33.3333% 0}66%{background-position:0 0,33.3333% 0,66.6667% 0,66.6667% 0}90%,to{background-position:0 0,33.3333% 0,66.6667% 0,100% 0}}@keyframes dotsFlip{0%,49.99%{transform:scale(1)}50%,to{transform:scale(-1)}}.vot-label{font-family:inherit;font-size:16px;line-height:1.5;display:block}.vot-label-text{display:inline}.vot-label-icon{vertical-align:text-bottom;cursor:help;justify-content:center;align-items:center;width:20px;height:20px;margin-left:4px;display:inline-flex}.vot-label-icon>svg{width:20px;height:20px;display:block}.vot-account{justify-content:space-between;align-items:center;gap:1rem;display:flex}.vot-account-container,.vot-account-wrapper,.vot-account-buttons{align-items:center;gap:1rem;display:flex}.vot-account-avatar{min-width:36px;max-width:36px;min-height:36px;max-height:36px;overflow:hidden}.vot-account-avatar-img{object-fit:cover;border-radius:50%;width:36px;height:36px}.vot-subtitles{--vot-subtitles-background:rgba(var(--vot-surface-rgb,46, 47, 52), var(--vot-subtitles-opacity,.8));max-width:var(--vot-subtitles-max-width,70vw);background:var(--vot-subtitles-background,#2e2f34cc);width:max-content;color:var(--vot-subtitles-color,#e3e3e3);pointer-events:all;touch-action:none;font-size:calc(var(--vot-subtitles-font-size,clamp(18px, 2.2vw, 36px)) * var(--vot-subtitles-scale-compensation,1));text-shadow:var(--vot-subtitles-text-shadow,0 1px 2px #0009, 0 2px 8px #00000059);-webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale;font-synthesis:none;position:relative;--vot-subtitles-font-family:var(--vot-font-family,"Roboto", "Segoe UI", system-ui, sans-serif)!important;font-family:var(--vot-subtitles-font-family)!important;font-style:normal!important;font-weight:var(--vot-subtitles-font-weight,500)!important;text-transform:none!important;letter-spacing:normal!important;border-radius:.5em!important;padding:.5em .75em!important;line-height:1.25!important}.vot-subtitles,.vot-subtitles *{font-family:var(--vot-subtitles-font-family)!important}.vot-subtitles{box-sizing:border-box;-webkit-user-select:none;user-select:none;contain:layout paint;isolation:isolate;text-align:center;margin:0 auto;display:block}.vot-subtitles.vot-subtitles--multiline{text-align:center}.vot-subtitles{text-wrap:wrap;white-space:normal;overflow-wrap:break-word}.vot-subtitles-widget{box-sizing:border-box;z-index:2147483647;--vot-subtitles-fallback-bottom-inset: calc(env(safe-area-inset-bottom,0px) + clamp(56px, 10vh, 220px) + 10px) ;left:50%;top:calc(100% - var(--vot-subtitles-fallback-bottom-inset));width:max-content;max-width:var(--vot-subtitles-max-width,70vw);pointer-events:none;will-change:left,top,transform;max-height:100%;display:block;position:absolute;transform:translate(-50%,-100%)}.vot-subtitles-info{flex-direction:column;gap:2px;max-width:100%;display:flex;padding:6px!important}.vot-subtitles-info-service,.vot-subtitles-info-header,.vot-subtitles-info-context{overflow-wrap:anywhere;word-break:break-word;white-space:normal!important}.vot-subtitles-info-service{color:var(--vot-subtitles-context-color,#86919b);margin-bottom:8px!important;font-size:10px!important;line-height:1!important}.vot-subtitles-info-header{color:var(--vot-subtitles-header-color,#fff);margin-bottom:6px!important;font-size:20px!important;font-weight:500!important;line-height:1!important}.vot-subtitles-info-context{color:var(--vot-subtitles-context-color,#86919b);font-size:12px!important;line-height:1.2!important}.vot-subtitles span{cursor:pointer;white-space:normal;overflow-wrap:inherit;word-break:normal;position:relative;font-size:inherit!important;font-family:inherit!important;font-style:inherit!important;font-weight:inherit!important;line-height:inherit!important;text-transform:inherit!important;text-decoration:none!important}.vot-subtitles span.passed{color:var(--vot-subtitles-passed-color,#2196f3)}.vot-subtitles span:before{content:"";z-index:-1;width:100%;height:100%;position:absolute;inset:2px -2px;border-radius:4px!important;padding:0 2px!important}.vot-subtitles span:hover:before{background:var(--vot-subtitles-hover-color,#ffffff8c)}.vot-subtitles span.selected:before{background:var(--vot-subtitles-passed-color,#2196f3)}@media(max-width:900px)and (pointer:coarse){.vot-subtitles-widget{--vot-subtitles-fallback-bottom-inset:env(safe-area-inset-bottom,0px)}}:-webkit-any(:-webkit-full-screen .vot-subtitles,:-webkit-full-screen .vot-subtitles){max-width:var(--vot-subtitles-max-width,80vw);font-size:calc(var(--vot-subtitles-font-size,clamp(18px, 2vw, 34px)) * var(--vot-subtitles-fullscreen-scale,1) * .95 * var(--vot-subtitles-scale-compensation,1))}:is(:fullscreen .vot-subtitles){max-width:var(--vot-subtitles-max-width,80vw);font-size:calc(var(--vot-subtitles-font-size,clamp(18px, 2vw, 34px)) * var(--vot-subtitles-fullscreen-scale,1) * .95 * var(--vot-subtitles-scale-compensation,1))}#vot-subtitles-info.vot-subtitles-info *{-webkit-user-select:text!important;user-select:text!important}:root{--vot-font-family:"Roboto", "Segoe UI", system-ui, sans-serif;--vot-primary-rgb:139, 180, 245;--vot-onprimary-rgb:32, 33, 36;--vot-surface-rgb:32, 33, 36;--vot-onsurface-rgb:227, 227, 227;--vot-subtitles-color:rgb(var(--vot-onsurface-rgb,227, 227, 227));--vot-subtitles-passed-color:rgb(var(--vot-primary-rgb,33, 150, 243));--vot-space-1:4px;--vot-space-2:8px;--vot-space-3:12px;--vot-space-4:16px;--vot-space-5:20px;--vot-space-6:24px;--vot-radius-xs:6px;--vot-radius-s:10px;--vot-radius-m:14px;--vot-radius-l:18px;--vot-border-color:rgba(var(--vot-onsurface-rgb,227, 227, 227), .14);--vot-border-color-hover:rgba(var(--vot-onsurface-rgb,227, 227, 227), .22);--vot-shadow-1:0 1px 2px #0000002e, 0 8px 24px #00000024;--vot-shadow-2:0 2px 4px #00000038, 0 12px 32px #00000038;--vot-duration-fast:.12s;--vot-duration-medium:.2s;--vot-duration-slow:.32s;--vot-easing-standard:cubic-bezier(.4, 0, .2, 1);--vot-focus-ring-color:rgba(var(--vot-primary-rgb,139, 180, 245), .9);--vot-focus-ring:0 0 0 2px var(--vot-focus-ring-color);--vot-focus-ring-offset:0 0 0 4px rgba(var(--vot-surface-rgb,32, 33, 36), .9)}vot-block,vot-block *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}vot-block[hidden]:not(.vot-menu):not(.vot-dialog-container),vot-block [hidden]:not(.vot-menu):not(.vot-dialog-container){display:none!important}vot-block{-webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale;text-rendering:optimizelegibility;-moz-text-size-adjust:100%;text-size-adjust:100%;display:block;--vot-font-family:"Roboto", "Segoe UI", system-ui, sans-serif!important;font-family:var(--vot-font-family,"Roboto", "Segoe UI", system-ui, sans-serif)!important;visibility:visible!important;font-weight:400!important}vot-block *{font-weight:inherit!important}.vot-portal-local,.vot-subtitles-widget{isolation:isolate}vot-block:focus,vot-block :focus{box-shadow:none!important;outline:none!important}html.vot-keyboard-nav vot-block:focus-visible,html.vot-keyboard-nav vot-block :focus-visible{box-shadow:var(--vot-focus-ring),var(--vot-focus-ring-offset)!important}@supports not selector(:focus-visible){html.vot-keyboard-nav vot-block:focus,html.vot-keyboard-nav vot-block :focus{box-shadow:var(--vot-focus-ring),var(--vot-focus-ring-offset)!important}}@media(prefers-reduced-motion:reduce){.vot-portal-local *,.vot-portal *,.vot-subtitles-widget *{scroll-behavior:auto!important;transition-duration:.001ms!important;animation-duration:.001ms!important;animation-iteration-count:1!important}}.vot-portal{display:inline}.vot-portal-local{z-index:2147483647;position:fixed;top:0;left:0}';
+      const mainScss = '.vot-button{--vot-helper-theme:var(--vot-theme-rgb,var(--vot-primary-rgb,33, 150, 243));--vot-helper-ontheme:var(--vot-ontheme-rgb,var(--vot-onprimary-rgb,255, 255, 255));box-sizing:border-box;vertical-align:middle;text-align:center;text-overflow:ellipsis;cursor:pointer;min-width:64px;height:36px;color:rgb(var(--vot-helper-ontheme));background-color:rgb(var(--vot-helper-theme));box-shadow:var(--vot-shadow-1);transition:box-shadow var(--vot-duration-medium) var(--vot-easing-standard);outline:none;font-size:14px;line-height:36px;display:inline-block;position:relative;border-radius:var(--vot-radius-s)!important;padding:0 var(--vot-space-4)!important;font-family:var(--vot-font-family,"Roboto", "Segoe UI", system-ui, sans-serif)!important;border:none!important;font-weight:500!important}.vot-button:before,.vot-button:after{content:"";opacity:0;position:absolute;inset:0;border-radius:inherit!important}.vot-button:before{background-color:rgb(var(--vot-helper-ontheme));transition:opacity var(--vot-duration-medium) var(--vot-easing-standard)}.vot-button:after{transition:opacity var(--vot-duration-slow) var(--vot-easing-standard),background-size var(--vot-duration-slow) var(--vot-easing-standard);background:radial-gradient(circle,currentColor 1%,#0000 1%) 50%/10000% 10000% no-repeat}.vot-button:hover:before{opacity:.08}.vot-button:active:after{opacity:.32;background-size:100% 100%;transition:background-size}.vot-button:hover,.vot-button:active{box-shadow:var(--vot-shadow-2)}.vot-button[disabled=true]{background-color:rgba(var(--vot-onsurface-rgb,0, 0, 0),.12);color:rgba(var(--vot-onsurface-rgb,0, 0, 0),.38);box-shadow:none;cursor:initial}.vot-button[disabled=true]:before,.vot-button[disabled=true]:after{opacity:0}.vot-outlined-button{--vot-helper-theme:var(--vot-theme-rgb,var(--vot-primary-rgb,33, 150, 243));box-sizing:border-box;vertical-align:middle;text-align:center;text-overflow:ellipsis;cursor:pointer;min-width:64px;height:36px;color:rgb(var(--vot-helper-theme));background-color:#0000;outline:none;font-size:14px;line-height:34px;display:inline-block;position:relative;border-radius:var(--vot-radius-s)!important;padding:0 var(--vot-space-4)!important;font-family:var(--vot-font-family,"Roboto", "Segoe UI", system-ui, sans-serif)!important;border:solid 1px var(--vot-border-color)!important;margin:0!important;font-weight:500!important}.vot-outlined-button:before,.vot-outlined-button:after{content:"";opacity:0;position:absolute;inset:0;border-radius:inherit!important}.vot-outlined-button:before{background-color:rgb(var(--vot-helper-theme));transition:opacity var(--vot-duration-medium) var(--vot-easing-standard)}.vot-outlined-button:after{transition:opacity var(--vot-duration-slow) var(--vot-easing-standard),background-size var(--vot-duration-slow) var(--vot-easing-standard);background:radial-gradient(circle,currentColor 1%,#0000 1%) 50%/10000% 10000% no-repeat}.vot-outlined-button:hover:before{opacity:.04}.vot-outlined-button:active:after{opacity:.16;background-size:100% 100%;transition:background-size}.vot-outlined-button[disabled=true]{color:rgba(var(--vot-onsurface-rgb,0, 0, 0),.38);cursor:initial;background-color:#0000}.vot-outlined-button[disabled=true]:before,.vot-outlined-button[disabled=true]:after{opacity:0}.vot-text-button{--vot-helper-theme:var(--vot-theme-rgb,var(--vot-primary-rgb,33, 150, 243));box-sizing:border-box;vertical-align:middle;text-align:center;text-overflow:ellipsis;cursor:pointer;min-width:64px;height:36px;color:rgb(var(--vot-helper-theme));background-color:#0000;outline:none;font-size:14px;line-height:36px;display:inline-block;position:relative;border-radius:var(--vot-radius-s)!important;padding:0 var(--vot-space-2)!important;font-family:var(--vot-font-family,"Roboto", "Segoe UI", system-ui, sans-serif)!important;border:none!important;margin:0!important;font-weight:500!important}.vot-text-button:before,.vot-text-button:after{content:"";opacity:0;position:absolute;inset:0;border-radius:inherit!important}.vot-text-button:before{background-color:rgb(var(--vot-helper-theme));transition:opacity var(--vot-duration-medium) var(--vot-easing-standard)}.vot-text-button:after{transition:opacity var(--vot-duration-slow) var(--vot-easing-standard),background-size var(--vot-duration-slow) var(--vot-easing-standard);background:radial-gradient(circle,currentColor 1%,#0000 1%) 50%/10000% 10000% no-repeat}.vot-text-button:hover:before{opacity:.04}.vot-text-button:active:after{opacity:.16;background-size:100% 100%;transition:background-size}.vot-text-button[disabled=true]{color:rgba(var(--vot-onsurface-rgb,0, 0, 0),.38);cursor:initial;background-color:#0000}.vot-text-button[disabled=true]:before,.vot-text-button[disabled=true]:after{opacity:0}.vot-icon-button{--vot-helper-onsurface:rgba(var(--vot-onsurface-rgb,0, 0, 0), .87);box-sizing:border-box;vertical-align:middle;text-align:center;text-overflow:ellipsis;cursor:pointer;width:36px;min-width:36px;height:36px;fill:var(--vot-helper-onsurface);color:var(--vot-helper-onsurface);background-color:#0000;outline:none;font-size:14px;line-height:36px;display:inline-block;position:relative;font-family:var(--vot-font-family,"Roboto", "Segoe UI", system-ui, sans-serif)!important;border:none!important;border-radius:50%!important;margin:0!important;padding:0!important;font-weight:500!important}.vot-icon-button:before,.vot-icon-button:after{content:"";opacity:0;position:absolute;inset:0;border-radius:inherit!important}.vot-icon-button:before{background-color:var(--vot-helper-onsurface);transition:opacity var(--vot-duration-medium) var(--vot-easing-standard)}.vot-icon-button:after{transition:opacity var(--vot-duration-slow) var(--vot-easing-standard),background-size var(--vot-duration-slow) var(--vot-easing-standard);background:radial-gradient(circle,currentColor 1%,#0000 1%) 50%/10000% 10000% no-repeat}.vot-icon-button:hover:before{opacity:.04}.vot-icon-button:active:after{opacity:.32;background-size:100% 100%;transition:background-size}.vot-icon-button[disabled=true]{color:rgba(var(--vot-onsurface-rgb,0, 0, 0),.38);fill:rgba(var(--vot-onsurface-rgb,0, 0, 0),.38);cursor:initial;background-color:#0000}.vot-icon-button[disabled=true]:before,.vot-icon-button[disabled=true]:after{opacity:0}.vot-icon-button svg{fill:inherit;stroke:inherit;width:24px;height:36px}.vot-hotkey{justify-content:flex-start;align-items:center;gap:var(--vot-space-3,12px);flex-wrap:wrap;display:flex}.vot-hotkey-label{word-break:break-word;max-width:80%}.vot-hotkey-button{--vot-helper-theme:var(--vot-theme-rgb,var(--vot-primary-rgb,33, 150, 243));box-sizing:border-box;vertical-align:middle;text-align:center;text-overflow:ellipsis;cursor:pointer;background-color:#0000;outline:none;width:fit-content;min-width:32px;height:fit-content;font-size:15px;line-height:1.5;display:inline-block;position:relative;border-radius:var(--vot-radius-s)!important;padding:0 var(--vot-space-2)!important;font-family:var(--vot-font-family,"Roboto", "Segoe UI", system-ui, sans-serif)!important;border:solid 1px var(--vot-border-color)!important;margin:0!important;font-weight:400!important}.vot-hotkey-button:before,.vot-hotkey-button:after{content:"";opacity:0;position:absolute;inset:0;border-radius:inherit!important}.vot-hotkey-button:before{background-color:rgb(var(--vot-helper-theme));transition:opacity var(--vot-duration-medium) var(--vot-easing-standard)}.vot-hotkey-button:after{transition:opacity var(--vot-duration-slow) var(--vot-easing-standard),background-size var(--vot-duration-slow) var(--vot-easing-standard);background:radial-gradient(circle,currentColor 1%,#0000 1%) 50%/10000% 10000% no-repeat}.vot-hotkey-button:hover:before{opacity:.04}.vot-hotkey-button:active:after{opacity:.16;background-size:100% 100%;transition:background-size}.vot-hotkey-button[data-status=active]{color:rgb(var(--vot-helper-theme))}.vot-hotkey-button[data-status=active]:before{opacity:.04}.vot-hotkey-button[disabled=true]{color:rgba(var(--vot-onsurface-rgb,0, 0, 0),.38);cursor:initial;background-color:#0000}.vot-hotkey-button[disabled=true]:before,.vot-hotkey-button[disabled=true]:after{opacity:0}.vot-textfield{display:inline-block;--vot-helper-theme:rgb(var(--vot-theme-rgb,var(--vot-primary-rgb,33, 150, 243)))!important;--vot-helper-safari1:rgba(var(--vot-onsurface-rgb,0, 0, 0), .38)!important;--vot-helper-safari2:rgba(var(--vot-onsurface-rgb,0, 0, 0), .6)!important;--vot-helper-safari3:rgba(var(--vot-onsurface-rgb,0, 0, 0), .87)!important;font-family:var(--vot-font-family,"Roboto", "Segoe UI", system-ui, sans-serif)!important;text-align:start!important;padding-top:6px!important;font-size:16px!important;line-height:1.5!important;position:relative!important}.vot-textfield>:is(input,textarea){box-sizing:border-box!important;border-style:solid!important;border-width:1px!important;border-color:transparent var(--vot-helper-safari2) var(--vot-helper-safari2)!important;width:100%!important;height:inherit!important;color:rgba(var(--vot-onsurface-rgb,0, 0, 0),.87)!important;-webkit-text-fill-color:currentColor!important;font-family:inherit!important;font-size:inherit!important;line-height:inherit!important;caret-color:var(--vot-helper-theme)!important;background-color:#0000!important;border-radius:4px!important;margin:0!important;padding:15px 13px!important;transition:border .2s,box-shadow .2s!important;box-shadow:inset 1px 0 #0000,inset -1px 0 #0000,inset 0 -1px #0000!important}.vot-textfield>:is(input,textarea):not(:focus):not(:is(.vot-show-placeholder,.vot-show-placeholer))::placeholder{color:#0000!important}.vot-textfield>:is(input,textarea):not(:focus):placeholder-shown{border-top-color:var(--vot-helper-safari2)!important}.vot-textfield>:is(input,textarea)+span{font-family:inherit;width:100%!important;max-height:100%!important;color:rgba(var(--vot-onsurface-rgb,0, 0, 0),.6)!important;cursor:text!important;pointer-events:none!important;font-size:75%!important;line-height:15px!important;transition:color .2s,font-size .2s,line-height .2s!important;display:flex!important;position:absolute!important;top:0!important;left:0!important}.vot-textfield>:is(input,textarea):not(:focus):placeholder-shown+span{font-size:inherit!important;line-height:68px!important}.vot-textfield>input+span:before,.vot-textfield>input+span:after,.vot-textfield>textarea+span:before,.vot-textfield>textarea+span:after{content:""!important;box-sizing:border-box!important;border-top:solid 1px var(--vot-helper-safari2)!important;pointer-events:none!important;min-width:10px!important;height:8px!important;margin-top:6px!important;transition:border .2s,box-shadow .2s!important;display:block!important;box-shadow:inset 0 1px #0000!important}.vot-textfield>input+span:before,.vot-textfield>textarea+span:before{border-left:1px solid #0000!important;border-radius:4px 0!important;margin-right:4px!important}.vot-textfield>input+span:after,.vot-textfield>textarea+span:after{border-right:1px solid #0000!important;border-radius:0 4px!important;flex-grow:1!important;margin-left:4px!important}.vot-textfield>input:is(.vot-show-placeholder,.vot-show-placeholer)+span:before,.vot-textfield>textarea:is(.vot-show-placeholder,.vot-show-placeholer)+span:before{margin-right:0!important}.vot-textfield>input:is(.vot-show-placeholder,.vot-show-placeholer)+span:after,.vot-textfield>textarea:is(.vot-show-placeholder,.vot-show-placeholer)+span:after{margin-left:0!important}.vot-textfield>input:not(:focus):placeholder-shown+span:before,.vot-textfield>input:not(:focus):placeholder-shown+span:after,.vot-textfield>textarea:not(:focus):placeholder-shown+span:before,.vot-textfield>textarea:not(:focus):placeholder-shown+span:after{border-top-color:#0000!important}.vot-textfield:hover>input:not(:disabled),.vot-textfield:hover>textarea:not(:disabled){border-color:transparent var(--vot-helper-safari3) var(--vot-helper-safari3)!important}.vot-textfield:hover>input:not(:disabled)+span:before,.vot-textfield:hover>input:not(:disabled)+span:after,.vot-textfield:hover>textarea:not(:disabled)+span:before,.vot-textfield:hover>textarea:not(:disabled)+span:after{border-top-color:var(--vot-helper-safari3)!important}.vot-textfield:hover>input:not(:disabled):not(:focus):placeholder-shown,.vot-textfield:hover>textarea:not(:disabled):not(:focus):placeholder-shown{border-color:var(--vot-helper-safari3)!important}.vot-textfield>input:focus,.vot-textfield>textarea:focus{border-color:transparent var(--vot-helper-theme) var(--vot-helper-theme)!important;box-shadow:inset 1px 0 var(--vot-helper-theme),inset -1px 0 var(--vot-helper-theme),inset 0 -1px var(--vot-helper-theme)!important;outline:none!important}.vot-textfield>input:focus+span,.vot-textfield>textarea:focus+span{color:var(--vot-helper-theme)!important}.vot-textfield>input:focus+span:before,.vot-textfield>input:focus+span:after,.vot-textfield>textarea:focus+span:before,.vot-textfield>textarea:focus+span:after{border-top-color:var(--vot-helper-theme)!important;box-shadow:inset 0 1px var(--vot-helper-theme)!important}.vot-textfield>input:disabled,.vot-textfield>input:disabled+span,.vot-textfield>textarea:disabled,.vot-textfield>textarea:disabled+span{border-color:transparent var(--vot-helper-safari1) var(--vot-helper-safari1)!important;color:rgba(var(--vot-onsurface-rgb,0, 0, 0),.38)!important;pointer-events:none!important}.vot-textfield>input:disabled+span:before,.vot-textfield>input:disabled+span:after,.vot-textfield>textarea:disabled+span:before,.vot-textfield>textarea:disabled+span:after,.vot-textfield>input:disabled:placeholder-shown,.vot-textfield>input:disabled:placeholder-shown+span,.vot-textfield>textarea:disabled:placeholder-shown,.vot-textfield>textarea:disabled:placeholder-shown+span{border-top-color:var(--vot-helper-safari1)!important}.vot-textfield>input:disabled:placeholder-shown+span:before,.vot-textfield>input:disabled:placeholder-shown+span:after,.vot-textfield>textarea:disabled:placeholder-shown+span:before,.vot-textfield>textarea:disabled:placeholder-shown+span:after{border-top-color:#0000!important}@media not all and (min-resolution:.001dpcm){@supports ((-webkit-appearance:none)){.vot-textfield>input,.vot-textfield>input+span,.vot-textfield>textarea,.vot-textfield>textarea+span,.vot-textfield>input+span:before,.vot-textfield>input+span:after,.vot-textfield>textarea+span:before,.vot-textfield>textarea+span:after{transition-duration:.1s!important}}}.vot-checkbox{--vot-checkbox-label-offset:30px;--vot-helper-theme:var(--vot-theme-rgb,var(--vot-primary-rgb,33, 150, 243));--vot-helper-ontheme:var(--vot-ontheme-rgb,var(--vot-onprimary-rgb,255, 255, 255));z-index:0;color:rgba(var(--vot-onsurface-rgb,0, 0, 0),.87);text-align:start;font-size:16px;line-height:1.5;display:inline-block;position:relative;font-family:var(--vot-font-family,"Roboto", "Segoe UI", system-ui, sans-serif)!important;text-transform:none!important}.vot-checkbox-sub{padding-left:var(--vot-checkbox-label-offset)!important}.vot-checkbox>input{appearance:none;z-index:10000;box-sizing:border-box;opacity:1;cursor:pointer;background:0 0;outline:none;width:18px;height:18px;transition:border-color .2s,background-color .2s;display:block;position:absolute;border:2px solid!important;border-color:rgba(var(--vot-onsurface-rgb,0, 0, 0),.6)!important;border-radius:2px!important;margin:3px 1px!important;padding:0!important}.vot-checkbox>input+span{box-sizing:border-box;width:inherit;cursor:pointer;font-family:inherit;display:inline-block;position:relative;padding-left:var(--vot-checkbox-label-offset)!important;font-weight:400!important}.vot-checkbox>input+span:before{content:"";background-color:rgb(var(--vot-onsurface-rgb,0, 0, 0));opacity:0;pointer-events:none;width:40px;height:40px;transition:opacity .3s,transform .2s;display:block;position:absolute;top:-8px;left:-10px;transform:scale(1);border-radius:50%!important}.vot-checkbox>input+span:after{content:"";z-index:10000;pointer-events:none;width:10px;height:5px;transition:border-color .2s;display:block;position:absolute;top:3px;left:1px;transform:translate(3px,4px)rotate(-45deg);box-sizing:content-box!important;border:0 solid #0000!important;border-width:0 0 2px 2px!important}.vot-checkbox>input:checked,.vot-checkbox>input:indeterminate{background-color:rgb(var(--vot-helper-theme));border-color:rgb(var(--vot-helper-theme))!important}.vot-checkbox>input:checked+span:before,.vot-checkbox>input:indeterminate+span:before{background-color:rgb(var(--vot-helper-theme))}.vot-checkbox>input:checked+span:after,.vot-checkbox>input:indeterminate+span:after{border-color:rgb(var(--vot-helper-ontheme,255, 255, 255))!important}.vot-checkbox>input:hover{box-shadow:none!important}.vot-checkbox>input:indeterminate+span:after{transform:translate(4px,3px);border-left-width:0!important}.vot-checkbox:hover>input+span:before{opacity:.04}.vot-checkbox:active>input,.vot-checkbox:active:hover>input:not(:disabled){border-color:rgb(var(--vot-helper-theme))!important}.vot-checkbox:active>input:checked{background-color:rgba(var(--vot-onsurface-rgb,0, 0, 0),.6);border-color:#0000!important}.vot-checkbox:active>input+span:before{opacity:1;transition:transform,opacity;transform:scale(0)}.vot-checkbox>input:disabled{cursor:initial;border-color:rgba(var(--vot-onsurface-rgb,0, 0, 0),.38)!important}.vot-checkbox>input:disabled:checked,.vot-checkbox>input:disabled:indeterminate{background-color:rgba(var(--vot-onsurface-rgb,0, 0, 0),.38);border-color:#0000!important}.vot-checkbox>input:disabled+span{color:rgba(var(--vot-onsurface-rgb,0, 0, 0),.38);cursor:initial}.vot-checkbox>input:disabled+span:before{opacity:0;transform:scale(0)}html.vot-keyboard-nav .vot-checkbox>input:focus-visible{box-shadow:var(--vot-focus-ring),var(--vot-focus-ring-offset)!important}@supports not selector(:focus-visible){html.vot-keyboard-nav .vot-checkbox>input:focus{box-shadow:var(--vot-focus-ring),var(--vot-focus-ring-offset)!important}}.vot-slider{flex-direction:column;gap:6px;display:flex;width:100%!important;color:rgba(var(--vot-onsurface-rgb,0, 0, 0),.87)!important;font-family:var(--vot-font-family,"Roboto", "Segoe UI", BlinkMacSystemFont, system-ui, -apple-system)!important;text-align:start!important;font-size:16px!important;line-height:1.5!important}.vot-slider>span{order:1;margin:0!important;display:block!important}.vot-slider .vot-slider-label{flex-wrap:wrap;align-items:baseline;gap:6px;width:100%;display:inline-flex}.vot-slider-label-value{font-variant-numeric:tabular-nums;margin-left:0!important;font-weight:500!important}.vot-slider .vot-slider-label-text{min-width:0}.vot-slider>input{order:2;appearance:none!important;cursor:pointer!important;background-color:#0000!important;border:none!important;width:100%!important;height:32px!important;margin:0!important;padding:0!important;display:block!important;position:relative!important;top:0!important}.vot-slider>input:hover{box-shadow:none!important}.vot-slider>input:before{content:""!important;width:calc(100% * var(--vot-progress,0))!important;background:rgb(var(--vot-primary-rgb,33, 150, 243))!important;height:2px!important;display:block!important;position:absolute!important;top:calc(50% - 1px)!important}.vot-slider>input:disabled{cursor:default!important;opacity:.38!important}.vot-slider>input:disabled+span{color:rgba(var(--vot-onsurface-rgb,0, 0, 0),.38)!important}.vot-slider>input:disabled::-webkit-slider-runnable-track{background-color:rgba(var(--vot-onsurface-rgb,0, 0, 0),.38)!important}.vot-slider>input:disabled::-moz-range-track{background-color:rgba(var(--vot-onsurface-rgb,0, 0, 0),.38)!important}.vot-slider>input:disabled::-webkit-slider-thumb{background-color:rgb(var(--vot-onsurface-rgb,0, 0, 0))!important;box-shadow:0 0 0 1px rgb(var(--vot-surface-rgb,255, 255, 255))!important;transform:scale(4)!important}.vot-slider>input:disabled::-moz-range-thumb{background-color:rgb(var(--vot-onsurface-rgb,0, 0, 0))!important;box-shadow:0 0 0 1px rgb(var(--vot-surface-rgb,255, 255, 255))!important;transform:scale(4)!important}.vot-slider>input:disabled::-moz-range-progress{background-color:rgba(var(--vot-onsurface-rgb,0, 0, 0),.87)!important}.vot-slider>input:focus{outline:none!important}.vot-slider>input::-webkit-slider-runnable-track{background-color:rgba(var(--vot-primary-rgb,33, 150, 243),.24)!important;border-radius:1px!important;width:100%!important;height:2px!important;margin:15px 0!important}.vot-slider>input::-moz-range-track{background-color:rgba(var(--vot-primary-rgb,33, 150, 243),.24)!important;border-radius:1px!important;width:100%!important;height:2px!important;margin:15px 0!important}.vot-slider>input::-webkit-slider-thumb{appearance:none!important;background-color:rgb(var(--vot-primary-rgb,33, 150, 243))!important;width:2px!important;height:2px!important;box-shadow:none!important;border:none!important;border-radius:50%!important;transition:box-shadow .2s!important;transform:scale(6)!important}.vot-slider>input::-moz-range-thumb{appearance:none!important;background-color:rgb(var(--vot-primary-rgb,33, 150, 243))!important;width:2px!important;height:2px!important;box-shadow:none!important;border:none!important;border-radius:50%!important;transition:box-shadow .2s!important;transform:scale(6)!important}.vot-slider>input::-webkit-slider-thumb{-webkit-appearance:none!important;margin:0!important}.vot-slider>input::-moz-range-progress{background-color:rgb(var(--vot-primary-rgb,33, 150, 243))!important;border-radius:1px!important;height:2px!important}.vot-slider>input:focus:not(:focus-visible)::-webkit-slider-thumb{box-shadow:none!important}.vot-slider>input:focus:not(:focus-visible)::-moz-range-thumb{box-shadow:none!important}html.vot-keyboard-nav .vot-slider>input:focus-visible::-webkit-slider-thumb{box-shadow:0 0 0 2px rgba(var(--vot-primary-rgb,33, 150, 243),.24)!important}html.vot-keyboard-nav .vot-slider>input:focus-visible::-moz-range-thumb{box-shadow:0 0 0 2px rgba(var(--vot-primary-rgb,33, 150, 243),.24)!important}@supports not selector(:focus-visible){html.vot-keyboard-nav .vot-slider>input:focus::-webkit-slider-thumb{box-shadow:0 0 0 2px rgba(var(--vot-primary-rgb,33, 150, 243),.24)!important}html.vot-keyboard-nav .vot-slider>input:focus::-moz-range-thumb{box-shadow:0 0 0 2px rgba(var(--vot-primary-rgb,33, 150, 243),.24)!important}}.vot-select{--vot-helper-theme-rgb:var(--vot-onsurface-rgb,0, 0, 0);--vot-helper-theme:rgba(var(--vot-helper-theme-rgb), .87);--vot-helper-safari1:rgba(var(--vot-onsurface-rgb,0, 0, 0), .6);--vot-helper-safari2:rgba(var(--vot-onsurface-rgb,0, 0, 0), .87);font-family:var(--vot-font-family,"Roboto", "Segoe UI", system-ui, sans-serif);text-align:start;color:var(--vot-helper-theme);fill:var(--vot-helper-theme);justify-content:space-between;align-items:center;font-size:14px;line-height:1.5;display:flex;font-weight:400!important}.vot-select-outer{cursor:pointer;justify-content:space-between;align-items:center;width:120px;max-width:120px;display:flex;border:1px solid var(--vot-helper-safari1)!important;border-radius:4px!important;padding:0 5px!important;transition:border .2s!important}.vot-select-outer:hover{border-color:var(--vot-helper-safari2)!important}.vot-select-outer[disabled=true]{opacity:.5;cursor:default}.vot-select-outer[disabled=true]:hover{border-color:var(--vot-helper-safari1)!important}.vot-select-title{text-overflow:ellipsis;white-space:nowrap;font-family:inherit;overflow:hidden}.vot-select-arrow-icon{justify-content:center;align-items:center;width:20px;height:32px;display:flex}.vot-select-arrow-icon svg{fill:inherit;stroke:inherit}.vot-select-content-list{flex-direction:column;display:flex}.vot-select-content-list .vot-select-content-item{cursor:pointer;border-radius:8px!important;padding:5px 10px!important}.vot-select-content-list .vot-select-content-item:not([inert]):hover{background-color:#2a2c31}.vot-select-content-list .vot-select-content-item[data-vot-selected=true]{color:rgb(var(--vot-primary-rgb,33, 150, 243));background-color:rgba(var(--vot-primary-rgb,33, 150, 243),.2)}.vot-select-content-list .vot-select-content-item[data-vot-selected=true]:hover{background-color:rgba(var(--vot-primary-rgb,33, 150, 243),.1)!important}.vot-select-content-list .vot-select-content-item[inert]{cursor:default;color:rgba(var(--vot-onsurface-rgb,0, 0, 0),.38)}.vot-header{color:rgba(var(--vot-helper-onsurface-rgb),.87);font-family:var(--vot-font-family,"Roboto", "Segoe UI", system-ui, sans-serif);text-align:start;line-height:1.5;font-weight:700!important}.vot-header:not(:first-child){padding-top:8px}.vot-header-level-1{font-size:2em}.vot-header-level-2{font-size:1.5em}.vot-header-level-3{font-size:1.17em}.vot-header-level-4{font-size:1em}.vot-header-level-5{font-size:.83em}.vot-header-level-6{font-size:.67em}.vot-info{color:rgba(var(--vot-helper-onsurface-rgb),.87);font-family:var(--vot-font-family,"Roboto", "Segoe UI", system-ui, sans-serif);text-align:start;-webkit-user-select:text;user-select:text;font-size:16px;line-height:1.5;display:flex}.vot-info>:not(:first-child){color:rgba(var(--vot-helper-onsurface-rgb),.5);flex:1;margin-left:8px!important}.vot-details{color:rgba(var(--vot-helper-onsurface-rgb),.87);font-family:var(--vot-font-family,"Roboto", "Segoe UI", system-ui, sans-serif);text-align:start;cursor:pointer;transition:background var(--vot-duration-medium) var(--vot-easing-standard);justify-content:space-between;align-items:center;font-size:16px;line-height:1.5;display:flex;border-radius:.5em!important;margin:-.5em!important;padding:.5em!important}.vot-details-arrow-icon{width:20px;height:32px;fill:rgba(var(--vot-helper-onsurface-rgb),.87);justify-content:center;align-items:center;display:flex;transform:scale(1.25)rotate(-90deg)}.vot-details:hover{background:rgba(var(--vot-onsurface-rgb,0, 0, 0),.06)}.vot-settings-section{border:1px solid var(--vot-border-color);border-radius:var(--vot-radius-l);padding:var(--vot-space-2);background:rgba(var(--vot-helper-onsurface-rgb),.03);flex-direction:column;display:flex}.vot-settings-section>*{margin:0!important}.vot-settings-section>*+*{margin-top:var(--vot-space-2)!important}.vot-settings-section-header{border-radius:var(--vot-radius-m);margin:0!important;padding:.45em .5em!important}.vot-settings-section-header .vot-details-arrow-icon{transition:transform var(--vot-duration-medium) var(--vot-easing-standard)}.vot-settings-section-header[data-open=true] .vot-details-arrow-icon{transform:scale(1.25)rotate(0)}.vot-settings-section-content{--vot-settings-control-width:200px;--vot-settings-row-gap:var(--vot-space-2);padding:0 var(--vot-space-1) var(--vot-space-1);flex-direction:column;display:flex}.vot-settings-section-content>*{margin:0!important}.vot-settings-section-content>*+*{margin-top:var(--vot-settings-row-gap)!important}.vot-settings-section-content>.vot-checkbox,.vot-settings-section-content>.vot-hotkey,.vot-settings-section-content>.vot-textfield,.vot-settings-section-content>.vot-select,.vot-settings-section-content>.vot-slider{padding:var(--vot-space-1);box-sizing:border-box;width:100%!important}.vot-settings-section-content>.vot-textfield{gap:var(--vot-space-1);flex-direction:column;padding-top:0!important;display:flex!important}.vot-settings-section-content>.vot-textfield>span{order:0;width:auto!important;max-height:none!important;color:rgba(var(--vot-helper-onsurface-rgb),.72)!important;cursor:default!important;pointer-events:none!important;font-size:13px!important;line-height:1.2!important;display:block!important;position:static!important}.vot-settings-section-content>.vot-textfield>span:before,.vot-settings-section-content>.vot-textfield>span:after{content:none!important;display:none!important}.vot-settings-section-content>.vot-textfield>input,.vot-settings-section-content>.vot-textfield>textarea{transition:border-color var(--vot-duration-fast) var(--vot-easing-standard),background-color var(--vot-duration-fast) var(--vot-easing-standard);order:1;width:100%!important;height:36px!important;padding:0 var(--vot-space-3)!important;border:1px solid var(--vot-border-color)!important;border-radius:var(--vot-radius-s)!important;background:rgba(var(--vot-helper-onsurface-rgb),.04)!important;color:rgba(var(--vot-helper-onsurface-rgb),.9)!important;-webkit-text-fill-color:currentColor!important;box-shadow:none!important}.vot-settings-section-content>.vot-textfield>textarea{resize:vertical;height:auto!important;min-height:84px!important;padding:var(--vot-space-2) var(--vot-space-3)!important}.vot-settings-section-content>.vot-textfield>input::placeholder,.vot-settings-section-content>.vot-textfield>textarea::placeholder{color:rgba(var(--vot-helper-onsurface-rgb),.55)!important}.vot-settings-section-content>.vot-textfield:hover>input,.vot-settings-section-content>.vot-textfield:hover>textarea{border-color:var(--vot-border-color-hover)!important}.vot-settings-section-content>.vot-textfield>input:not(:focus):placeholder-shown,.vot-settings-section-content>.vot-textfield>textarea:not(:focus):placeholder-shown{border-color:var(--vot-border-color)!important}.vot-settings-section-content>.vot-textfield>input:focus,.vot-settings-section-content>.vot-textfield>textarea:focus{border-color:rgba(var(--vot-primary-rgb),.7)!important}.vot-lang-select{--vot-helper-theme-rgb:var(--vot-onsurface-rgb,0, 0, 0);--vot-helper-theme:rgba(var(--vot-helper-theme-rgb), .87);color:var(--vot-helper-theme);fill:var(--vot-helper-theme);justify-content:space-between;align-items:center;display:flex}.vot-lang-select-icon{justify-content:center;align-items:center;width:32px;height:32px;display:flex}.vot-lang-select-icon svg{fill:inherit;stroke:inherit}.vot-segmented-button{--vot-helper-theme-rgb:var(--vot-onsurface-rgb,0, 0, 0);--vot-helper-theme:rgba(var(--vot-helper-theme-rgb), .87);-webkit-user-select:none;user-select:none;background:rgb(var(--vot-surface-rgb,255, 255, 255));max-width:100vw;height:36px;color:var(--vot-helper-theme);fill:var(--vot-helper-theme);cursor:default;transition:opacity var(--vot-duration-slow) var(--vot-easing-standard);z-index:2147483647;align-items:center;font-size:16px;line-height:1.5;display:flex;position:absolute;top:5rem;left:50%;overflow:hidden;transform:translate(-50%);opacity:1!important;pointer-events:auto!important;touch-action:none!important;border:1px solid var(--vot-border-color)!important;border-radius:var(--vot-radius-s)!important;box-shadow:var(--vot-shadow-1)!important;font-family:var(--vot-font-family,"Roboto", "Segoe UI", system-ui, sans-serif)!important}.vot-segmented-button.vot-segmented-button--hidden{opacity:0!important;pointer-events:none!important}.vot-segmented-button *{box-sizing:border-box!important}.vot-segmented-button .vot-separator{background:rgba(var(--vot-helper-theme-rgb),.1);width:1px;height:50%}.vot-segmented-button .vot-segment,.vot-segmented-button .vot-segment-only-icon{height:100%;color:inherit;transition:background-color var(--vot-duration-fast) var(--vot-easing-standard);-webkit-tap-highlight-color:transparent;background-color:#0000;outline:none;justify-content:center;align-items:center;display:flex;position:relative;overflow:hidden;padding:0 var(--vot-space-2)!important;border:none!important}.vot-segmented-button .vot-segment:focus,.vot-segmented-button .vot-segment-only-icon:focus{box-shadow:inset 0 0 0 2px var(--vot-focus-ring-color);outline:none}.vot-segmented-button .vot-segment:focus:not(:focus-visible),.vot-segmented-button .vot-segment-only-icon:focus:not(:focus-visible){box-shadow:none}.vot-segmented-button .vot-segment:before,.vot-segmented-button .vot-segment-only-icon:before,.vot-segmented-button .vot-segment:after,.vot-segmented-button .vot-segment-only-icon:after{content:"";opacity:0;position:absolute;inset:0;border-radius:inherit!important}.vot-segmented-button .vot-segment:before,.vot-segmented-button .vot-segment-only-icon:before{background-color:rgb(var(--vot-helper-theme-rgb));transition:opacity var(--vot-duration-medium) var(--vot-easing-standard)}.vot-segmented-button .vot-segment:after,.vot-segmented-button .vot-segment-only-icon:after{transition:opacity var(--vot-duration-slow) var(--vot-easing-standard),background-size var(--vot-duration-slow) var(--vot-easing-standard);background:radial-gradient(circle,currentColor 1%,#0000 1%) 50%/10000% 10000% no-repeat}.vot-segmented-button .vot-segment:hover:before,.vot-segmented-button .vot-segment-only-icon:hover:before{opacity:.04}.vot-segmented-button .vot-segment:active:after,.vot-segmented-button .vot-segment-only-icon:active:after{opacity:.16;background-size:100% 100%;transition:background-size}.vot-segmented-button .vot-segment-only-icon{min-width:36px;padding:0!important}.vot-segmented-button .vot-segment-label{white-space:nowrap;color:inherit;margin-left:var(--vot-space-2)!important;font-weight:400!important}.vot-segmented-button[data-status=success] .vot-translate-button{color:rgb(var(--vot-primary-rgb,33, 150, 243));fill:rgb(var(--vot-primary-rgb,33, 150, 243))}.vot-segmented-button[data-status=error] .vot-translate-button{color:#f28b82;fill:#f28b82}.vot-segmented-button[data-loading=true] #vot-loading-icon{display:block!important}.vot-segmented-button[data-loading=true] #vot-translate-icon{display:none!important}.vot-segmented-button[data-direction=column]{flex-direction:column;height:fit-content}.vot-segmented-button[data-direction=column] .vot-segment-label{display:none}.vot-segmented-button[data-direction=column]>.vot-segment-only-icon,.vot-segmented-button[data-direction=column]>.vot-segment{padding:8px!important}.vot-segmented-button[data-direction=column] .vot-separator{width:50%;height:1px}.vot-segmented-button[data-position=left]{top:12.5vh;left:50px}.vot-segmented-button[data-position=right]{top:12.5vh;left:auto;right:0}.vot-segmented-button svg{width:24px;fill:inherit;stroke:inherit}.vot-tooltip{--vot-helper-theme-rgb:var(--vot-onsurface-rgb,0, 0, 0);--vot-helper-theme:rgba(var(--vot-helper-theme-rgb), .87);--vot-helper-ondialog:rgb(var(--vot-ondialog-rgb,37, 38, 40));--vot-helper-border:rgb(var(--vot-tooltip-border,69, 69, 69));-webkit-user-select:none;user-select:none;background:rgb(var(--vot-surface-rgb,255, 255, 255));color:var(--vot-helper-theme);fill:var(--vot-helper-theme);cursor:default;z-index:2147483647;opacity:0;align-items:center;width:max-content;max-width:calc(100vw - 10px);height:max-content;font-size:14px;line-height:1.5;transition:opacity .5s;display:flex;position:absolute;inset:0;overflow:hidden;box-shadow:0 1px 3px #0000001f;font-family:var(--vot-font-family,"Roboto", "Segoe UI", system-ui, sans-serif)!important;border-radius:4px!important;padding:4px 8px!important}.vot-tooltip[data-trigger=click]{-webkit-user-select:text;user-select:text}.vot-tooltip.vot-tooltip-bordered{border:1px solid var(--vot-helper-border)}.vot-tooltip *{box-sizing:border-box!important;font-family:inherit!important}.vot-menu{--vot-helper-surface-rgb:var(--vot-surface-rgb,255, 255, 255);--vot-helper-surface:rgb(var(--vot-helper-surface-rgb));--vot-helper-onsurface-rgb:var(--vot-onsurface-rgb,0, 0, 0);--vot-helper-onsurface:rgba(var(--vot-helper-onsurface-rgb), .87);--vot-settings-control-width:clamp(120px, 45%, 200px);-webkit-user-select:none;user-select:none;background-color:var(--vot-helper-surface);color:var(--vot-helper-onsurface);cursor:default;z-index:2147483646;visibility:visible;opacity:1;transform-origin:top;width:fit-content;min-width:320px;max-width:min(90vw,560px);transition:opacity var(--vot-duration-medium) var(--vot-easing-standard),transform var(--vot-duration-medium) var(--vot-easing-standard);font-size:16px;line-height:1.5;position:absolute;top:calc(5rem + 48px);left:50%;overflow:hidden;transform:translate(-50%)scale(1);border:1px solid var(--vot-border-color)!important;border-radius:var(--vot-radius-m)!important;box-shadow:var(--vot-shadow-2)!important;font-family:var(--vot-font-family,"Roboto", "Segoe UI", system-ui, sans-serif)!important}.vot-menu *{box-sizing:border-box!important}.vot-menu[hidden]{pointer-events:none;visibility:hidden;opacity:0;transform:translate(-50%,-4px)scale(.98);display:block!important}.vot-menu-content-wrapper{min-width:320px;min-height:100px;max-height:calc(var(--vot-container-height,75vh) - (5rem + 32px + 16px) * 2);flex-direction:column;display:flex;overflow:auto}.vot-menu-header-container{flex-shrink:0;align-items:center;min-height:31px;display:flex;padding-inline-end:var(--vot-space-2)!important}.vot-menu-header-container:empty{padding:0 0 16px!important}.vot-menu-header-container>.vot-icon-button{margin-inline-end:var(--vot-space-1)!important;margin-top:var(--vot-space-1)!important}.vot-menu-title-container{font-size:inherit;text-align:start;outline:0;flex:1;display:flex;font-weight:inherit!important;margin:0!important}.vot-menu-title{flex:1;font-size:16px;line-height:1;padding:var(--vot-space-4)!important;font-weight:500!important}.vot-menu-body-container{box-sizing:border-box;gap:var(--vot-space-2);overscroll-behavior:contain;flex-direction:column;min-height:1.375rem;display:flex;overflow:auto;padding:0 var(--vot-space-4)!important;scrollbar-color:rgba(var(--vot-helper-onsurface-rgb),.1) var(--vot-helper-surface)!important}.vot-menu-body-container::-webkit-scrollbar{background:var(--vot-helper-surface)!important;width:12px!important;height:12px!important}.vot-menu-body-container::-webkit-scrollbar-track{background:var(--vot-helper-surface)!important;width:12px!important;height:12px!important}.vot-menu-body-container::-webkit-scrollbar-thumb{border-radius:1ex;background:rgba(var(--vot-helper-onsurface-rgb),.1)!important;border:5px solid var(--vot-helper-surface)!important}.vot-menu-body-container::-webkit-scrollbar-thumb:hover{border-width:3px!important}.vot-menu-body-container::-webkit-scrollbar-corner{background:var(--vot-helper-surface)!important}.vot-menu-footer-container{flex-shrink:0;justify-content:flex-end;display:flex;padding:var(--vot-space-4)!important}.vot-menu-footer-container:empty{padding:var(--vot-space-4) 0 0 0!important}.vot-menu .vot-select--labeled>.vot-select-outer{margin-left:auto}.vot-menu[data-position=left]{transform-origin:0;top:12.5vh;left:240px}.vot-menu[data-position=right]{transform-origin:100%;top:12.5vh;left:auto;right:-80px}.vot-dialog{--vot-helper-surface-rgb:var(--vot-surface-rgb,255, 255, 255);--vot-helper-surface:rgb(var(--vot-helper-surface-rgb));--vot-helper-onsurface-rgb:var(--vot-onsurface-rgb,0, 0, 0);--vot-helper-onsurface:rgba(var(--vot-helper-onsurface-rgb), .87);--vot-dialog-viewport-margin:16px;--vot-dialog-max-height:75vh;max-width:initial;max-height:initial;width:min(var(--vot-dialog-width,512px),100%);border:1px solid var(--vot-border-color);border-radius:var(--vot-radius-l);background-color:var(--vot-helper-surface);height:fit-content;color:var(--vot-helper-onsurface);box-shadow:var(--vot-shadow-2);-webkit-user-select:none;user-select:none;visibility:visible;opacity:1;transform-origin:50%;transition:opacity var(--vot-duration-medium) var(--vot-easing-standard),transform var(--vot-duration-medium) var(--vot-easing-standard);font-size:16px;line-height:1.5;display:block;position:fixed;inset-block:0;inset-inline:0;overflow:auto hidden;transform:scale(1);font-family:var(--vot-font-family,"Roboto", "Segoe UI", system-ui, sans-serif)!important;margin:auto!important;padding:0!important}[hidden]>.vot-dialog{pointer-events:none;opacity:0;transition:opacity var(--vot-duration-fast) var(--vot-easing-standard),transform var(--vot-duration-medium) var(--vot-easing-standard);transform:translateY(-4px)scale(.98)}.vot-dialog[data-vertical-align=top]{inset-block-start:var(--vot-dialog-viewport-margin);inset-block-end:auto;margin:0 auto!important}.vot-dialog-container{visibility:visible;z-index:2147483647;position:absolute}.vot-dialog-container[hidden]{pointer-events:none;visibility:hidden;display:block!important}.vot-dialog-container *{box-sizing:border-box!important}.vot-dialog-backdrop{opacity:1;background-color:#0009;transition:opacity .3s;position:fixed;inset:0}[hidden]>.vot-dialog-backdrop{pointer-events:none;opacity:0}.vot-dialog-content-wrapper{max-height:var(--vot-dialog-max-height,75vh);flex-direction:column;display:flex;overflow:auto}.vot-dialog-header-container{flex-shrink:0;align-items:flex-start;min-height:31px;display:flex}.vot-dialog-header-container:empty{padding:0 0 20px}.vot-dialog-header-container>.vot-icon-button{margin-inline-end:var(--vot-space-1)!important;margin-top:var(--vot-space-1)!important}.vot-dialog-title-container{font-size:inherit;outline:0;flex:1;display:flex;font-weight:inherit!important;margin:0!important}.vot-dialog-title{flex:1;font-size:115.385%;line-height:1;padding:var(--vot-space-5) var(--vot-space-5) var(--vot-space-4)!important;font-weight:700!important}.vot-dialog-body-container{box-sizing:border-box;gap:var(--vot-space-4);overscroll-behavior:contain;flex-direction:column;min-height:1.375rem;display:flex;overflow:auto;padding:0 var(--vot-space-5)!important;scrollbar-color:rgba(var(--vot-helper-onsurface-rgb),.1) var(--vot-helper-surface)!important}.vot-dialog-body-container::-webkit-scrollbar{background:var(--vot-helper-surface)!important;width:12px!important;height:12px!important}.vot-dialog-body-container::-webkit-scrollbar-track{background:var(--vot-helper-surface)!important;width:12px!important;height:12px!important}.vot-dialog-body-container::-webkit-scrollbar-thumb{border-radius:1ex;background:rgba(var(--vot-helper-onsurface-rgb),.1)!important;border:5px solid var(--vot-helper-surface)!important}.vot-dialog-body-container::-webkit-scrollbar-thumb:hover{border-width:3px!important}.vot-dialog-body-container::-webkit-scrollbar-corner{background:var(--vot-helper-surface)!important}.vot-dialog-footer-container{justify-content:flex-end;gap:var(--vot-space-2);flex-wrap:wrap;flex-shrink:0;display:flex;padding:var(--vot-space-4)!important}.vot-dialog-footer-container:empty{padding:var(--vot-space-5) 0 0 0!important}@media(max-width:480px){.vot-dialog-footer-container{flex-direction:column;align-items:stretch}.vot-dialog-footer-container>:is(.vot-button,.vot-outlined-button,.vot-text-button){white-space:normal;text-overflow:clip;text-align:center;justify-content:center;align-items:center;width:100%;height:auto;min-height:36px;padding:8px 16px;line-height:1.2;display:flex;overflow:visible}}.vot-inline-loader{aspect-ratio:5;--vot-loader-bg:no-repeat radial-gradient(farthest-side, rgba(var(--vot-onsurface-rgb,0, 0, 0), .38) 94%, transparent);background:var(--vot-loader-bg),var(--vot-loader-bg),var(--vot-loader-bg),var(--vot-loader-bg);background-size:20% 100%;height:8px;animation:.75s infinite alternate dotsSlide,1.5s infinite alternate dotsFlip}.vot-loader-progress{--vot-helper-theme:var(--vot-theme-rgb,var(--vot-primary-rgb,33, 150, 243));fill:none;stroke:rgb(var(--vot-helper-theme));stroke-width:2px;stroke-linecap:round;transform-origin:50%;transform:rotate(-90deg)}@keyframes dotsSlide{0%,10%{background-position:0 0,0 0,0 0,0 0}33%{background-position:0 0,33.3333% 0,33.3333% 0,33.3333% 0}66%{background-position:0 0,33.3333% 0,66.6667% 0,66.6667% 0}90%,to{background-position:0 0,33.3333% 0,66.6667% 0,100% 0}}@keyframes dotsFlip{0%,49.99%{transform:scale(1)}50%,to{transform:scale(-1)}}.vot-label{font-family:inherit;font-size:16px;line-height:1.5;display:block}.vot-label-text{display:inline}.vot-label-icon{vertical-align:text-bottom;cursor:help;justify-content:center;align-items:center;width:20px;height:20px;margin-left:4px;display:inline-flex}.vot-label-icon>svg{width:20px;height:20px;display:block}.vot-account{justify-content:space-between;align-items:center;gap:1rem;display:flex}.vot-account-container,.vot-account-wrapper,.vot-account-buttons{align-items:center;gap:1rem;display:flex}.vot-account-avatar{min-width:36px;max-width:36px;min-height:36px;max-height:36px;overflow:hidden}.vot-account-avatar-img{object-fit:cover;border-radius:50%;width:36px;height:36px}@property --vot-subtitles-opacity{syntax:"<number>";inherits:true;initial-value:.8}@property --vot-subtitles-scale-compensation{syntax:"<number>";inherits:true;initial-value:1}.vot-subtitles{--vot-subtitles-background:rgba(var(--vot-surface-rgb,46, 47, 52), var(--vot-subtitles-opacity,.8));--vot-subtitles-effective-max-width:var(--vot-subtitles-max-width,var(--vot-subtitles-smart-max-width,70vw));max-width:var(--vot-subtitles-effective-max-width);max-inline-size:var(--vot-subtitles-effective-max-width);width:max-content;background:var(--vot-subtitles-background,#2e2f34cc);inline-size:max-content;color:var(--vot-subtitles-color,#e3e3e3);pointer-events:all;touch-action:none;font-size:calc(var(--vot-subtitles-font-size,clamp(18px, var(--vot-subtitles-smart-font-preferred,2.2vw), 50px)) * var(--vot-subtitles-scale-compensation,1));-webkit-text-stroke:var(--vot-subtitles-text-stroke-width,clamp(1px, .08em, 2px)) var(--vot-subtitles-text-stroke-color,#000000eb);paint-order:stroke fill;text-shadow:var(--vot-subtitles-text-shadow,0 1px 2px #00000073, 0 2px 8px #00000040);-webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale;font-synthesis:none;position:relative;--vot-subtitles-font-family:var(--vot-subtitles-font-family-custom,var(--vot-font-family,"Roboto", "Segoe UI", system-ui, sans-serif))!important;font-family:var(--vot-subtitles-font-family)!important;font-style:normal!important;font-weight:var(--vot-subtitles-font-weight,500)!important;text-transform:none!important;letter-spacing:normal!important;border-radius:.5em!important;padding:.5em .75em!important;line-height:1.25!important}.vot-subtitles,.vot-subtitles *{-webkit-text-stroke:inherit;paint-order:inherit;font-family:var(--vot-subtitles-font-family)!important}.vot-subtitles{box-sizing:border-box;-webkit-user-select:none;user-select:none;contain:layout paint;isolation:isolate;text-align:center;unicode-bidi:plaintext;margin:0 auto;display:block}.vot-subtitles.vot-subtitles--clamped{overflow:hidden}@supports (line-clamp:2){.vot-subtitles.vot-subtitles--clamped{line-clamp:2}}@supports not (line-clamp:2){.vot-subtitles.vot-subtitles--clamped{-webkit-line-clamp:2;-webkit-box-orient:vertical;display:-webkit-box}}.vot-subtitles{text-wrap:balance;white-space:normal;overflow-wrap:anywhere}.vot-subtitles-widget{--vot-subtitles-anchor-width:100vw;--vot-subtitles-anchor-height:100vh;--vot-subtitles-effective-max-width:var(--vot-subtitles-max-width,var(--vot-subtitles-smart-max-width,70vw));--vot-subtitles-smart-target-width:48ch;--vot-subtitles-smart-min-width-ratio:.62;--vot-subtitles-smart-max-width-ratio:.78;--vot-subtitles-smart-font-preferred:calc(var(--vot-subtitles-anchor-height) * .0333);--vot-subtitles-smart-max-width:clamp(calc(var(--vot-subtitles-anchor-width) * var(--vot-subtitles-smart-min-width-ratio)), var(--vot-subtitles-smart-target-width), calc(var(--vot-subtitles-anchor-width) * var(--vot-subtitles-smart-max-width-ratio)));box-sizing:border-box;z-index:2147483647;--vot-subtitles-fallback-bottom-inset: calc(env(safe-area-inset-bottom,0px) + clamp(56px, 10vh, 220px) + 10px) ;left:50%;top:calc(100% - var(--vot-subtitles-fallback-bottom-inset));width:max-content;inline-size:max-content;max-width:var(--vot-subtitles-effective-max-width);max-inline-size:var(--vot-subtitles-effective-max-width);pointer-events:none;will-change:left,top,transform;max-height:100%;display:block;position:absolute;transform:translate(-50%,-100%)}.vot-subtitles-info{flex-direction:column;gap:2px;max-width:100%;display:flex;padding:6px!important}.vot-subtitles-info-service,.vot-subtitles-info-header,.vot-subtitles-info-context{overflow-wrap:anywhere;word-break:break-word;white-space:normal!important}.vot-subtitles-info-service{color:var(--vot-subtitles-context-color,#86919b);margin-bottom:8px!important;font-size:10px!important;line-height:1!important}.vot-subtitles-info-header{color:var(--vot-subtitles-header-color,#fff);margin-bottom:6px!important;font-size:20px!important;font-weight:500!important;line-height:1!important}.vot-subtitles-info-context{color:var(--vot-subtitles-context-color,#86919b);font-size:12px!important;line-height:1.2!important}.vot-subtitles span[data-vot-token="1"]{cursor:pointer;white-space:normal;overflow-wrap:inherit;word-break:normal;position:relative;font-size:inherit!important;font-family:inherit!important;font-style:inherit!important;font-weight:inherit!important;line-height:inherit!important;text-transform:inherit!important;text-decoration:none!important}.vot-subtitles span[data-vot-token="1"].passed{color:var(--vot-subtitles-passed-color,#2196f3)}.vot-subtitles span[data-vot-token="1"]:before{content:"";z-index:-1;position:absolute;inset:2px -2px;border-radius:4px!important}.vot-subtitles span[data-vot-token="1"]:hover:before{background:var(--vot-subtitles-hover-color,#ffffff8c)}.vot-subtitles span[data-vot-token="1"].selected:before{background:var(--vot-subtitles-passed-color,#2196f3)}.vot-subtitles span[data-vot-style-italic="1"]{font-style:italic!important}.vot-subtitles span[data-vot-style-bold="1"]{font-weight:700!important}.vot-subtitles span[data-vot-style-underline="1"]{text-decoration:underline!important}.vot-subtitles span[data-vot-style-color="1"]{color:var(--vot-subtitles-inline-color)!important}.vot-subtitles-layer{pointer-events:none;z-index:2147483647;contain:layout paint;width:100vw!important;height:100vh!important;position:fixed!important;inset:0!important}.vot-subtitles-guides{pointer-events:none;z-index:2147483646;position:absolute;inset:0}.vot-subtitles-guide{background:rgba(var(--vot-primary-rgb,33, 150, 243),.7);box-shadow:0 0 0 1px rgba(var(--vot-primary-rgb,33, 150, 243),.12);opacity:0;transition:opacity .12s linear;position:absolute}.vot-subtitles-guide[data-visible=true]{opacity:1}.vot-subtitles-guide--vertical{width:2px;transform:translate(-50%)}.vot-subtitles-guide--horizontal{height:2px;transform:translateY(-50%)}@media(max-aspect-ratio:1){.vot-subtitles-widget{--vot-subtitles-smart-target-width:28ch;--vot-subtitles-smart-min-width-ratio:.8;--vot-subtitles-smart-max-width-ratio:.92;--vot-subtitles-smart-font-preferred:calc(var(--vot-subtitles-anchor-height) * .0296)}}@media(min-aspect-ratio:1)and (max-aspect-ratio:7/5){.vot-subtitles-widget{--vot-subtitles-smart-target-width:32ch;--vot-subtitles-smart-min-width-ratio:.55;--vot-subtitles-smart-max-width-ratio:.9;--vot-subtitles-smart-font-preferred:calc(var(--vot-subtitles-anchor-height) * .0333)}}@media(max-width:900px)and (pointer:coarse){.vot-subtitles-widget{--vot-subtitles-fallback-bottom-inset:env(safe-area-inset-bottom,0px)}}@media(prefers-contrast:more){.vot-subtitles{--vot-subtitles-background:rgba(var(--vot-surface-rgb,46, 47, 52), .92);--vot-subtitles-text-stroke-width:max(2px, .1em);--vot-subtitles-text-shadow:0 2px 10px #0000008c}}:-webkit-any(:-webkit-full-screen .vot-subtitles-widget,:-webkit-full-screen .vot-subtitles-widget){--vot-subtitles-smart-max-width-ratio:.8}:is(:fullscreen .vot-subtitles-widget){--vot-subtitles-smart-max-width-ratio:.8}:-webkit-any(:-webkit-full-screen .vot-subtitles,:-webkit-full-screen .vot-subtitles){font-size:calc(var(--vot-subtitles-font-size,clamp(18px, var(--vot-subtitles-smart-font-preferred,2vw), 50px)) * var(--vot-subtitles-fullscreen-scale,1) * .95 * var(--vot-subtitles-scale-compensation,1))}:is(:fullscreen .vot-subtitles){font-size:calc(var(--vot-subtitles-font-size,clamp(18px, var(--vot-subtitles-smart-font-preferred,2vw), 50px)) * var(--vot-subtitles-fullscreen-scale,1) * .95 * var(--vot-subtitles-scale-compensation,1))}#vot-subtitles-info.vot-subtitles-info *{-webkit-user-select:text!important;user-select:text!important}:root{--vot-font-family:"Roboto", "Segoe UI", system-ui, sans-serif;--vot-primary-rgb:139, 180, 245;--vot-onprimary-rgb:32, 33, 36;--vot-surface-rgb:32, 33, 36;--vot-onsurface-rgb:227, 227, 227;--vot-subtitles-color:rgb(var(--vot-onsurface-rgb,227, 227, 227));--vot-subtitles-passed-color:rgb(var(--vot-primary-rgb,33, 150, 243));--vot-space-1:4px;--vot-space-2:8px;--vot-space-3:12px;--vot-space-4:16px;--vot-space-5:20px;--vot-space-6:24px;--vot-radius-xs:6px;--vot-radius-s:10px;--vot-radius-m:14px;--vot-radius-l:18px;--vot-border-color:rgba(var(--vot-onsurface-rgb,227, 227, 227), .14);--vot-border-color-hover:rgba(var(--vot-onsurface-rgb,227, 227, 227), .22);--vot-shadow-1:0 1px 2px #0000002e, 0 8px 24px #00000024;--vot-shadow-2:0 2px 4px #00000038, 0 12px 32px #00000038;--vot-duration-fast:.12s;--vot-duration-medium:.2s;--vot-duration-slow:.32s;--vot-easing-standard:cubic-bezier(.4, 0, .2, 1);--vot-focus-ring-color:rgba(var(--vot-primary-rgb,139, 180, 245), .9);--vot-focus-ring:0 0 0 2px var(--vot-focus-ring-color);--vot-focus-ring-offset:0 0 0 4px rgba(var(--vot-surface-rgb,32, 33, 36), .9)}vot-block,vot-block *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}vot-block[hidden]:not(.vot-menu):not(.vot-dialog-container),vot-block [hidden]:not(.vot-menu):not(.vot-dialog-container){display:none!important}vot-block{-webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale;text-rendering:optimizelegibility;-moz-text-size-adjust:100%;text-size-adjust:100%;display:block;--vot-font-family:"Roboto", "Segoe UI", system-ui, sans-serif!important;font-family:var(--vot-font-family,"Roboto", "Segoe UI", system-ui, sans-serif)!important;visibility:visible!important;font-weight:400!important}vot-block *{font-weight:inherit!important}.vot-portal-local,.vot-subtitles-widget{isolation:isolate}vot-block:focus,vot-block :focus{box-shadow:none!important;outline:none!important}html.vot-keyboard-nav vot-block:focus-visible,html.vot-keyboard-nav vot-block :focus-visible{box-shadow:var(--vot-focus-ring),var(--vot-focus-ring-offset)!important}@supports not selector(:focus-visible){html.vot-keyboard-nav vot-block:focus,html.vot-keyboard-nav vot-block :focus{box-shadow:var(--vot-focus-ring),var(--vot-focus-ring-offset)!important}}@media(prefers-reduced-motion:reduce){.vot-portal-local *,.vot-portal *,.vot-subtitles-widget *{scroll-behavior:auto!important;transition-duration:.001ms!important;animation-duration:.001ms!important;animation-iteration-count:1!important}}.vot-portal{display:inline}.vot-portal-local{z-index:2147483647;position:fixed;top:0;left:0}';
       importCSS(mainScss);
       function initKeyboardNavigationMode() {
         if (globalThis.__votKeyboardNavInitialized) return;
@@ -12702,6 +13052,7 @@ showed = false;
         offsetX;
         offsetY;
         _hidden;
+        autoLayout;
         pageWidth;
         pageHeight;
         globalOffsetX;
@@ -12728,6 +13079,7 @@ tooltipId = typeof crypto !== "undefined" && "randomUUID" in crypto ? crypto.ran
           offset = 4,
           maxWidth = void 0,
           hidden = false,
+          autoLayout = true,
           backgroundColor = void 0,
           borderRadius = void 0,
           bordered = true,
@@ -12747,6 +13099,7 @@ tooltipId = typeof crypto !== "undefined" && "randomUUID" in crypto ? crypto.ran
             this.offsetY = offset.y;
           }
           this._hidden = hidden;
+          this.autoLayout = autoLayout;
           this.trigger = Tooltip.validateTrigger(trigger) ? trigger : "hover";
           this.position = Tooltip.validatePos(position2) ? position2 : "top";
           this.preferredPosition = this.position;
@@ -12854,7 +13207,7 @@ updateMount({
             this.globalOffsetX = 0;
             this.globalOffsetY = 0;
           } else {
-            const { left, top } = this.parentElement.getBoundingClientRect();
+            const { left, top } = this.layoutRoot.getBoundingClientRect();
             this.globalOffsetX = left;
             this.globalOffsetY = top;
           }
@@ -12966,7 +13319,7 @@ updateMount({
           if (!this.container) {
             return this;
           }
-          const { top, left } = this.calcPos(this.preferredPosition);
+          const { top, left } = this.calcPos(this.autoLayout, this.preferredPosition);
           const availableWidth = Math.max(0, this.pageWidth - this.offsetX * 2);
           const maxWidth = clamp$2(this.maxWidth ?? availableWidth, 0, availableWidth);
           this.container.style.transform = `translate(${left}px, ${top}px)`;
@@ -12974,7 +13327,7 @@ updateMount({
           this.container.style.maxWidth = `${maxWidth}px`;
           return this;
         }
-        calcPos(position2 = this.preferredPosition) {
+        calcPos(autoLayout = true, position2 = this.preferredPosition) {
           if (!this.container) {
             return { top: 0, left: 0 };
           }
@@ -12993,44 +13346,121 @@ updateMount({
           const right = anchorRight - this.globalOffsetX;
           const top = anchorTop - this.globalOffsetY;
           const bottom = anchorBottom - this.globalOffsetY;
-          let coords;
-          const centeredLeft = left - width / 2 + anchorWidth / 2;
-          const centeredTop = top + (anchorHeight - height) / 2;
+          const anchorBox = { left, right, top, bottom, anchorWidth, anchorHeight };
+          const size = { width, height };
+          const resolvedPosition = this.resolveTooltipPosition(
+            anchorBox,
+            size,
+            position2,
+            autoLayout
+          );
+          const coords = this.getTooltipCoordinates(
+            anchorBox,
+            size,
+            resolvedPosition
+          );
+          this.position = resolvedPosition;
+          return {
+            top: coords.top + this.globalOffsetY,
+            left: coords.left + this.globalOffsetX
+          };
+        }
+        resolveTooltipPosition(anchorBox, size, position2, autoLayout) {
+          if (!autoLayout) {
+            return position2;
+          }
+          switch (position2) {
+            case "top": {
+              const pTop = clamp$2(
+                anchorBox.top - size.height - this.offsetY,
+                0,
+                this.pageHeight
+              );
+              return pTop + this.offsetY < size.height ? "bottom" : "top";
+            }
+            case "right": {
+              const pLeft = clamp$2(
+                anchorBox.right + this.offsetX,
+                0,
+                this.pageWidth - size.width
+              );
+              return pLeft + size.width > this.pageWidth - this.offsetX ? "left" : "right";
+            }
+            case "bottom": {
+              const pTop = clamp$2(
+                anchorBox.bottom + this.offsetY,
+                0,
+                this.pageHeight - size.height
+              );
+              return pTop + size.height > this.pageHeight - this.offsetY ? "top" : "bottom";
+            }
+            case "left": {
+              const pLeft = Math.max(0, anchorBox.left - size.width - this.offsetX);
+              return pLeft + size.width > anchorBox.left - this.offsetX ? "right" : "left";
+            }
+            default:
+              return position2;
+          }
+        }
+        getTooltipCoordinates(anchorBox, size, position2) {
           switch (position2) {
             case "top":
-              coords = {
-                top: top - height - this.offsetY,
-                left: centeredLeft
+              return {
+                top: clamp$2(
+                  anchorBox.top - size.height - this.offsetY,
+                  0,
+                  this.pageHeight
+                ),
+                left: clamp$2(
+                  anchorBox.left - size.width / 2 + anchorBox.anchorWidth / 2,
+                  this.offsetX,
+                  this.pageWidth - size.width - this.offsetX
+                )
               };
-              break;
             case "right":
-              coords = {
-                top: centeredTop,
-                left: right + this.offsetX
+              return {
+                top: clamp$2(
+                  anchorBox.top + (anchorBox.anchorHeight - size.height) / 2,
+                  this.offsetY,
+                  this.pageHeight - size.height - this.offsetY
+                ),
+                left: clamp$2(
+                  anchorBox.right + this.offsetX,
+                  0,
+                  this.pageWidth - size.width
+                )
               };
-              break;
             case "bottom":
-              coords = {
-                top: bottom + this.offsetY,
-                left: centeredLeft
+              return {
+                top: clamp$2(
+                  anchorBox.bottom + this.offsetY,
+                  0,
+                  this.pageHeight - size.height
+                ),
+                left: clamp$2(
+                  anchorBox.left - size.width / 2 + anchorBox.anchorWidth / 2,
+                  this.offsetX,
+                  this.pageWidth - size.width - this.offsetX
+                )
               };
-              break;
             case "left":
-              coords = {
-                top: centeredTop,
-                left: left - width - this.offsetX
+              return {
+                top: clamp$2(
+                  anchorBox.top + (anchorBox.anchorHeight - size.height) / 2,
+                  this.offsetY,
+                  this.pageHeight - size.height - this.offsetY
+                ),
+                left: Math.max(0, anchorBox.left - size.width - this.offsetX)
               };
-              break;
             default:
-              coords = { top: 0, left: 0 };
+              return { top: 0, left: 0 };
           }
-          this.position = position2;
-          return coords;
         }
         destroy(instant = false) {
           if (!this.container) {
             return this;
           }
+          const container = this.container;
           this.cancelPositionUpdate();
           this.clearDestroyFallbackTimer();
           this.showed = false;
@@ -13039,11 +13469,10 @@ updateMount({
           this.intersectionObserver?.disconnect();
           this.detachScrollListener();
           if (instant) {
-            this.container.remove();
+            container.remove();
             this.container = void 0;
             return this;
           }
-          const container = this.container;
           container.removeEventListener("mouseleave", this.onTooltipMouseLeave);
           container.style.pointerEvents = "none";
           container.style.opacity = "0";
@@ -13120,25 +13549,479 @@ updateMount({
       function isTimeInLine(time, line) {
         return time >= line.startMs && time < line.startMs + line.durationMs;
       }
-      function findActiveSubtitleLineIndex(time, subtitlesList) {
+      const createFallbackTokens = (line) => {
+        if (line.tokens.length) {
+          return line.tokens;
+        }
+        const text = line.text.trim();
+        if (!text) {
+          return [];
+        }
+        return [
+          {
+            text,
+            startMs: line.startMs,
+            durationMs: line.durationMs,
+            isWordLike: Boolean(text)
+          }
+        ];
+      };
+      const toRenderableTextKey = (line) => {
+        const text = line.text || createFallbackTokens(line).map((token) => token.text).join("");
+        return text.replace(/\s+/gu, " ").trim();
+      };
+      const linesOverlapInTime = (left, right) => {
+        const leftEnd = left.startMs + Math.max(0, left.durationMs);
+        const rightEnd = right.startMs + Math.max(0, right.durationMs);
+        return left.startMs < rightEnd && right.startMs < leftEnd;
+      };
+      const dedupeActiveLines = (lines) => {
+        const deduped = [];
+        for (const entry of lines) {
+          const textKey = toRenderableTextKey(entry.line);
+          if (!textKey) continue;
+          const isDuplicate = deduped.some((existing) => {
+            return textKey === toRenderableTextKey(existing.line) && existing.line.speakerId === entry.line.speakerId && linesOverlapInTime(existing.line, entry.line);
+          });
+          if (!isDuplicate) {
+            deduped.push(entry);
+          }
+        }
+        return deduped;
+      };
+      const findLastCueIndexStartingAtOrBefore = (time, subtitlesList) => {
         let low = 0;
         let high = subtitlesList.length - 1;
+        let candidate = -1;
         while (low <= high) {
           const mid = low + high >> 1;
           const line = subtitlesList[mid];
-          if (time < line.startMs) {
-            high = mid - 1;
-          } else if (time >= line.startMs + line.durationMs) {
+          if (line.startMs <= time) {
+            candidate = mid;
             low = mid + 1;
-          } else {
-            return mid;
+            continue;
+          }
+          high = mid - 1;
+        }
+        return candidate;
+      };
+      const findActiveSubtitleLineIndices = (time, subtitlesList, maxCueDurationMs = Number.POSITIVE_INFINITY) => {
+        const lastCueIndex = findLastCueIndexStartingAtOrBefore(time, subtitlesList);
+        if (lastCueIndex < 0) return [];
+        const minStartMs = Number.isFinite(maxCueDurationMs) ? Math.max(0, time - Math.max(0, maxCueDurationMs)) : Number.NEGATIVE_INFINITY;
+        const activeLineIndices = [];
+        for (let index = lastCueIndex; index >= 0; index -= 1) {
+          const line = subtitlesList[index];
+          if (line.startMs < minStartMs) {
+            break;
+          }
+          if (isTimeInLine(time, line)) {
+            activeLineIndices.push(index);
           }
         }
-        return -1;
+        activeLineIndices.reverse();
+        return activeLineIndices;
+      };
+      const buildActiveSubtitleRenderLine = (time, subtitlesList, maxCueDurationMs = Number.POSITIVE_INFINITY) => {
+        const activeLineIndices = findActiveSubtitleLineIndices(
+          time,
+          subtitlesList,
+          maxCueDurationMs
+        );
+        if (!activeLineIndices.length) {
+          return null;
+        }
+        const activeEntries = dedupeActiveLines(
+          activeLineIndices.map((index) => ({
+            index,
+            line: subtitlesList[index]
+          }))
+        );
+        if (!activeEntries.length) {
+          return null;
+        }
+        if (activeEntries.length === 1) {
+          const [entry] = activeEntries;
+          return {
+            line: entry.line,
+            lineKey: `${entry.index}`,
+            lineIndices: [entry.index]
+          };
+        }
+        const tokens = [];
+        const textParts = [];
+        const rawTextParts = [];
+        const lineIndices = [];
+        let earliestStartMs = Number.POSITIVE_INFINITY;
+        let latestEndMs = 0;
+        for (let index = 0; index < activeEntries.length; index += 1) {
+          const entry = activeEntries[index];
+          const lineTokens = createFallbackTokens(entry.line);
+          if (!lineTokens.length) continue;
+          if (tokens.length > 0) {
+            const breakStartMs = Math.max(earliestStartMs, entry.line.startMs);
+            tokens.push({
+              text: "\n",
+              startMs: breakStartMs,
+              durationMs: 0,
+              isWordLike: false
+            });
+          }
+          tokens.push(...lineTokens);
+          textParts.push(
+            entry.line.text || lineTokens.map((token) => token.text).join("")
+          );
+          rawTextParts.push(entry.line.metadata?.rawText ?? entry.line.text);
+          lineIndices.push(entry.index);
+          earliestStartMs = Math.min(earliestStartMs, entry.line.startMs);
+          latestEndMs = Math.max(
+            latestEndMs,
+            entry.line.startMs + Math.max(0, entry.line.durationMs)
+          );
+        }
+        if (!tokens.length || !lineIndices.length) {
+          return null;
+        }
+        return {
+          line: {
+            text: textParts.join("\n"),
+            startMs: earliestStartMs,
+            durationMs: Math.max(0, latestEndMs - earliestStartMs),
+            speakerId: activeEntries[0]?.line.speakerId ?? "0",
+            tokens,
+            metadata: rawTextParts.length ? {
+              rawText: rawTextParts.join("\n")
+            } : void 0
+          },
+          lineKey: lineIndices.join(","),
+          lineIndices
+        };
+      };
+      const subtitleFormats = ["srt", "vtt", "ass", "json"];
+      const subtitleFormatsSet = new Set(subtitleFormats);
+      function isSubtitleFormat(value) {
+        return typeof value === "string" && subtitleFormatsSet.has(value);
       }
-      function getLayoutAffectingKey(subtitleTokensKey, wrapKey, variantKey = 0) {
-        return `${subtitleTokensKey}:${wrapKey}:${variantKey}`;
+      function isRecord(value) {
+        return value !== null && typeof value === "object";
       }
+      function parseSubtitleDescriptor(value) {
+        if (!isRecord(value)) {
+          return null;
+        }
+        const format = value.format;
+        if (typeof value.source !== "string" || typeof value.language !== "string" || typeof value.url !== "string" || !isSubtitleFormat(format)) {
+          return null;
+        }
+        return {
+          source: value.source,
+          format,
+          language: value.language,
+          url: value.url,
+          translatedFromLanguage: typeof value.translatedFromLanguage === "string" ? value.translatedFromLanguage : void 0,
+          isAutoGenerated: typeof value.isAutoGenerated === "boolean" ? value.isAutoGenerated : void 0
+        };
+      }
+      const subtitleFontFamilies = [
+        "default-sans",
+        "arial",
+        "helvetica",
+        "roboto",
+        "verdana",
+        "open-sans",
+        "poppins",
+        "lato",
+        "montserrat",
+        "barlow"
+      ];
+      const subtitleFontFamilyCss = {
+        "default-sans": `"Roboto", "Segoe UI", system-ui, sans-serif`,
+        arial: `Arial, "Helvetica Neue", Helvetica, sans-serif`,
+        helvetica: `"Helvetica Neue", Helvetica, Arial, sans-serif`,
+        roboto: `"Roboto", "Segoe UI", system-ui, sans-serif`,
+        verdana: `Verdana, Geneva, sans-serif`,
+        "open-sans": `"Open Sans", "Segoe UI", system-ui, sans-serif`,
+        poppins: `"Poppins", "Segoe UI", system-ui, sans-serif`,
+        lato: `"Lato", "Segoe UI", system-ui, sans-serif`,
+        montserrat: `"Montserrat", "Segoe UI", system-ui, sans-serif`,
+        barlow: `"Barlow", "Segoe UI", system-ui, sans-serif`
+      };
+      function isBuiltInSubtitleFontFamily(fontFamily) {
+        return subtitleFontFamilies.includes(fontFamily);
+      }
+      const GOOGLE_SUBTITLE_FONT_PREFIX = "google:";
+      const GOOGLE_FONTS_CSS_API_URL = "https://fonts.googleapis.com/css2";
+      const GOOGLE_FONTS_METADATA_URL = "https://fonts.google.com/metadata/fonts";
+      const subtitleGoogleFontFamilyNames = {
+        roboto: "Roboto",
+        "open-sans": "Open Sans",
+        poppins: "Poppins",
+        lato: "Lato",
+        montserrat: "Montserrat",
+        barlow: "Barlow"
+      };
+      const loadedSubtitleGoogleFonts = new Set();
+      const pendingSubtitleGoogleFonts = new Map();
+      let googleFontsCatalogPromise = null;
+      function toGoogleSubtitleFontFamily(familyName) {
+        return `${GOOGLE_SUBTITLE_FONT_PREFIX}${familyName}`;
+      }
+      function getGoogleSubtitleFontFamilyName(fontFamily) {
+        if (fontFamily.startsWith(GOOGLE_SUBTITLE_FONT_PREFIX)) {
+          const familyName = fontFamily.slice(GOOGLE_SUBTITLE_FONT_PREFIX.length).trim();
+          return familyName.length > 0 ? familyName : null;
+        }
+        return subtitleGoogleFontFamilyNames[fontFamily] ?? null;
+      }
+      function getSubtitleFontFamilyCssValue(fontFamily) {
+        if (isBuiltInSubtitleFontFamily(fontFamily)) {
+          return subtitleFontFamilyCss[fontFamily];
+        }
+        const googleFontFamilyName = getGoogleSubtitleFontFamilyName(fontFamily);
+        if (googleFontFamilyName) {
+          return `"${googleFontFamilyName}", "Segoe UI", system-ui, sans-serif`;
+        }
+        return subtitleFontFamilyCss["default-sans"];
+      }
+      function buildGoogleFontsCssUrl(fontFamily) {
+        const googleFontFamily = getGoogleSubtitleFontFamilyName(fontFamily);
+        if (!googleFontFamily) {
+          return null;
+        }
+        const familyQuery = googleFontFamily.trim().replaceAll(/\s+/g, "+");
+        return `${GOOGLE_FONTS_CSS_API_URL}?family=${familyQuery}&display=swap`;
+      }
+      function injectFontStylesheet(fontFamily, cssText) {
+        const styleId = `vot-google-font-${fontFamily}`;
+        if (document.getElementById(styleId)) {
+          return;
+        }
+        const gmAddStyle = globalThis.GM_addStyle;
+        const styleElement = typeof gmAddStyle === "function" ? gmAddStyle(cssText) : document.createElement("style");
+        if (!(styleElement instanceof HTMLElement)) {
+          return;
+        }
+        styleElement.id = styleId;
+        if (!styleElement.textContent) {
+          styleElement.textContent = cssText;
+        }
+        if (!styleElement.parentElement) {
+          (document.head || document.documentElement).appendChild(styleElement);
+        }
+      }
+      async function ensureGoogleSubtitleFontLoaded(fontFamily, options = {}) {
+        if (loadedSubtitleGoogleFonts.has(fontFamily)) {
+          return;
+        }
+        const existingLoad = pendingSubtitleGoogleFonts.get(fontFamily);
+        if (existingLoad !== void 0) {
+          await existingLoad;
+          return;
+        }
+        const cssUrl = buildGoogleFontsCssUrl(fontFamily);
+        if (!cssUrl) {
+          loadedSubtitleGoogleFonts.add(fontFamily);
+          return;
+        }
+        const googleFontFamily = getGoogleSubtitleFontFamilyName(fontFamily);
+        const loadPromise = (async () => {
+          try {
+            const response = await GM_fetch(cssUrl, {
+              timeout: 1e4,
+              forceGmXhr: options.forceGmXhr ?? true,
+              headers: {
+                Accept: "text/css,*/*;q=0.1"
+              }
+            });
+            if (!response.ok) {
+              throw new Error(
+                `Google Fonts CSS request failed with ${response.status}`
+              );
+            }
+            const cssText = await response.text();
+            if (!cssText.trim()) {
+              throw new Error("Google Fonts CSS response is empty");
+            }
+            injectFontStylesheet(fontFamily, cssText);
+            loadedSubtitleGoogleFonts.add(fontFamily);
+            if (document.fonts && googleFontFamily) {
+              await document.fonts.load(`500 20px "${googleFontFamily}"`);
+            }
+            options.onLoaded?.();
+          } catch (error2) {
+          } finally {
+            pendingSubtitleGoogleFonts.delete(fontFamily);
+          }
+        })();
+        pendingSubtitleGoogleFonts.set(fontFamily, loadPromise);
+        await loadPromise;
+      }
+      async function loadGoogleFontsCatalog() {
+        if (googleFontsCatalogPromise !== null) {
+          return await googleFontsCatalogPromise;
+        }
+        googleFontsCatalogPromise = (async () => {
+          const response = await GM_fetch(GOOGLE_FONTS_METADATA_URL, {
+            timeout: 15e3,
+            forceGmXhr: isSupportGMXhr
+          });
+          if (!response.ok) {
+            throw new Error(
+              `Google Fonts metadata request failed with ${response.status}`
+            );
+          }
+          const rawText = await response.text();
+          const sanitizedText = rawText.replace(/^\)\]\}'\n?/, "");
+          const payload = JSON.parse(sanitizedText);
+          const fontFamilies = payload.familyMetadataList?.map((entry) => entry.family?.trim() ?? "").filter((familyName) => familyName.length > 0);
+          return Array.from(new Set(fontFamilies)).sort(
+            (left, right) => left.localeCompare(right)
+          );
+        })().catch((error2) => {
+          googleFontsCatalogPromise = null;
+          return [];
+        });
+        return await googleFontsCatalogPromise;
+      }
+      class FullscreenLayerController {
+        video;
+        container;
+        fullscreenLayer = null;
+        constructor({ video, container }) {
+          this.video = video;
+          this.container = container;
+        }
+        updateContainer(container) {
+          this.container = container;
+        }
+        getWidgetParentElement() {
+          return this.shouldUseFullscreenViewportLayer() ? this.ensureFullscreenLayer() : this.container;
+        }
+        getLayoutRootElement() {
+          return this.fullscreenLayer?.isConnected ? this.fullscreenLayer : this.container;
+        }
+        syncWidgetContainer(widgetContainer) {
+          const widgetParent = this.getWidgetParentElement();
+          if (widgetParent === this.container && getComputedStyle(this.container).position === "static") {
+            this.container.style.position = "relative";
+          }
+          if (widgetContainer && widgetContainer.parentElement !== widgetParent) {
+            widgetParent.appendChild(widgetContainer);
+          }
+          if (widgetParent === this.container && this.fullscreenLayer?.parentElement) {
+            this.fullscreenLayer.remove();
+            this.fullscreenLayer = null;
+          }
+        }
+        release() {
+          if (!this.fullscreenLayer) return;
+          this.fullscreenLayer.remove();
+          this.fullscreenLayer = null;
+        }
+        getActiveFullscreenElement() {
+          const doc = document;
+          const fullscreenEl = doc.fullscreenElement ?? doc.webkitFullscreenElement;
+          return resolveScopedFullscreenElement(
+            fullscreenEl,
+            [this.container, this.video],
+            {
+              allowDocumentViewport: true
+            }
+          );
+        }
+        isCurrentVideoInFullscreenSession() {
+          const fullscreenEl = this.getActiveFullscreenElement();
+          if (!fullscreenEl) return false;
+          if (fullscreenEl === this.container || fullscreenEl.contains(this.container) || this.container.contains(fullscreenEl)) {
+            return true;
+          }
+          return Boolean(
+            this.video && (fullscreenEl === this.video || fullscreenEl.contains(this.video) || this.video.contains(fullscreenEl))
+          );
+        }
+        shouldUseFullscreenViewportLayer() {
+          return this.isCurrentVideoInFullscreenSession();
+        }
+        ensureFullscreenLayer() {
+          if (!this.fullscreenLayer) {
+            const layer = document.createElement("vot-block");
+            layer.classList.add("vot-subtitles-layer");
+            this.fullscreenLayer = layer;
+          }
+          if (this.fullscreenLayer.parentElement !== this.container) {
+            this.container.appendChild(this.fullscreenLayer);
+          }
+          return this.fullscreenLayer;
+        }
+      }
+      const SAFE_CSS_COLOR_NAME_RE = /^[a-z]+$/iu;
+      const SAFE_HEX_COLOR_RE = /^#(?:[0-9a-f]{3}|[0-9a-f]{4}|[0-9a-f]{6}|[0-9a-f]{8})$/iu;
+      const SAFE_CSS_FUNCTION_COLOR_RE = /^(?:rgb|rgba|hsl|hsla)\(\s*[0-9.,%\s/+-]+\)$/iu;
+      const SAFE_CLASS_NAME_RE = /^[a-z0-9_-]+$/iu;
+      const normalizeClassNames = (classes) => {
+        if (!classes?.length) return void 0;
+        const normalized = Array.from(
+          new Set(
+            classes.map((value) => value.trim()).filter((value) => value && SAFE_CLASS_NAME_RE.test(value))
+          )
+        ).sort((left, right) => left.localeCompare(right));
+        return normalized.length ? normalized : void 0;
+      };
+      const normalizeCssColorValue = (value) => {
+        const normalized = value.trim();
+        if (!normalized) return void 0;
+        if (SAFE_HEX_COLOR_RE.test(normalized)) {
+          return normalized.toLowerCase();
+        }
+        if (SAFE_CSS_COLOR_NAME_RE.test(normalized)) {
+          return normalized.toLowerCase();
+        }
+        if (SAFE_CSS_FUNCTION_COLOR_RE.test(normalized)) {
+          return normalized;
+        }
+        return void 0;
+      };
+      const normalizeSubtitleInlineStyle = (style) => {
+        if (!style) return void 0;
+        const normalized = {};
+        if (style.italic) normalized.italic = true;
+        if (style.bold) normalized.bold = true;
+        if (style.underline) normalized.underline = true;
+        const normalizedColor = typeof style.color === "string" ? normalizeCssColorValue(style.color) : void 0;
+        if (normalizedColor) {
+          normalized.color = normalizedColor;
+        }
+        const normalizedClasses = normalizeClassNames(style.classes);
+        if (normalizedClasses) {
+          normalized.classes = normalizedClasses;
+        }
+        return Object.keys(normalized).length ? normalized : void 0;
+      };
+      const sanitizeSubtitleInlineStyle = (value) => {
+        if (!value || typeof value !== "object") return void 0;
+        const raw = value;
+        return normalizeSubtitleInlineStyle({
+          italic: raw.italic === true,
+          bold: raw.bold === true,
+          underline: raw.underline === true,
+          color: typeof raw.color === "string" ? raw.color : void 0,
+          classes: Array.isArray(raw.classes) ? raw.classes.filter(
+            (entry) => typeof entry === "string"
+          ) : void 0
+        });
+      };
+      const subtitleInlineStylesEqual = (left, right) => {
+        const leftNormalized = normalizeSubtitleInlineStyle(left);
+        const rightNormalized = normalizeSubtitleInlineStyle(right);
+        const leftClasses = leftNormalized?.classes ?? [];
+        const rightClasses = rightNormalized?.classes ?? [];
+        return Boolean(leftNormalized?.italic) === Boolean(rightNormalized?.italic) && Boolean(leftNormalized?.bold) === Boolean(rightNormalized?.bold) && Boolean(leftNormalized?.underline) === Boolean(rightNormalized?.underline) && (leftNormalized?.color ?? "") === (rightNormalized?.color ?? "") && leftClasses.length === rightClasses.length && leftClasses.every((value, index) => value === rightClasses[index]);
+      };
+      const buildSubtitleInlineStyleCssText = (style) => {
+        const normalized = normalizeSubtitleInlineStyle(style);
+        if (!normalized?.color) return "";
+        return `--vot-subtitles-inline-color:${normalized.color};`;
+      };
       function clampToRange(value, min, max) {
         return Math.max(min, Math.min(value, max));
       }
@@ -13173,62 +14056,204 @@ updateMount({
         nextAnchorY = clampToRange(nextAnchorY, minAnchorY, maxAnchorY);
         return { anchorX: nextAnchorX, anchorY: nextAnchorY };
       }
+      function snapValueToNearestCandidate({
+        current,
+        candidates,
+        thresholdPx
+      }) {
+        let closestValue = current;
+        let closestDistance = Number.POSITIVE_INFINITY;
+        for (const candidate of candidates) {
+          const distance = Math.abs(candidate - current);
+          if (distance < closestDistance) {
+            closestDistance = distance;
+            closestValue = candidate;
+          }
+        }
+        if (!Number.isFinite(closestDistance) || closestDistance > thresholdPx) {
+          return { snapped: false, value: current };
+        }
+        return { snapped: true, value: closestValue };
+      }
+      const stylesEqual = subtitleInlineStylesEqual;
+      const pushTextPart = (plan, text, style, withBreak = false) => {
+        plan.push({
+          kind: "text",
+          text,
+          style
+        });
+        if (withBreak) {
+          plan.push({ kind: "break" });
+        }
+      };
+      const flushPendingPrefix = (plan, pendingPrefix) => {
+        if (!pendingPrefix.text) {
+          return;
+        }
+        pushTextPart(plan, pendingPrefix.text, pendingPrefix.style);
+        pendingPrefix.text = "";
+        pendingPrefix.style = void 0;
+      };
+      const skipWhitespaceTokens = (tokens, startIndex, renderEndTokenIndex) => {
+        let index = startIndex;
+        while (index <= renderEndTokenIndex && !tokens[index]?.isWordLike && !tokens[index]?.text.trim()) {
+          index += 1;
+        }
+        return index;
+      };
+      const consumeWordToken = (plan, tokens, startIndex, renderEndTokenIndex, breakAfterTokenIndexSet, pendingPrefix) => {
+        const token = tokens[startIndex];
+        let text = pendingPrefix.text + token.text;
+        const style = pendingPrefix.text ? pendingPrefix.style : token.style;
+        pendingPrefix.text = "";
+        pendingPrefix.style = void 0;
+        let endIndex = startIndex;
+        let breakTokenIndex = breakAfterTokenIndexSet?.has(startIndex) ? startIndex : null;
+        while (breakTokenIndex === null && endIndex + 1 <= renderEndTokenIndex) {
+          const next = tokens[endIndex + 1];
+          if (!next || next.isWordLike || next.text === "\n" || !stylesEqual(next.style, style)) {
+            break;
+          }
+          text += next.text;
+          endIndex += 1;
+          if (breakAfterTokenIndexSet?.has(endIndex)) {
+            breakTokenIndex = endIndex;
+          }
+        }
+        plan.push({
+          kind: "word",
+          text,
+          style
+        });
+        if (breakTokenIndex === null) {
+          return endIndex + 1;
+        }
+        plan.push({ kind: "break" });
+        return skipWhitespaceTokens(tokens, breakTokenIndex + 1, renderEndTokenIndex);
+      };
+      const consumeTextToken = (plan, token, tokenText, hasBreakAfter, pendingPrefix) => {
+        const isWhitespaceOnly = tokenText.trim().length === 0;
+        if (isWhitespaceOnly) {
+          flushPendingPrefix(plan, pendingPrefix);
+          pushTextPart(plan, tokenText, token.style, hasBreakAfter);
+          return;
+        }
+        if (hasBreakAfter) {
+          pushTextPart(
+            plan,
+            pendingPrefix.text + tokenText,
+            pendingPrefix.text ? pendingPrefix.style : token.style,
+            true
+          );
+          pendingPrefix.text = "";
+          pendingPrefix.style = void 0;
+          return;
+        }
+        if (pendingPrefix.text && !stylesEqual(pendingPrefix.style, token.style)) {
+          flushPendingPrefix(plan, pendingPrefix);
+        }
+        pendingPrefix.text += tokenText;
+        pendingPrefix.style = token.style;
+      };
+      function buildSubtitleRenderPlan(tokens, renderEndTokenIndex, breakAfterTokenIndexSet) {
+        const plan = [];
+        const pendingPrefix = {
+          text: "",
+          style: void 0
+        };
+        for (let i2 = 0; i2 <= renderEndTokenIndex; ) {
+          const token = tokens[i2];
+          const tokenText = token?.text ?? "";
+          if (!tokenText) {
+            i2 += 1;
+            continue;
+          }
+          if (tokenText === "\n") {
+            flushPendingPrefix(plan, pendingPrefix);
+            plan.push({ kind: "break" });
+            i2 += 1;
+            continue;
+          }
+          if (token.isWordLike) {
+            i2 = consumeWordToken(
+              plan,
+              tokens,
+              i2,
+              renderEndTokenIndex,
+              breakAfterTokenIndexSet,
+              pendingPrefix
+            );
+            continue;
+          }
+          const hasBreakAfter = Boolean(breakAfterTokenIndexSet?.has(i2));
+          consumeTextToken(plan, token, tokenText, hasBreakAfter, pendingPrefix);
+          i2 += 1;
+        }
+        flushPendingPrefix(plan, pendingPrefix);
+        return plan;
+      }
       const EST_CHAR_WIDTH_RATIO = 0.55;
+      const TARGET_CPL_MIN = 26;
+      const TARGET_CPL_MAX = 54;
+      const TARGET_CPL_BASE = 32;
+      const TARGET_CPL_ASPECT_GAIN = 10;
+      const TARGET_CPL_WIDTH_GAIN = 10;
+      const TARGET_CPL_WIDTH_BASE_PX = 540;
+      const TARGET_CPL_WIDTH_LOG_CAP = 1.8;
       function clamp$1(value, min, max) {
         if (Number.isNaN(value)) return min;
         return Math.min(max, Math.max(min, value));
       }
-      function targetCharsPerLine(aspect) {
-        if (aspect < 1) return 28;
-        if (aspect < 1.4) return 32;
-        return 42;
-      }
-      function computeGuidelineMaxWidthRatio(aspect) {
-        if (!Number.isFinite(aspect) || aspect <= 0) return 0.9;
-        if (aspect >= 1.4) return 0.68;
-        if (aspect >= 1.2) return 0.9;
-        return 0.92;
-      }
-      function computeSmartFontSizePx(anchorBox) {
+      function targetCharsPerLine(anchorBox) {
         const w2 = Math.max(1, anchorBox.w);
         const h2 = Math.max(1, anchorBox.h);
         const aspect = w2 / h2;
-        const guidelineMaxWidthRatio = computeGuidelineMaxWidthRatio(aspect);
-        const guidelineMaxWidthPx = w2 * guidelineMaxWidthRatio;
-        const targetCPL = targetCharsPerLine(aspect);
-        const targetPxAt1080 = 36;
-        const baseFontRatioLandscape = targetPxAt1080 / 1080;
-        const portraitScale = 0.89;
-        const baseFontRatio = aspect < 1 ? baseFontRatioLandscape * portraitScale : baseFontRatioLandscape;
-        const minFontPx = 18;
-        const maxFontPx = 50;
-        const pivotH = 1080;
-        const pivotFont = pivotH * baseFontRatio;
-        const flattenExponent = 0.35;
-        const heightBasedPx = h2 <= pivotH ? h2 * baseFontRatio : pivotFont * (h2 / pivotH) ** flattenExponent;
-        const maxByWidthPx = guidelineMaxWidthPx / (targetCPL * EST_CHAR_WIDTH_RATIO);
-        const fontSizePx = Math.round(Math.min(heightBasedPx, maxByWidthPx));
-        return clamp$1(fontSizePx, minFontPx, maxFontPx);
+        const aspectContribution = Math.log(Math.max(0.5, aspect));
+        const widthContribution = clamp$1(
+          Math.log2(w2 / TARGET_CPL_WIDTH_BASE_PX),
+          0,
+          TARGET_CPL_WIDTH_LOG_CAP
+        );
+        const rawTarget = TARGET_CPL_BASE + aspectContribution * TARGET_CPL_ASPECT_GAIN + widthContribution * TARGET_CPL_WIDTH_GAIN;
+        return clamp$1(Math.round(rawTarget), TARGET_CPL_MIN, TARGET_CPL_MAX);
       }
-      function computeSmartLayoutForBox(anchorBox) {
+      function widthRatiosForAspect(aspect) {
+        if (aspect < 1) {
+          return { min: 0.8, max: 0.92 };
+        }
+        if (aspect < 1.4) {
+          return { min: 0.55, max: 0.9 };
+        }
+        return { min: 0.68, max: 0.84 };
+      }
+      function computeSmartLayoutForBox(anchorBox, cssMetrics) {
         const w2 = Math.max(1, anchorBox.w);
         const h2 = Math.max(1, anchorBox.h);
         const aspect = w2 / h2;
-        const fontSizePx = computeSmartFontSizePx(anchorBox);
-        const guidelineMaxWidthRatio = computeGuidelineMaxWidthRatio(aspect);
-        const guidelineMaxWidthPx = w2 * guidelineMaxWidthRatio;
-        const targetCPL = targetCharsPerLine(aspect);
-        const estCharW = fontSizePx * EST_CHAR_WIDTH_RATIO;
-        const targetMaxWidth = targetCPL * estCharW;
-        const minWidthPx = w2 * (aspect < 1 ? 0.8 : 0.55);
-        const maxWidthPx = clamp$1(targetMaxWidth, minWidthPx, guidelineMaxWidthPx);
-        const computedCPL = maxWidthPx / estCharW;
+        const targetChars = targetCharsPerLine(anchorBox);
+        const widthRatios = widthRatiosForAspect(aspect);
+        let computedCPL = targetChars;
+        let maxWidthPx = Math.round(w2 * widthRatios.max);
+        if (cssMetrics) {
+          const { fontSizePx, maxWidthPx: currentCssMaxWidthPx } = cssMetrics;
+          if (Number.isFinite(fontSizePx) && Number.isFinite(currentCssMaxWidthPx) && fontSizePx > 0 && currentCssMaxWidthPx > 0) {
+            const estCharW = fontSizePx * EST_CHAR_WIDTH_RATIO;
+            if (estCharW > 0) {
+              const desiredWidthPx = targetChars * estCharW;
+              const minWidthPx = w2 * widthRatios.min;
+              const hardMaxWidthPx = w2 * widthRatios.max;
+              const resolvedMaxWidthPx = clamp$1(
+                Math.round(desiredWidthPx),
+                Math.round(minWidthPx),
+                Math.round(hardMaxWidthPx)
+              );
+              maxWidthPx = resolvedMaxWidthPx;
+              computedCPL = resolvedMaxWidthPx / estCharW;
+            }
+          }
+        }
         const maxLength = clamp$1(Math.round(computedCPL * 2), 50, 180);
-        return {
-          fontSizePx,
-          maxWidthPx,
-          maxLength
-        };
+        return { maxLength, maxWidthPx };
       }
       const isWordToken = (token) => Boolean(token?.isWordLike && token.text?.trim());
       const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
@@ -13237,66 +14262,60 @@ updateMount({
         return prefix2[end + 1] - prefix2[start];
       };
       const sentenceEndingWordRegexp = /[.!?\u2026]+(?:["'`)\]}\u00BB\u201D\u2019]+)?$/u;
-      function resolveBreakAfterTokenIndex(tokens, wordTokenIndex) {
-        let breakTokenIndex = wordTokenIndex;
-        let cursor = wordTokenIndex + 1;
+      const hasExplicitLineBreakToken = (tokens) => tokens.some((token) => token.text === "\n");
+      const buildSliceForWord = (tokens, tokenIndex) => {
+        const token = tokens[tokenIndex];
+        let textToNextWord = token.text;
+        let breakAfterTokenIndex = tokenIndex;
+        let breakTextLength = token.text.length;
+        let cursor = tokenIndex + 1;
         let seenTrailingPunctuation = false;
+        let punctuationAttachmentClosed = false;
         while (cursor < tokens.length) {
-          const token = tokens[cursor];
-          if (!token || isWordToken(token)) break;
-          if (!token.text.trim()) {
-            if (seenTrailingPunctuation) break;
+          const nextToken = tokens[cursor];
+          if (!nextToken) {
             cursor += 1;
             continue;
           }
-          breakTokenIndex = cursor;
-          seenTrailingPunctuation = true;
+          if (isWordToken(nextToken)) break;
+          if (nextToken.text === "\n") {
+            breakAfterTokenIndex = cursor;
+            break;
+          }
+          const tokenText = nextToken.text ?? "";
+          textToNextWord += tokenText;
+          if (!tokenText.trim()) {
+            if (seenTrailingPunctuation) {
+              punctuationAttachmentClosed = true;
+            }
+            cursor += 1;
+            continue;
+          }
+          if (!punctuationAttachmentClosed) {
+            breakAfterTokenIndex = cursor;
+            seenTrailingPunctuation = true;
+            breakTextLength = textToNextWord.length;
+          }
           cursor += 1;
         }
-        return breakTokenIndex;
-      }
+        return {
+          tokenIndex,
+          breakAfterTokenIndex,
+          textToNextWord,
+          trailingGapAfterBreakText: textToNextWord.slice(breakTextLength)
+        };
+      };
       function buildWordSlices(tokens) {
-        const wordTokenIndices = [];
-        for (let i2 = 0; i2 < tokens.length; i2 += 1) {
-          if (isWordToken(tokens[i2])) {
-            wordTokenIndices.push(i2);
-          }
-        }
         const slices = [];
-        const keyParts = [];
-        for (let i2 = 0; i2 < wordTokenIndices.length; i2 += 1) {
-          const tokenIndex = wordTokenIndices[i2];
-          const nextWordTokenIndex = i2 + 1 < wordTokenIndices.length ? wordTokenIndices[i2 + 1] : tokens.length;
-          const rawBreakAfterTokenIndex = resolveBreakAfterTokenIndex(
-            tokens,
-            tokenIndex
-          );
-          const breakAfterTokenIndex = clamp(
-            rawBreakAfterTokenIndex,
-            tokenIndex,
-            nextWordTokenIndex - 1
-          );
-          let textToNextWord = "";
-          let breakTextLength = 0;
-          for (let cursor = tokenIndex; cursor < nextWordTokenIndex; cursor += 1) {
-            const tokenText = tokens[cursor]?.text ?? "";
-            textToNextWord += tokenText;
-            if (cursor <= breakAfterTokenIndex) {
-              breakTextLength = textToNextWord.length;
-            }
-          }
-          const trailingGapAfterBreakText = textToNextWord.slice(breakTextLength);
-          slices.push({
-            tokenIndex,
-            breakAfterTokenIndex,
-            textToNextWord,
-            trailingGapAfterBreakText
-          });
-          keyParts.push(
-            `${textToNextWord}${trailingGapAfterBreakText}${breakAfterTokenIndex}`
-          );
+        let key = "";
+        for (let tokenIndex = 0; tokenIndex < tokens.length; tokenIndex += 1) {
+          const token = tokens[tokenIndex];
+          if (!isWordToken(token)) continue;
+          const slice = buildSliceForWord(tokens, tokenIndex);
+          slices.push(slice);
+          if (key) key += "";
+          key += `${slice.textToNextWord}${slice.trailingGapAfterBreakText}${slice.breakAfterTokenIndex}`;
         }
-        const key = keyParts.join("");
         return {
           slices,
           key
@@ -13339,14 +14358,6 @@ updateMount({
         const total = rangeSum(metrics.prefixWidths, startWord, endWord);
         return total - (metrics.trailingGapWidths[endWord] ?? 0);
       };
-      function getWordRangeWidth(metrics, startWord, endWord) {
-        if (endWord < startWord) return 0;
-        if (!metrics.widths.length) return 0;
-        const start = clamp(startWord, 0, metrics.widths.length - 1);
-        const end = clamp(endWord, 0, metrics.widths.length - 1);
-        if (end < start) return 0;
-        return getWordRangeWidthUnsafe(metrics, start, end);
-      }
       const getWordRangeCharsUnsafe = (metrics, startWord, endWord) => {
         const total = rangeSum(metrics.prefixChars, startWord, endWord);
         return total - (metrics.trailingGapChars[endWord] ?? 0);
@@ -13438,6 +14449,85 @@ updateMount({
         }
         const breakIndex = computeBestTwoLineBreak(metrics, 0, n2 - 1, maxWidth);
         return breakIndex === null ? [] : [breakIndex];
+      }
+      const buildWrapPlanForSegment = (tokens, measure, maxWidthPx, allowTruncation) => {
+        const { slices } = buildWordSlices(tokens);
+        if (slices.length <= 1 || maxWidthPx <= 0) {
+          return {
+            breakAfterTokenIndices: [],
+            truncateAfterTokenIndex: null
+          };
+        }
+        const words = slices.map((slice) => ({
+          tokenIndex: slice.tokenIndex,
+          breakAfterTokenIndex: slice.breakAfterTokenIndex
+        }));
+        const metrics = measureWordSlices(slices, measure);
+        if (getWordRangeWidthUnsafe(metrics, 0, metrics.widths.length - 1) <= maxWidthPx) {
+          return {
+            breakAfterTokenIndices: [],
+            truncateAfterTokenIndex: null
+          };
+        }
+        const breakWordIndices = computeBalancedBreaks(metrics, maxWidthPx);
+        if (breakWordIndices.length) {
+          return {
+            breakAfterTokenIndices: breakWordIndices.map(
+              (wordIndex) => words[wordIndex].breakAfterTokenIndex
+            ),
+            truncateAfterTokenIndex: null
+          };
+        }
+        if (!allowTruncation) {
+          return {
+            breakAfterTokenIndices: [],
+            truncateAfterTokenIndex: null
+          };
+        }
+        const strict = resolveStrictTwoLineLayout(metrics, maxWidthPx);
+        return {
+          breakAfterTokenIndices: strict.breakAfterWordIndices.map(
+            (wordIndex) => words[wordIndex].breakAfterTokenIndex
+          ),
+          truncateAfterTokenIndex: strict.truncateAfterWordIndex === null ? null : words[strict.truncateAfterWordIndex]?.breakAfterTokenIndex ?? null
+        };
+      };
+      function computeTokenWrapPlan(tokens, measure, maxWidthPx, allowTruncation = true) {
+        if (!tokens.length || maxWidthPx <= 0) {
+          return {
+            breakAfterTokenIndices: [],
+            truncateAfterTokenIndex: null
+          };
+        }
+        const breakAfterTokenIndices = [];
+        let truncateAfterTokenIndex = null;
+        let segmentStart = 0;
+        const hasExplicitLineBreak = hasExplicitLineBreakToken(tokens);
+        for (let index = 0; index <= tokens.length; index += 1) {
+          const isExplicitBreak = index === tokens.length || tokens[index]?.text === "\n";
+          if (!isExplicitBreak) continue;
+          if (segmentStart < index) {
+            const segmentPlan = buildWrapPlanForSegment(
+              tokens.slice(segmentStart, index),
+              measure,
+              maxWidthPx,
+              allowTruncation && !hasExplicitLineBreak
+            );
+            breakAfterTokenIndices.push(
+              ...segmentPlan.breakAfterTokenIndices.map(
+                (tokenIndex) => segmentStart + tokenIndex
+              )
+            );
+            if (truncateAfterTokenIndex === null && segmentPlan.truncateAfterTokenIndex !== null && !hasExplicitLineBreak) {
+              truncateAfterTokenIndex = segmentStart + segmentPlan.truncateAfterTokenIndex;
+            }
+          }
+          segmentStart = index + 1;
+        }
+        return {
+          breakAfterTokenIndices,
+          truncateAfterTokenIndex: hasExplicitLineBreak ? null : truncateAfterTokenIndex
+        };
       }
       function findLongestPrefixFittingTwoLines(metrics, maxWidth) {
         const n2 = metrics.widths.length;
@@ -13658,11 +14748,6 @@ updateMount({
         applySentenceBoundarySplits(wordRanges, tokens, words, isRangeAllowed);
         return mapWordRangesToTimedSegments(wordRanges, words, tokens);
       }
-      function shouldShowSmartEllipsis(smartLayoutEnabled, truncateAfterTokenIndex, tokensLength) {
-        if (!smartLayoutEnabled) return false;
-        if (typeof truncateAfterTokenIndex !== "number") return false;
-        return truncateAfterTokenIndex >= 0 && truncateAfterTokenIndex < tokensLength - 1;
-      }
       const WRAP_WIDTH_GUARD_PX = 8;
       const WRAP_WIDTH_GUARD_RATIO = 0.97;
       const MIN_EFFECTIVE_WRAP_WIDTH_PX = 24;
@@ -13676,7 +14761,7 @@ updateMount({
       class SubtitlesWidget {
         video;
         container;
-        portal;
+        fullscreenLayerController;
         tooltipLayoutRoot;
         subtitlesContainer = null;
         subtitlesBlock = null;
@@ -13685,15 +14770,19 @@ updateMount({
         subtitles = null;
         subtitleLang;
         lastRenderKey = null;
-        lastActiveLineIndex = null;
+        lastActiveLineKey = null;
+        maxActiveCueLookbackMs = 0;
         highlightWords = false;
         fontSize = 20;
         fontSizeOverridden = false;
+        fontFamily = "default-sans";
         manualMaxLength = 300;
         smartLayoutEnabled = true;
         smartFontSizePx = 0;
         smartMaxWidthPx = 0;
         smartMaxLength = 0;
+        smartAnchorWidthPx = 0;
+        smartAnchorHeightPx = 0;
         lastSmartLayoutKey = null;
         lastSmartLayoutCheckTs = 0;
         opacity = "0.2";
@@ -13718,16 +14807,17 @@ updateMount({
         lastWrapTokens = null;
         measureCanvas = null;
         measureCtx = null;
-        lastMultilineMeasureSignature = null;
-        lastLayoutAffectingKey = null;
         tokenProcessingMemo = null;
         tokenPrecomputeMemo = null;
         lineMeasureMemo = null;
         lastSegmentIndex = 0;
+        lastAppliedLeftPct = null;
+        lastAppliedTopPct = null;
         position = {
           left: 50,
           top: 100
         };
+        positionPreset = "bottom-center";
         dragging = {
           pointerId: null,
           candidate: false,
@@ -13741,6 +14831,7 @@ updateMount({
           }
         };
         dragStartThresholdPx = 4;
+        snapThresholdPx = 18;
         suppressTokenClicksUntil = 0;
         abortController = new AbortController();
         resizeObserver;
@@ -13751,11 +14842,16 @@ updateMount({
         edgePunctuationTrimRe = /(?:^[\p{P}\p{S}]+|[\p{P}\p{S}]+$)/gu;
         strTokens = "";
         strTranslatedTokens = "";
+        passedStateKey = null;
+        passedThresholds = [];
         normalizeTokenTextForTranslation(raw) {
           return raw.trim().replace(this.edgePunctuationTrimRe, "");
         }
         bottomInsetCachedPx = 0;
-bottomInsetByMode = {
+safeAreaBottomInsetCachedPx = 0;
+        containerPaddingBottomCachedPx = 0;
+        insetCacheReady = false;
+        bottomInsetByMode = {
           normal: {
             ratio: 0.1,
             minPx: 56,
@@ -13770,16 +14866,22 @@ bottomInsetByMode = {
           }
         };
         safeAreaProbeEl = null;
+        guidesLayer = null;
+        verticalGuide = null;
+        horizontalGuide = null;
         onPointerDownBound;
         onPointerUpBound;
         onPointerMoveBound;
         onTimeUpdateBound;
         onPlaybackStateChangeBound;
         onVisualViewportChangeBound;
-        constructor(video, container, portal, intervalIdleChecker, tooltipLayoutRoot = void 0) {
+        constructor(video, container, intervalIdleChecker, tooltipLayoutRoot = void 0) {
           this.video = video;
           this.container = container;
-          this.portal = portal;
+          this.fullscreenLayerController = new FullscreenLayerController({
+            video,
+            container
+          });
           this.intervalIdleChecker = intervalIdleChecker;
           this.tooltipLayoutRoot = tooltipLayoutRoot;
           this.useVideoFrameCallbacks = !!this.video && typeof this.video.requestVideoFrameCallback === "function";
@@ -13794,8 +14896,29 @@ bottomInsetByMode = {
           });
           this.bindEvents();
         }
-        setPortal(portal) {
-          this.portal = portal;
+        updateMount({
+          container,
+          tooltipLayoutRoot
+        }) {
+          const containerChanged = this.container !== container;
+          const tooltipRootChanged = this.tooltipLayoutRoot !== tooltipLayoutRoot;
+          this.container = container;
+          this.fullscreenLayerController.updateContainer(container);
+          this.tooltipLayoutRoot = tooltipLayoutRoot;
+          this.syncWidgetMount();
+          if (containerChanged || tooltipRootChanged) {
+            this.tokenTooltip?.updateMount({
+              parentElement: this.getTokenTooltipParentElement(),
+              layoutRoot: this.tooltipLayoutRoot ?? document.documentElement
+            });
+          }
+          if (this.subtitles) {
+            this.insetCacheReady = false;
+            this.lastAppliedLeftPct = null;
+            this.lastAppliedTopPct = null;
+            this.updateContainerRect();
+            this.requestUpdate();
+          }
         }
         resetTranslationContext(releaseTooltip = false) {
           this.strTranslatedTokens = "";
@@ -13816,8 +14939,6 @@ bottomInsetByMode = {
         }
         resetRenderMemo() {
           this.lastRenderKey = null;
-          this.lastMultilineMeasureSignature = null;
-          this.lastLayoutAffectingKey = null;
         }
         computeAnchorBoxLayout(layout) {
           const fallback = {
@@ -13844,22 +14965,41 @@ bottomInsetByMode = {
           const top = maxTop >= 0 ? clampToRange(rawTop, 0, maxTop) : (layout.h - h2) / 2;
           return { left, top, w: w2, h: h2 };
         }
+        readSmartCssMetrics() {
+          const block = this.subtitlesBlock;
+          if (!block) return null;
+          const cs = getComputedStyle(block);
+          const fontSizePx = Number.parseFloat(cs.fontSize);
+          const maxWidthRawPx = Number.parseFloat(cs.maxWidth);
+          if (!Number.isFinite(fontSizePx) || !Number.isFinite(maxWidthRawPx) || fontSizePx <= 0 || maxWidthRawPx <= 0) {
+            return null;
+          }
+          this.subtitleMaxWidthPx = maxWidthRawPx;
+          const paddingLeft = Number.parseFloat(cs.paddingLeft) || 0;
+          const paddingRight = Number.parseFloat(cs.paddingRight) || 0;
+          const maxWidthPx = Math.max(0, maxWidthRawPx - paddingLeft - paddingRight);
+          if (maxWidthPx <= 0) return null;
+          return { fontSizePx, maxWidthPx };
+        }
         ensureSmartLayout(anchorBox) {
           if (!this.smartLayoutEnabled) {
             this.maxLength = this.manualMaxLength;
             return null;
           }
-          const next = computeSmartLayoutForBox(anchorBox);
-          const nextKey = `${Math.round(next.fontSizePx)}|${Math.round(
-      next.maxWidthPx
-    )}|${next.maxLength}`;
-          const fontChanged = next.fontSizePx !== this.smartFontSizePx;
-          const widthChanged = Math.abs(next.maxWidthPx - this.smartMaxWidthPx) > 0.5;
+          const cssMetrics = this.readSmartCssMetrics();
+          const nextFontSizePx = cssMetrics?.fontSizePx ?? this.smartFontSizePx;
+          const next = computeSmartLayoutForBox(anchorBox, cssMetrics);
+          const nextMaxWidthPx = next.maxWidthPx ?? this.smartMaxWidthPx;
+          const nextKey = `${Math.round(nextFontSizePx)}|${Math.round(
+      nextMaxWidthPx
+    )}|${next.maxLength}|${Math.round(next.maxWidthPx ?? 0)}`;
+          const fontChanged = Math.abs(nextFontSizePx - this.smartFontSizePx) > 0.5;
+          const widthChanged = Math.abs(nextMaxWidthPx - this.smartMaxWidthPx) > 0.5;
           const lengthChanged = next.maxLength !== this.smartMaxLength;
           if (nextKey !== this.lastSmartLayoutKey) {
             this.lastSmartLayoutKey = nextKey;
-            this.smartFontSizePx = next.fontSizePx;
-            this.smartMaxWidthPx = next.maxWidthPx;
+            this.smartFontSizePx = nextFontSizePx;
+            this.smartMaxWidthPx = nextMaxWidthPx;
             this.smartMaxLength = next.maxLength;
           }
           if (lengthChanged) {
@@ -13867,12 +15007,10 @@ bottomInsetByMode = {
             this.resetRenderMemo();
             this.resetSegmentationMemo();
           }
-          if (fontChanged && this.subtitlesBlock) {
-            this.subtitlesBlock.style.setProperty(
-              "--vot-subtitles-font-size",
-              `${next.fontSizePx}px`
-            );
-          }
+          this.setSubtitlesContainerVar(
+            "--vot-subtitles-max-width",
+            next.maxWidthPx && next.maxWidthPx > 0 ? `${next.maxWidthPx}px` : null
+          );
           if ((fontChanged || widthChanged) && this.lastWrapTokens) {
             this.lastWrapKey = null;
             this.scheduleWrapRecompute();
@@ -13887,22 +15025,135 @@ bottomInsetByMode = {
           this.intervalIdleChecker.markActivity("subtitles-reposition");
           this.intervalIdleChecker.requestImmediateTick();
         }
+        setSubtitlesContainerVar(name, value) {
+          const container = this.subtitlesContainer;
+          if (!container) return;
+          if (value === null) {
+            container.style.removeProperty(name);
+            return;
+          }
+          container.style.setProperty(name, value);
+        }
+        applyOpacityStyle() {
+          this.setSubtitlesContainerVar("--vot-subtitles-opacity", this.opacity);
+        }
+        applyManualFontSizeStyle() {
+          if (!this.smartLayoutEnabled && this.fontSizeOverridden) {
+            this.setSubtitlesContainerVar(
+              "--vot-subtitles-font-size",
+              `${this.fontSize}px`
+            );
+            return;
+          }
+          this.setSubtitlesContainerVar("--vot-subtitles-font-size", null);
+        }
+        applyFontFamilyStyle() {
+          const fontFamily = this.fontFamily;
+          this.setSubtitlesContainerVar(
+            "--vot-subtitles-font-family-custom",
+            getSubtitleFontFamilyCssValue(fontFamily)
+          );
+          void ensureGoogleSubtitleFontLoaded(fontFamily, {
+            forceGmXhr: true,
+            onLoaded: () => {
+              if (this.fontFamily !== fontFamily) {
+                return;
+              }
+              this.lastWrapKey = null;
+              this.resetSegmentationMemo();
+              this.scheduleWrapRecompute();
+              this.scheduleReposition();
+            }
+          });
+        }
+        syncVisualStyleVars() {
+          this.applyOpacityStyle();
+          this.applyManualFontSizeStyle();
+          this.applyFontFamilyStyle();
+        }
+        ensureGuidesLayer() {
+          if (this.guidesLayer) {
+            return this.guidesLayer;
+          }
+          const layer = document.createElement("vot-block");
+          layer.classList.add("vot-subtitles-guides");
+          const verticalGuide = document.createElement("vot-block");
+          verticalGuide.classList.add(
+            "vot-subtitles-guide",
+            "vot-subtitles-guide--vertical"
+          );
+          const horizontalGuide = document.createElement("vot-block");
+          horizontalGuide.classList.add(
+            "vot-subtitles-guide",
+            "vot-subtitles-guide--horizontal"
+          );
+          layer.append(verticalGuide, horizontalGuide);
+          this.guidesLayer = layer;
+          this.verticalGuide = verticalGuide;
+          this.horizontalGuide = horizontalGuide;
+          this.hideSnapGuides();
+          return layer;
+        }
+        hideSnapGuides() {
+          this.verticalGuide?.removeAttribute("data-visible");
+          this.horizontalGuide?.removeAttribute("data-visible");
+        }
+        updateSnapGuides(anchorBox, options) {
+          const { showVerticalCenter = false, showHorizontalCenter = false } = options;
+          const layer = this.ensureGuidesLayer();
+          if (!layer.isConnected) {
+            this.syncGuideLayerMount();
+          }
+          if (this.verticalGuide) {
+            this.verticalGuide.style.left = `${anchorBox.left + anchorBox.w / 2}px`;
+            this.verticalGuide.style.top = `${anchorBox.top}px`;
+            this.verticalGuide.style.height = `${anchorBox.h}px`;
+            if (showVerticalCenter) {
+              this.verticalGuide.dataset.visible = "true";
+            } else {
+              delete this.verticalGuide.dataset.visible;
+            }
+          }
+          if (this.horizontalGuide) {
+            this.horizontalGuide.style.left = `${anchorBox.left}px`;
+            this.horizontalGuide.style.top = `${anchorBox.top + anchorBox.h / 2}px`;
+            this.horizontalGuide.style.width = `${anchorBox.w}px`;
+            if (showHorizontalCenter) {
+              this.horizontalGuide.dataset.visible = "true";
+            } else {
+              delete this.horizontalGuide.dataset.visible;
+            }
+          }
+        }
+        syncGuideLayerMount() {
+          const widgetParent = this.fullscreenLayerController.getWidgetParentElement();
+          const guidesLayer = this.ensureGuidesLayer();
+          if (guidesLayer.parentElement !== widgetParent) {
+            widgetParent.appendChild(guidesLayer);
+          }
+        }
+        syncWidgetMount() {
+          this.fullscreenLayerController.syncWidgetContainer(this.subtitlesContainer);
+          this.syncGuideLayerMount();
+        }
+        getTokenTooltipParentElement() {
+          const widgetParent = this.fullscreenLayerController.getWidgetParentElement();
+          return widgetParent === this.container ? document.documentElement : widgetParent;
+        }
         createSubtitlesContainer() {
           if (this.subtitlesContainer) {
             return this.subtitlesContainer;
           }
-          if (getComputedStyle(this.container).position === "static") {
-            this.container.style.position = "relative";
-          }
           const container = document.createElement("vot-block");
           container.classList.add("vot-subtitles-widget");
-          this.container.appendChild(container);
           this.subtitlesContainer = container;
+          this.syncWidgetMount();
           container.addEventListener("pointerdown", this.onPointerDownBound, {
             signal: this.abortController.signal,
             passive: true
           });
-          container.style.transform = "translate(-50%, -100%)";
+          this.syncVisualStyleVars();
+          this.insetCacheReady = false;
           this.updateContainerRect();
           return container;
         }
@@ -14041,6 +15292,7 @@ bottomInsetByMode = {
           document.removeEventListener("pointercancel", this.onPointerUpBound);
         }
         onResize() {
+          this.syncWidgetMount();
           this.scheduleReposition();
         }
         updateContainerRect() {
@@ -14052,9 +15304,10 @@ bottomInsetByMode = {
           this.applySubtitlePositionWithLayout(layout, anchorBox);
         }
         getLayoutSize() {
-          const rect = this.container.getBoundingClientRect();
-          const w2 = this.container.clientWidth || rect.width;
-          const h2 = this.container.clientHeight || rect.height;
+          const layoutRoot = this.fullscreenLayerController.getLayoutRootElement();
+          const rect = layoutRoot.getBoundingClientRect();
+          const w2 = layoutRoot.clientWidth || rect.width;
+          const h2 = layoutRoot.clientHeight || rect.height;
           const scaleX = rect.width && w2 ? rect.width / w2 : 1;
           const scaleY = rect.height && h2 ? rect.height / h2 : 1;
           return { w: w2, h: h2, rect, scaleX, scaleY };
@@ -14078,6 +15331,12 @@ bottomInsetByMode = {
           if (!this.safeAreaProbeEl) return 0;
           const h2 = this.safeAreaProbeEl.offsetHeight || 0;
           return h2;
+        }
+        refreshInsetCache() {
+          const layoutRoot = this.fullscreenLayerController.getLayoutRootElement();
+          this.safeAreaBottomInsetCachedPx = this.getSafeAreaBottomInsetPx();
+          this.containerPaddingBottomCachedPx = Number.parseFloat(getComputedStyle(layoutRoot).paddingBottom || "0") || 0;
+          this.insetCacheReady = true;
         }
         isMobileViewport() {
           if (typeof globalThis.matchMedia !== "function") return false;
@@ -14104,6 +15363,7 @@ bottomInsetByMode = {
           return clampToRange(raw, preset.minPx, preset.maxPx);
         }
         refreshBottomInsetNow(layout, anchorBox) {
+          this.refreshInsetCache();
           const anchorH = anchorBox?.h ?? this.computeAnchorBoxLayout(layout ?? this.getLayoutSize()).h;
           if (!anchorH) {
             this.bottomInsetCachedPx = 0;
@@ -14116,11 +15376,12 @@ bottomInsetByMode = {
           );
         }
         getBottomInsetPx(layout, anchorBox) {
+          if (!this.insetCacheReady) {
+            this.refreshInsetCache();
+          }
           const preset = this.getBottomInsetPreset();
-          const safeAreaBottom = this.getSafeAreaBottomInsetPx();
-          const paddingBottom = Number.parseFloat(
-            getComputedStyle(this.container).paddingBottom || "0"
-          ) || 0;
+          const safeAreaBottom = this.safeAreaBottomInsetCachedPx;
+          const paddingBottom = this.containerPaddingBottomCachedPx;
           if (this.isMobileViewport()) {
             return Math.max(paddingBottom, safeAreaBottom);
           }
@@ -14156,6 +15417,7 @@ bottomInsetByMode = {
           this.dragging.startClientY = event.clientY;
           this.dragging.offset.x = anchorX - pointerX;
           this.dragging.offset.y = anchorY - pointerY;
+          this.hideSnapGuides();
           this.attachDragDocumentListeners();
           const captureEl = this.subtitlesBlock ?? (target instanceof Element ? target : null);
           try {
@@ -14173,6 +15435,7 @@ bottomInsetByMode = {
           this.dragging.candidate = false;
           this.dragging.active = false;
           this.dragging.moved = false;
+          this.hideSnapGuides();
           this.detachDragDocumentListeners();
         }
         onPointerMove(event) {
@@ -14210,6 +15473,23 @@ bottomInsetByMode = {
           const elW = this.subtitlesContainer?.offsetWidth ?? 0;
           const elH = this.subtitlesContainer?.offsetHeight ?? 0;
           const bottomInset = this.getBottomInsetPx(layout, anchorBox);
+          const snappedX = snapValueToNearestCandidate({
+            current: anchorX,
+            candidates: [anchorBox.w / 2],
+            thresholdPx: this.snapThresholdPx
+          });
+          if (snappedX.snapped) {
+            anchorX = snappedX.value;
+          }
+          const verticalCenterAnchor = anchorBox.h / 2 + elH / 2;
+          const snappedY = snapValueToNearestCandidate({
+            current: anchorY,
+            candidates: [verticalCenterAnchor],
+            thresholdPx: this.snapThresholdPx
+          });
+          if (snappedY.snapped) {
+            anchorY = snappedY.value;
+          }
           ({ anchorX, anchorY } = clampAnchorWithinBox({
             anchorX,
             anchorY,
@@ -14219,8 +15499,13 @@ bottomInsetByMode = {
             boxHeight: anchorBox.h,
             bottomInset
           }));
+          this.positionPreset = "custom";
           this.position.left = anchorX / anchorBox.w * 100;
           this.position.top = anchorY / anchorBox.h * 100;
+          this.updateSnapGuides(anchorBox, {
+            showVerticalCenter: snappedX.snapped,
+            showHorizontalCenter: snappedY.snapped
+          });
           this.applySubtitlePositionWithLayout(layout, anchorBox);
         }
         applySubtitlePosition() {
@@ -14235,63 +15520,149 @@ bottomInsetByMode = {
         applySubtitlePositionWithLayout(layout, anchorBox) {
           const subtitlesContainer = this.subtitlesContainer;
           if (!subtitlesContainer) return;
+          this.applyScaleCompensation(subtitlesContainer, layout);
+          this.syncAnchorDimensions(subtitlesContainer, anchorBox);
+          if (this.smartLayoutEnabled) this.ensureSmartLayout(anchorBox);
+          const elW = subtitlesContainer.offsetWidth;
+          const elH = subtitlesContainer.offsetHeight;
+          const bottomInset = this.getBottomInsetPx(layout, anchorBox);
+          const anchorPosition = this.resolveCurrentAnchorPosition(
+            anchorBox,
+            elW,
+            elH,
+            bottomInset
+          );
+          const containerPosition = this.clampContainerPosition(
+            anchorBox,
+            anchorPosition.anchorX,
+            anchorPosition.anchorY,
+            elW,
+            elH,
+            bottomInset
+          );
+          const anchorX = containerPosition.anchorX;
+          const anchorY = containerPosition.anchorY;
+          const containerAnchorX = anchorBox.left + anchorX;
+          const containerAnchorY = anchorBox.top + anchorY;
+          const leftPct = containerAnchorX / layout.w * 100;
+          const topPct = containerAnchorY / layout.h * 100;
+          this.updateContainerPosition(subtitlesContainer, leftPct, topPct);
+          this.tokenTooltip?.updatePos();
+        }
+        applyScaleCompensation(subtitlesContainer, layout) {
           const visualScale = Math.min(layout.scaleX || 1, layout.scaleY || 1);
           const compensate = visualScale > 0 && visualScale < 0.999 ? Math.min(1 / visualScale, 3) : 1;
           if (Math.abs(compensate - 1) < 1e-3) {
             subtitlesContainer.style.removeProperty(
               "--vot-subtitles-scale-compensation"
             );
-          } else {
-            subtitlesContainer.style.setProperty(
-              "--vot-subtitles-scale-compensation",
-              compensate.toFixed(3)
-            );
+            return;
           }
-          let desiredMaxWidthPx = 0;
-          if (this.smartLayoutEnabled) {
-            const smart = this.ensureSmartLayout(anchorBox);
-            desiredMaxWidthPx = smart ? Math.max(0, smart.maxWidthPx) : Math.max(0, anchorBox.w * 0.7);
-          } else {
-            desiredMaxWidthPx = Math.max(0, anchorBox.w * 0.7);
+          subtitlesContainer.style.setProperty(
+            "--vot-subtitles-scale-compensation",
+            compensate.toFixed(3)
+          );
+        }
+        syncAnchorDimensions(subtitlesContainer, anchorBox) {
+          const anchorWidthPx = Math.max(1, Math.round(anchorBox.w));
+          const anchorHeightPx = Math.max(1, Math.round(anchorBox.h));
+          const anchorDimsChanged = anchorWidthPx !== this.smartAnchorWidthPx || anchorHeightPx !== this.smartAnchorHeightPx;
+          if (!anchorDimsChanged) {
+            return;
           }
-          if (Math.abs(desiredMaxWidthPx - this.subtitleMaxWidthPx) > 0.5) {
-            this.subtitleMaxWidthPx = desiredMaxWidthPx;
-            subtitlesContainer.style.setProperty(
-              "--vot-subtitles-max-width",
-              `${Math.round(desiredMaxWidthPx)}px`
-            );
+          this.smartAnchorWidthPx = anchorWidthPx;
+          this.smartAnchorHeightPx = anchorHeightPx;
+          subtitlesContainer.style.setProperty(
+            "--vot-subtitles-anchor-width",
+            `${anchorWidthPx}px`
+          );
+          subtitlesContainer.style.setProperty(
+            "--vot-subtitles-anchor-height",
+            `${anchorHeightPx}px`
+          );
+          if (this.lastWrapTokens) {
+            this.lastWrapKey = null;
             this.resetSegmentationMemo();
             this.scheduleWrapRecompute();
           }
-          const elW = subtitlesContainer.offsetWidth;
-          const elH = subtitlesContainer.offsetHeight;
-          const bottomInset = this.getBottomInsetPx(layout, anchorBox);
+        }
+        resolveCurrentAnchorPosition(anchorBox, elementWidth, elementHeight, bottomInset) {
           let anchorX = this.position.left / 100 * anchorBox.w;
           let anchorY = this.position.top / 100 * anchorBox.h;
-          let leftPx = anchorX - elW / 2;
-          let topPx = anchorY - elH;
-          const maxLeftPx = anchorBox.w - elW;
-          const maxTopPx = anchorBox.h - bottomInset - elH;
-          if (maxLeftPx >= 0) {
-            leftPx = clampToRange(leftPx, 0, maxLeftPx);
-          } else {
-            leftPx = maxLeftPx / 2;
+          if (this.positionPreset === "custom") {
+            return { anchorX, anchorY };
           }
-          if (maxTopPx >= 0) {
-            topPx = clampToRange(topPx, 0, maxTopPx);
-          } else {
-            topPx = 0;
+          const presetPosition = this.resolvePresetAnchorPosition({
+            preset: this.positionPreset,
+            anchorBox,
+            elementWidth,
+            elementHeight,
+            bottomInset
+          });
+          anchorX = presetPosition.anchorX;
+          anchorY = presetPosition.anchorY;
+          if (anchorBox.w > 0) {
+            this.position.left = anchorX / anchorBox.w * 100;
           }
-          anchorX = leftPx + elW / 2;
-          anchorY = topPx + elH;
-          const containerAnchorX = anchorBox.left + anchorX;
-          const containerAnchorY = anchorBox.top + anchorY;
-          const leftPct = containerAnchorX / layout.w * 100;
-          const topPct = containerAnchorY / layout.h * 100;
-          subtitlesContainer.style.left = `${leftPct}%`;
-          subtitlesContainer.style.top = `${topPct}%`;
-          subtitlesContainer.style.transform = "translate(-50%, -100%)";
-          this.tokenTooltip?.updatePos();
+          if (anchorBox.h > 0) {
+            this.position.top = anchorY / anchorBox.h * 100;
+          }
+          return { anchorX, anchorY };
+        }
+        clampContainerPosition(anchorBox, anchorX, anchorY, elementWidth, elementHeight, bottomInset) {
+          let leftPx = anchorX - elementWidth / 2;
+          let topPx = anchorY - elementHeight;
+          const maxLeftPx = anchorBox.w - elementWidth;
+          const maxTopPx = anchorBox.h - bottomInset - elementHeight;
+          leftPx = maxLeftPx >= 0 ? clampToRange(leftPx, 0, maxLeftPx) : maxLeftPx / 2;
+          topPx = maxTopPx >= 0 ? clampToRange(topPx, 0, maxTopPx) : 0;
+          return {
+            anchorX: leftPx + elementWidth / 2,
+            anchorY: topPx + elementHeight
+          };
+        }
+        updateContainerPosition(subtitlesContainer, leftPct, topPct) {
+          if (this.lastAppliedLeftPct === null || Math.abs(leftPct - this.lastAppliedLeftPct) >= 0.01) {
+            subtitlesContainer.style.left = `${leftPct}%`;
+            this.lastAppliedLeftPct = leftPct;
+          }
+          if (this.lastAppliedTopPct === null || Math.abs(topPct - this.lastAppliedTopPct) >= 0.01) {
+            subtitlesContainer.style.top = `${topPct}%`;
+            this.lastAppliedTopPct = topPct;
+          }
+        }
+        resolvePresetAnchorPosition({
+          preset,
+          anchorBox,
+          elementWidth,
+          elementHeight,
+          bottomInset
+        }) {
+          let anchorX = anchorBox.w / 2;
+          let anchorY = anchorBox.h - bottomInset;
+          switch (preset) {
+            case "top-center":
+              anchorY = elementHeight;
+              break;
+            case "center":
+              anchorY = anchorBox.h / 2 + elementHeight / 2;
+              break;
+            case "bottom-left":
+              anchorX = elementWidth / 2;
+              break;
+            case "bottom-right":
+              anchorX = anchorBox.w - elementWidth / 2;
+              break;
+          }
+          return clampAnchorWithinBox({
+            anchorX,
+            anchorY,
+            elementWidth,
+            elementHeight,
+            boxWidth: anchorBox.w,
+            boxHeight: anchorBox.h,
+            bottomInset
+          });
         }
         applyPositionAfterContentRender() {
           const layout = this.getLayoutSize();
@@ -14394,6 +15765,9 @@ bottomInsetByMode = {
             const paddingLeft = Number.parseFloat(cs.paddingLeft) || 0;
             const paddingRight = Number.parseFloat(cs.paddingRight) || 0;
             const baseMaxWidth2 = Number.isFinite(cssMaxWidth) ? cssMaxWidth : this.subtitleMaxWidthPx || globalThis.innerWidth * 0.8;
+            if (Number.isFinite(baseMaxWidth2) && baseMaxWidth2 > 0) {
+              this.subtitleMaxWidthPx = baseMaxWidth2;
+            }
             return {
               fontKey: fontKey2,
               maxWidthPx: Math.max(0, baseMaxWidth2 - paddingLeft - paddingRight)
@@ -14407,7 +15781,7 @@ bottomInsetByMode = {
             this.subtitleMaxWidthPx || globalThis.innerWidth * cssFallbackVw
           );
           const fontSizePx = this.fontSizeOverridden ? this.fontSize : Math.min(24, Math.max(14, globalThis.innerWidth * 0.016));
-          const fontKey = `normal normal 500 ${fontSizePx}px Roboto, "Segoe UI", system-ui, sans-serif`;
+          const fontKey = `normal normal 500 ${fontSizePx}px ${getSubtitleFontFamilyCssValue(this.fontFamily)}`;
           ctx.font = fontKey;
           return {
             fontKey,
@@ -14415,8 +15789,8 @@ bottomInsetByMode = {
           };
         }
         getActiveLineKey(tokens) {
-          if (this.lastActiveLineIndex !== null) {
-            return `${this.lastActiveLineIndex}`;
+          if (this.lastActiveLineKey !== null) {
+            return this.lastActiveLineKey;
           }
           return `${tokens[0]?.startMs ?? 0}:${tokens[0]?.durationMs ?? 0}:${tokens.length}`;
         }
@@ -14596,7 +15970,7 @@ bottomInsetByMode = {
         } = {}) {
           if (releaseTooltip) this.releaseTooltip();
           this.resetRenderMemo();
-          this.lastActiveLineIndex = null;
+          this.lastActiveLineKey = null;
           this.strTokens = "";
           this.resetTranslationContext();
           this.subtitlesBlock = null;
@@ -14604,6 +15978,16 @@ bottomInsetByMode = {
           this.resetWrapMemo();
           this.lastWrapTokens = null;
           this.subtitleMaxWidthPx = 0;
+          this.smartAnchorWidthPx = 0;
+          this.smartAnchorHeightPx = 0;
+          this.smartFontSizePx = 0;
+          this.smartMaxWidthPx = 0;
+          this.lastAppliedLeftPct = null;
+          this.lastAppliedTopPct = null;
+          this.passedStateKey = null;
+          this.passedThresholds.length = 0;
+          this.insetCacheReady = false;
+          this.hideSnapGuides();
           this.resetSegmentationMemo();
           this.clearPendingSchedulerState();
           if (this.subtitlesContainer) {
@@ -14618,9 +16002,7 @@ bottomInsetByMode = {
           }
           const target = this.resolveTokenSpanFromClick(event);
           if (!target) return;
-          if (this.tokenTooltip?.target === target && this.tokenTooltip?.container) {
-            if (this.tokenTooltip.showed) target.classList.add("selected");
-            else target.classList.remove("selected");
+          if (this.toggleCurrentTooltipTarget(target)) {
             return;
           }
           this.releaseTooltip();
@@ -14640,115 +16022,109 @@ bottomInsetByMode = {
             this.strTranslatedTokens || this.strTokens,
             service
           );
+          const tooltip = this.createTokenTooltip(target, subtitlesInfo.container);
+          this.tokenTooltip = tooltip;
+          tooltip.onClick();
+          const strTokens = this.strTokens;
+          const translated = await this.translateStrTokens(text);
+          if (requestId !== this.tooltipTranslationRequestId) return;
+          if (this.shouldSkipTooltipUpdate(requestId, tooltip, target, strTokens)) {
+            return;
+          }
+          subtitlesInfo.header.textContent = translated[1];
+          subtitlesInfo.context.textContent = translated[0];
+          tooltip.setContent(subtitlesInfo.container);
+        };
+        toggleCurrentTooltipTarget(target) {
+          if (this.tokenTooltip?.target !== target || !this.tokenTooltip?.container) {
+            return false;
+          }
+          if (this.tokenTooltip.showed) {
+            target.classList.add("selected");
+          } else {
+            target.classList.remove("selected");
+          }
+          return true;
+        }
+        createTokenTooltip(target, content) {
           const tooltipMaxWidth = Math.max(
             this.subtitleMaxWidthPx,
             this.subtitlesContainer?.offsetWidth ?? 0,
             this.subtitlesBlock?.offsetWidth ?? 0,
             Math.min(globalThis.innerWidth * 0.6, 320)
           );
-          const tooltip = new Tooltip({
+          return new Tooltip({
             target,
             anchor: this.subtitlesBlock ?? target,
             layoutRoot: this.tooltipLayoutRoot,
-            content: subtitlesInfo.container,
-            parentElement: this.portal,
+            content,
+            parentElement: this.getTokenTooltipParentElement(),
+            offset: { x: 4, y: 12 },
             maxWidth: tooltipMaxWidth,
             borderRadius: 12,
             bordered: false,
             position: "top",
             trigger: "click"
           });
-          this.tokenTooltip = tooltip;
-          tooltip.onClick();
-          const strTokens = this.strTokens;
-          const translated = await this.translateStrTokens(text);
-          if (requestId !== this.tooltipTranslationRequestId) return;
-          if (strTokens !== this.strTokens || this.tokenTooltip !== tooltip || tooltip.target !== target || !tooltip.showed)
-            return;
-          subtitlesInfo.header.textContent = translated[1];
-          subtitlesInfo.context.textContent = translated[0];
-          tooltip.setContent(subtitlesInfo.container);
-        };
-        buildPassedState(tokens, time) {
-          const flags = this.passedFlagsBuffer;
-          let wordIndex = 0;
-          for (const token of tokens) {
-            if (!token.isWordLike) continue;
-            const halfway = token.startMs + token.durationMs / 2;
-            const passed = time > halfway || time > token.startMs - 100 && halfway - time < 275;
-            flags[wordIndex] = passed;
-            wordIndex += 1;
+        }
+        shouldSkipTooltipUpdate(requestId, tooltip, target, strTokens) {
+          return requestId !== this.tooltipTranslationRequestId || strTokens !== this.strTokens || this.tokenTooltip !== tooltip || tooltip.target !== target || !tooltip.showed;
+        }
+        buildPassedState(tokens, time, stateKey) {
+          if (this.passedStateKey !== stateKey) {
+            this.passedStateKey = stateKey;
+            this.passedThresholds.length = 0;
+            for (const token of tokens) {
+              if (!token.isWordLike) continue;
+              const halfway = token.startMs + token.durationMs / 2;
+              const earlyPassThreshold = Math.max(token.startMs - 100, halfway - 275);
+              this.passedThresholds.push(Math.min(halfway, earlyPassThreshold));
+            }
           }
-          flags.length = wordIndex;
+          const flags = this.passedFlagsBuffer;
+          const thresholds = this.passedThresholds;
+          for (let i2 = 0; i2 < thresholds.length; i2 += 1) {
+            flags[i2] = time > thresholds[i2];
+          }
+          flags.length = thresholds.length;
           return flags;
         }
         renderTokens(tokens) {
           const breakAfter = this.breakAfterTokenIndexSet;
-          const truncateAfterTokenIndex = typeof this.smartTruncateAfterTokenIndex === "number" ? Math.max(
-            0,
-            Math.min(this.smartTruncateAfterTokenIndex, tokens.length - 1)
-          ) : null;
-          const hasSmartTruncation = shouldShowSmartEllipsis(
-            this.smartLayoutEnabled,
-            truncateAfterTokenIndex,
-            tokens.length
-          );
-          const renderEndTokenIndex = hasSmartTruncation ? truncateAfterTokenIndex ?? tokens.length - 1 : tokens.length - 1;
           const out = [];
-          for (let i2 = 0; i2 <= renderEndTokenIndex; ) {
-            const token = tokens[i2];
-            if (!token.text) {
-              i2 += 1;
-              continue;
-            }
-            if (token.isWordLike) {
-              let text = token.text;
-              let endIndex = i2;
-              const hasBreakAfterWord = Boolean(breakAfter?.has(i2));
-              let breakTokenIndex = hasBreakAfterWord ? i2 : null;
-              while (breakTokenIndex === null && endIndex + 1 <= renderEndTokenIndex) {
-                const next = tokens[endIndex + 1];
-                if (!next || next.isWordLike) break;
-                text += next.text;
-                endIndex += 1;
-                if (breakAfter?.has(endIndex)) {
-                  breakTokenIndex = endIndex;
-                  break;
-                }
-              }
-              out.push(
-                b`<span
-            data-vot-token="1"
-            >${text}</span
-          >`
-              );
-              if (breakTokenIndex !== null) {
-                out.push(b`<br class="vot-subtitles-br" />`);
-                i2 = breakTokenIndex + 1;
-                while (i2 <= renderEndTokenIndex && !tokens[i2]?.isWordLike && !tokens[i2]?.text.trim()) {
-                  i2 += 1;
-                }
-                continue;
-              }
-              i2 = endIndex + 1;
-            } else {
-              out.push(token.text);
-              if (breakAfter?.has(i2)) {
-                out.push(b`<br class="vot-subtitles-br" />`);
-              }
-              i2 += 1;
-            }
-          }
-          if (hasSmartTruncation) {
-            const last = out.at(-1);
-            if (typeof last === "string") {
-              const trimmed = last.replace(/\s+$/u, "");
-              if (trimmed) out[out.length - 1] = trimmed;
-              else out.pop();
-            }
-            out.push("…");
+          const plan = buildSubtitleRenderPlan(tokens, tokens.length - 1, breakAfter);
+          for (const part of plan) {
+            out.push(this.renderPlanPart(part));
           }
           return out;
+        }
+        renderPlanPart(part) {
+          if (part.kind === "break") {
+            return b`<br class="vot-subtitles-br" />`;
+          }
+          const inlineStyle = buildSubtitleInlineStyleCssText(part.style);
+          if (part.kind === "word") {
+            return b`<span
+        data-vot-token="1"
+        data-vot-style-italic=${part.style?.italic ? "1" : "0"}
+        data-vot-style-bold=${part.style?.bold ? "1" : "0"}
+        data-vot-style-underline=${part.style?.underline ? "1" : "0"}
+        data-vot-style-color=${part.style?.color ? "1" : "0"}
+        style=${inlineStyle}
+        >${part.text}</span
+      >`;
+          }
+          if (part.style) {
+            return b`<span
+        data-vot-style-italic=${part.style.italic ? "1" : "0"}
+        data-vot-style-bold=${part.style.bold ? "1" : "0"}
+        data-vot-style-underline=${part.style.underline ? "1" : "0"}
+        data-vot-style-color=${part.style.color ? "1" : "0"}
+        style=${inlineStyle}
+        >${part.text}</span
+      >`;
+          }
+          return part.text;
         }
         updatePassedClasses(passedFlags) {
           const tokenEls = this.renderedTokenEls;
@@ -14816,54 +16192,31 @@ bottomInsetByMode = {
           const tokens = this.lastWrapTokens;
           const block = this.subtitlesBlock;
           if (!tokens || !block) return;
-          const lineMeasure = this.getLineMeasureMemo(
-            tokens,
-            this.getActiveLineKey(tokens)
-          );
-          if (!lineMeasure || lineMeasure.maxWidthPx < 50) return;
-          const { words, metrics, maxWidthPx } = lineMeasure;
+          const ctx = this.getMeasureContext();
+          if (!ctx) return;
+          const { fontKey, maxWidthPx } = this.getTokenLayoutInputs(ctx);
+          if (!Number.isFinite(maxWidthPx) || maxWidthPx < 50) return;
           const safeMaxWidthPx = applyWrapWidthGuard(maxWidthPx);
-          if (words.length <= 1) {
-            if (this.breakAfterTokenIndices.length || this.smartTruncateAfterTokenIndex !== null) {
-              this.resetWrapMemo();
-              this.resetRenderMemo();
-              this.update();
-            }
-            return;
-          }
-          const wrapKey = lineMeasure.key;
+          if (safeMaxWidthPx < 50) return;
+          const wrapKey = `${this.getActiveLineKey(tokens)}|${fontKey}|${Math.round(
+      safeMaxWidthPx
+    )}|${this.stringifyTokens(tokens)}`;
           if (wrapKey === this.lastWrapKey) return;
           this.lastWrapKey = wrapKey;
-          let nextBreakAfterTokens = [];
-          let nextSmartTruncateAfterTokenIndex = null;
-          const lineFitsOneLine = getWordRangeWidth(metrics, 0, words.length - 1) <= safeMaxWidthPx;
-          if (!lineFitsOneLine) {
-            const breakWordIndices = computeBalancedBreaks(
-              metrics,
-              safeMaxWidthPx
-            );
-            if (breakWordIndices.length) {
-              nextBreakAfterTokens = breakWordIndices.map(
-                (wordIdx) => words[wordIdx].breakAfterTokenIndex
-              );
-            } else if (this.smartLayoutEnabled) {
-              const strict = resolveStrictTwoLineLayout(metrics, safeMaxWidthPx);
-              nextBreakAfterTokens = strict.breakAfterWordIndices.map(
-                (wordIdx) => words[wordIdx].breakAfterTokenIndex
-              );
-              if (strict.truncateAfterWordIndex !== null) {
-                nextSmartTruncateAfterTokenIndex = words[strict.truncateAfterWordIndex]?.breakAfterTokenIndex ?? null;
-              }
-            }
-          }
+          const next = computeTokenWrapPlan(
+            tokens,
+            (text) => ctx.measureText(text).width,
+            safeMaxWidthPx,
+            this.smartLayoutEnabled
+          );
           const breaksChanged = !this.arraysEqual(
-            nextBreakAfterTokens,
+            next.breakAfterTokenIndices,
             this.breakAfterTokenIndices
           );
-          const truncateChanged = nextSmartTruncateAfterTokenIndex !== this.smartTruncateAfterTokenIndex;
+          const truncateChanged = next.truncateAfterTokenIndex !== this.smartTruncateAfterTokenIndex;
           if (breaksChanged || truncateChanged) {
-            this.setBreakAfterTokenIndices(nextBreakAfterTokens);
-            this.smartTruncateAfterTokenIndex = nextSmartTruncateAfterTokenIndex;
+            this.setBreakAfterTokenIndices(next.breakAfterTokenIndices);
+            this.smartTruncateAfterTokenIndex = next.truncateAfterTokenIndex;
             this.resetRenderMemo();
             this.update();
           }
@@ -14874,6 +16227,7 @@ bottomInsetByMode = {
           if (!subtitles || !this.video) {
             this.clearRenderedContent();
             this.subtitles = null;
+            this.maxActiveCueLookbackMs = 0;
             this.clearPendingSchedulerState();
             this.video?.removeEventListener("timeupdate", this.onTimeUpdateBound);
             this.stopVideoFrameLoop();
@@ -14882,7 +16236,11 @@ bottomInsetByMode = {
           }
           this.createSubtitlesContainer();
           this.subtitles = subtitles;
-          this.lastActiveLineIndex = null;
+          this.maxActiveCueLookbackMs = subtitles.subtitles.reduce(
+            (maxDurationMs, line) => Math.max(maxDurationMs, Math.max(0, line.durationMs)),
+            0
+          );
+          this.lastActiveLineKey = null;
           if (!this.useVideoFrameCallbacks) {
             this.video.addEventListener("timeupdate", this.onTimeUpdateBound, {
               signal: this.abortController.signal
@@ -14912,29 +16270,19 @@ bottomInsetByMode = {
           }
           this.update();
         }
-        applyManualFontSizeStyle() {
-          if (!this.subtitlesBlock) return;
-          if (this.fontSizeOverridden) {
-            this.subtitlesBlock.style.setProperty(
-              "--vot-subtitles-font-size",
-              `${this.fontSize}px`
-            );
-            return;
-          }
-          this.subtitlesBlock.style.removeProperty("--vot-subtitles-font-size");
-        }
         setSmartLayout(enabled) {
           const next = enabled !== false;
           if (next === this.smartLayoutEnabled) return;
           this.smartLayoutEnabled = next;
+          this.subtitlesContainer?.style.removeProperty("--vot-subtitles-max-width");
           this.lastSmartLayoutKey = null;
           this.resetWrapMemo();
           this.resetRenderMemo();
           this.resetSegmentationMemo();
           if (!this.smartLayoutEnabled) {
             this.maxLength = this.manualMaxLength;
-            this.applyManualFontSizeStyle();
           }
+          this.applyManualFontSizeStyle();
           this.update();
           this.scheduleWrapRecompute();
           this.scheduleReposition();
@@ -14950,16 +16298,19 @@ bottomInsetByMode = {
             this.scheduleReposition();
           }
         }
+        setFontFamily(fontFamily) {
+          this.fontFamily = fontFamily;
+          this.applyFontFamilyStyle();
+          this.lastWrapKey = null;
+          this.resetSegmentationMemo();
+          this.scheduleWrapRecompute();
+          this.scheduleReposition();
+        }
         setOpacity(rate) {
           const numericRate = Number(rate);
           const clampedRate = Number.isFinite(numericRate) ? clampToRange(numericRate, 0, 100) : 0;
           this.opacity = ((100 - clampedRate) / 100).toFixed(2);
-          if (this.subtitlesBlock) {
-            this.subtitlesBlock.style.setProperty(
-              "--vot-subtitles-opacity",
-              this.opacity
-            );
-          }
+          this.applyOpacityStyle();
         }
         stringifyTokens(tokens) {
           let out = "";
@@ -14968,86 +16319,44 @@ bottomInsetByMode = {
           }
           return out;
         }
-        updateMultilineAlignmentIfNeeded(layoutAffectingKey) {
-          const block = this.subtitlesBlock;
-          if (!block) return;
-          if (layoutAffectingKey === this.lastLayoutAffectingKey) return;
-          const cs = getComputedStyle(block);
-          const measureSignature = `${layoutAffectingKey}|${cs.fontSize}|${Math.round(
-      block.clientWidth
-    )}`;
-          this.updateMultilineAlignmentClass(measureSignature);
-          this.lastLayoutAffectingKey = layoutAffectingKey;
-        }
-updateMultilineAlignmentClass(measureSignature) {
-          const block = this.subtitlesBlock;
-          if (!block) return;
-          if (measureSignature === this.lastMultilineMeasureSignature) return;
-          this.lastMultilineMeasureSignature = measureSignature;
-          const cs = getComputedStyle(block);
-          const lineHeightPx = Number.parseFloat(cs.lineHeight);
-          if (!Number.isFinite(lineHeightPx) || lineHeightPx <= 0) {
-            block.classList.remove("vot-subtitles--multiline");
-            return;
-          }
-          const paddingTop = Number.parseFloat(cs.paddingTop) || 0;
-          const paddingBottom = Number.parseFloat(cs.paddingBottom) || 0;
-          const contentHeightPx = Math.max(
-            0,
-            block.clientHeight - paddingTop - paddingBottom
+        resolveActiveLine(time, subtitlesList) {
+          return buildActiveSubtitleRenderLine(
+            time,
+            subtitlesList,
+            this.maxActiveCueLookbackMs
           );
-          const lines = Math.max(1, Math.round(contentHeightPx / lineHeightPx));
-          if (lines > 1) block.classList.add("vot-subtitles--multiline");
-          else block.classList.remove("vot-subtitles--multiline");
         }
-        update() {
-          if (!this.video || !this.subtitles) return;
-          const time = this.video.currentTime * 1e3;
-          const subtitlesList = this.subtitles.subtitles;
-          let line;
-          let lineIndex = -1;
-          const lastIndex = this.lastActiveLineIndex;
-          if (typeof lastIndex === "number" && lastIndex >= 0 && lastIndex < subtitlesList.length) {
-            const candidate = subtitlesList[lastIndex];
-            if (isTimeInLine(time, candidate)) {
-              line = candidate;
-              lineIndex = lastIndex;
-            }
-          }
-          if (!line) {
-            const index = findActiveSubtitleLineIndex(time, subtitlesList);
-            if (index !== -1) {
-              line = subtitlesList[index];
-              lineIndex = index;
-            }
-          }
-          if (!line) {
-            this.lastActiveLineIndex = null;
-            if (this.subtitlesBlock || this.lastRenderKey !== null || this.strTokens) {
-              this.clearRenderedContent({ releaseTooltip: true });
-            } else {
-              this.releaseTooltip();
-            }
+        clearInactiveLineState() {
+          this.lastActiveLineKey = null;
+          if (this.subtitlesBlock || this.lastRenderKey !== null || this.strTokens) {
+            this.clearRenderedContent({ releaseTooltip: true });
             return;
           }
-          this.lastActiveLineIndex = lineIndex;
-          if (this.smartLayoutEnabled) {
-            const now2 = performance.now();
-            if (this.lastSmartLayoutKey === null || now2 - this.lastSmartLayoutCheckTs > 500) {
-              this.lastSmartLayoutCheckTs = now2;
-              const layout = this.getLayoutSize();
-              if (layout.w && layout.h) {
-                const anchorBox = this.computeAnchorBoxLayout(layout);
-                if (anchorBox.w && anchorBox.h) {
-                  this.ensureSmartLayout(anchorBox);
-                }
-              }
-            }
-          } else {
+          this.releaseTooltip();
+        }
+        refreshSmartLayoutIfNeeded() {
+          if (!this.smartLayoutEnabled) {
             this.maxLength = this.manualMaxLength;
+            return;
           }
+          const now2 = performance.now();
+          if (this.lastSmartLayoutKey !== null && now2 - this.lastSmartLayoutCheckTs <= 500) {
+            return;
+          }
+          this.lastSmartLayoutCheckTs = now2;
+          const layout = this.getLayoutSize();
+          if (!layout.w || !layout.h) {
+            return;
+          }
+          const anchorBox = this.computeAnchorBoxLayout(layout);
+          if (anchorBox.w && anchorBox.h) {
+            this.ensureSmartLayout(anchorBox);
+          }
+        }
+        getRenderState(line, activeLineKey, time) {
           const tokens = this.processTokens(line.tokens, time);
           this.lastWrapTokens = tokens;
+          const hasSmartTruncation = this.smartLayoutEnabled && typeof this.smartTruncateAfterTokenIndex === "number" && this.smartTruncateAfterTokenIndex >= 0 && this.smartTruncateAfterTokenIndex < tokens.length - 1;
           const strTokens = this.stringifyTokens(tokens);
           const tokensChanged = strTokens !== this.strTokens;
           if (tokensChanged) {
@@ -15056,41 +16365,25 @@ updateMultilineAlignmentClass(measureSignature) {
             this.resetTranslationContext();
             this.resetWrapMemo();
           }
-          const passedFlags = this.highlightWords ? this.buildPassedState(tokens, time) : null;
+          const passedStateKey = `${activeLineKey}:${strTokens}`;
+          const passedFlags = this.highlightWords ? this.buildPassedState(tokens, time, passedStateKey) : null;
           const wrapKey = `${this.breakAfterTokenIndices.join(",")}|${this.smartTruncateAfterTokenIndex ?? ""}`;
-          let effectiveFontSizeKey = 0;
-          if (this.smartLayoutEnabled) {
-            effectiveFontSizeKey = Math.round(this.smartFontSizePx);
-          } else if (this.fontSizeOverridden) {
-            effectiveFontSizeKey = this.fontSize;
-          }
-          const layoutAffectingKey = getLayoutAffectingKey(
-            strTokens,
-            wrapKey,
-            effectiveFontSizeKey
-          );
-          const renderKey = `${lineIndex}:${strTokens}:${wrapKey}`;
-          if (renderKey === this.lastRenderKey) {
-            if (this.highlightWords && !tokensChanged && passedFlags) {
-              this.updatePassedClasses(passedFlags);
-            }
-            this.updateMultilineAlignmentIfNeeded(layoutAffectingKey);
-            this.maybeRefreshPosition();
-            return;
-          }
-          this.lastRenderKey = renderKey;
+          return {
+            tokens,
+            tokensChanged,
+            hasSmartTruncation,
+            passedFlags,
+            renderKey: `${activeLineKey}:${strTokens}:${wrapKey}`
+          };
+        }
+        syncRenderedTokens(tokens, hasSmartTruncation) {
           this.subtitlesContainer = this.subtitlesContainer ?? this.createSubtitlesContainer();
-          const styleParts = [`--vot-subtitles-opacity: ${this.opacity}`];
-          if (this.smartLayoutEnabled) {
-            if (this.smartFontSizePx > 0)
-              styleParts.push(`--vot-subtitles-font-size: ${this.smartFontSizePx}px`);
-          } else if (this.fontSizeOverridden) {
-            styleParts.push(`--vot-subtitles-font-size: ${this.fontSize}px`);
-          }
+          const subtitlesClass = hasSmartTruncation ? "vot-subtitles vot-subtitles--clamped" : "vot-subtitles";
           D(
             b`<vot-block
-        class="vot-subtitles"
-        style="${styleParts.join("; ")}"
+        class="${subtitlesClass}"
+        dir="auto"
+        lang=${this.subtitleLang ?? ""}
         @click=${this.onClick}
       >
         ${this.renderTokens(tokens)}
@@ -15104,10 +16397,42 @@ updateMultilineAlignmentClass(measureSignature) {
               'span[data-vot-token="1"]'
             )
           ) : [];
+        }
+        update() {
+          if (!this.video || !this.subtitles) return;
+          const time = this.video.currentTime * 1e3;
+          const subtitlesList = this.subtitles.subtitles;
+          const activeLine = this.resolveActiveLine(time, subtitlesList);
+          if (!activeLine) {
+            this.clearInactiveLineState();
+            return;
+          }
+          this.lastActiveLineKey = activeLine.lineKey;
+          this.refreshSmartLayoutIfNeeded();
+          const renderState = this.getRenderState(
+            activeLine.line,
+            activeLine.lineKey,
+            time
+          );
+          const {
+            tokens,
+            tokensChanged,
+            hasSmartTruncation,
+            passedFlags,
+            renderKey
+          } = renderState;
+          if (renderKey === this.lastRenderKey) {
+            if (this.highlightWords && !tokensChanged && passedFlags) {
+              this.updatePassedClasses(passedFlags);
+            }
+            this.maybeRefreshPosition();
+            return;
+          }
+          this.lastRenderKey = renderKey;
+          this.syncRenderedTokens(tokens, hasSmartTruncation);
           if (this.highlightWords && passedFlags) {
             this.updatePassedClasses(passedFlags);
           }
-          this.updateMultilineAlignmentIfNeeded(layoutAffectingKey);
           if (tokensChanged) {
             this.applyPositionAfterContentRender();
             this.scheduleWrapRecompute(tokens);
@@ -15129,14 +16454,1021 @@ updateMultilineAlignmentClass(measureSignature) {
             this.subtitlesContainer.remove();
             this.subtitlesContainer = null;
           }
+          this.fullscreenLayerController.release();
           if (this.safeAreaProbeEl) {
             this.safeAreaProbeEl.remove();
             this.safeAreaProbeEl = null;
           }
+          if (this.guidesLayer) {
+            this.guidesLayer.remove();
+            this.guidesLayer = null;
+            this.verticalGuide = null;
+            this.horizontalGuide = null;
+          }
           this.measureCtx = null;
           this.measureCanvas = null;
+          this.lastAppliedLeftPct = null;
+          this.lastAppliedTopPct = null;
+          this.passedStateKey = null;
+          this.passedThresholds.length = 0;
+          this.insetCacheReady = false;
         }
       }
+      const HTML_TAG_RE = /^<\s*(\/?)\s*([a-z0-9]+)([^>]*)>/iu;
+      const ASS_OVERRIDE_RE = /^\{([^}]*)\}/u;
+      const LEADING_SPEAKER_MARKER_RE = /^(\s*)>>\s*/u;
+      const ATTACHED_TIME_WORD_RE = /(\d{1,2}:\d{2}(?::\d{2})?)(?=[\p{L}\p{M}])/gu;
+      const GLUED_WORD_NUMBER_RE = /([\p{L}\p{M}]+)(\d+)|(\d+)([\p{L}\p{M}]+)/gu;
+      const ASS_DIRECTIVE_RE = /\\[^\\]+/gu;
+      const ASS_STYLE_TOGGLE_RE = /^\\([ibu])([01])$/u;
+      const ASS_PRIMARY_COLOR_RE = /^\\(?:1?c|c)&H([0-9a-f]{6,8})&$/iu;
+      const ASS_STYLE_RESET_RE = /^\\r(?:[^\\}]*)?$/u;
+      const cloneMutableInlineStyle = (style) => ({
+        italic: style.italic,
+        bold: style.bold,
+        underline: style.underline,
+        color: style.color,
+        classes: [...style.classes]
+      });
+      const assignMutableInlineStyle = (target, source) => {
+        target.italic = source.italic;
+        target.bold = source.bold;
+        target.underline = source.underline;
+        target.color = source.color;
+        target.classes = [...source.classes];
+      };
+      const resetMutableInlineStyle = (style) => {
+        style.italic = false;
+        style.bold = false;
+        style.underline = false;
+        style.color = void 0;
+        style.classes = [];
+      };
+      const toTokenStyle = (style) => normalizeSubtitleInlineStyle({
+        italic: style.italic,
+        bold: style.bold,
+        underline: style.underline,
+        color: style.color,
+        classes: style.classes
+      });
+      const pushSegment = (segments, text, style) => {
+        if (!text) return;
+        const tokenStyle = toTokenStyle(style);
+        const previous = segments.at(-1);
+        if (previous && subtitleInlineStylesEqual(previous.style, tokenStyle)) {
+          previous.text += text;
+          return;
+        }
+        segments.push({
+          text,
+          style: tokenStyle
+        });
+      };
+      const parseAssColorToCssHex = (value) => {
+        const normalized = value.trim();
+        if (!/^[0-9a-f]{6,8}$/iu.test(normalized)) {
+          return void 0;
+        }
+        const bgr = normalized.slice(-6);
+        const blue = bgr.slice(0, 2);
+        const green = bgr.slice(2, 4);
+        const red = bgr.slice(4, 6);
+        return normalizeCssColorValue(`#${red}${green}${blue}`);
+      };
+      const applyAssStyleDirective = (directive, style) => {
+        const toggleMatch = ASS_STYLE_TOGGLE_RE.exec(directive.trim());
+        if (toggleMatch) {
+          const enabled = toggleMatch[2] === "1";
+          if (toggleMatch[1] === "i") {
+            style.italic = enabled;
+            return;
+          }
+          if (toggleMatch[1] === "b") {
+            style.bold = enabled;
+            return;
+          }
+          if (toggleMatch[1] === "u") {
+            style.underline = enabled;
+            return;
+          }
+        }
+        if (ASS_STYLE_RESET_RE.test(directive.trim())) {
+          resetMutableInlineStyle(style);
+          return;
+        }
+        const colorMatch = ASS_PRIMARY_COLOR_RE.exec(directive.trim());
+        if (colorMatch) {
+          style.color = parseAssColorToCssHex(colorMatch[1]);
+        }
+      };
+      const applyAssOverrideBlock = (rawDirectives, style) => {
+        const directives = rawDirectives.match(ASS_DIRECTIVE_RE) ?? [];
+        for (const directive of directives) {
+          applyAssStyleDirective(directive, style);
+        }
+      };
+      const normalizeLeadingSpeakerMarker = (segments) => {
+        for (const segment of segments) {
+          if (!segment.text) continue;
+          const normalized = segment.text.replace(LEADING_SPEAKER_MARKER_RE, "$1");
+          segment.text = normalized;
+          if (normalized.length > 0) {
+            break;
+          }
+        }
+        while (segments[0]?.text === "") {
+          segments.shift();
+        }
+      };
+      const normalizeAttachedTimeExpressions = (segments) => {
+        for (const segment of segments) {
+          if (!segment.text) continue;
+          segment.text = segment.text.replaceAll(ATTACHED_TIME_WORD_RE, "$1 ");
+        }
+      };
+      const normalizeAttachedWordNumberExpressions = (segments) => {
+        for (const segment of segments) {
+          if (!segment.text) continue;
+          segment.text = segment.text.replaceAll(
+            GLUED_WORD_NUMBER_RE,
+            (match, leftLetters, leftDigits, rightDigits, rightLetters) => {
+              const letters = leftLetters ?? rightLetters ?? "";
+              const digits = leftDigits ?? rightDigits ?? "";
+              const isCodeLike = /^[A-Za-z]{1,3}$/u.test(letters) || letters.length === 1 && letters === letters.toLocaleUpperCase() && letters !== letters.toLocaleLowerCase();
+              if (isCodeLike) {
+                return match;
+              }
+              return leftLetters ? `${letters} ${digits}` : `${digits} ${letters}`;
+            }
+          );
+        }
+      };
+      const extractHtmlTagClasses = (attrsRaw) => {
+        const normalized = attrsRaw.trim();
+        if (!normalized.startsWith(".")) {
+          return void 0;
+        }
+        const classNames = normalized.split(/\s+/u, 1)[0].split(".").filter(Boolean);
+        return classNames.length ? classNames : void 0;
+      };
+      const extractHtmlFontColor = (attrsRaw) => {
+        const match = /\bcolor\s*=\s*(?:"([^"]+)"|'([^']+)'|([^\s>]+))/iu.exec(
+          attrsRaw
+        );
+        const rawColor = match?.[1] ?? match?.[2] ?? match?.[3];
+        return rawColor ? normalizeCssColorValue(rawColor) : void 0;
+      };
+      const popHtmlStyleFrame = (tagName, stack, activeStyle) => {
+        for (let i2 = stack.length - 1; i2 >= 0; i2 -= 1) {
+          if (stack[i2].tagName !== tagName) continue;
+          const [frame] = stack.splice(i2, 1);
+          if (!frame) return;
+          assignMutableInlineStyle(activeStyle, frame.previousStyle);
+          return;
+        }
+        if (tagName === "b") {
+          activeStyle.bold = false;
+          return;
+        }
+        if (tagName === "i") {
+          activeStyle.italic = false;
+          return;
+        }
+        if (tagName === "u") {
+          activeStyle.underline = false;
+          return;
+        }
+        if (tagName === "font") {
+          activeStyle.color = void 0;
+          return;
+        }
+        if (tagName === "c") {
+          activeStyle.classes = [];
+        }
+      };
+      const applyHtmlTagStyle = (htmlMatch, segments, activeStyle, styleStack) => {
+        const isClosing = htmlMatch[1] === "/";
+        const tagName = htmlMatch[2].toLowerCase();
+        const attrsRaw = htmlMatch[3] ?? "";
+        if (tagName === "br") {
+          pushSegment(segments, "\n", activeStyle);
+          return;
+        }
+        if (isClosing) {
+          popHtmlStyleFrame(tagName, styleStack, activeStyle);
+          return;
+        }
+        if (!["b", "i", "u", "font", "c"].includes(tagName)) {
+          return;
+        }
+        styleStack.push({
+          tagName,
+          previousStyle: cloneMutableInlineStyle(activeStyle)
+        });
+        if (tagName === "b") {
+          activeStyle.bold = true;
+          return;
+        }
+        if (tagName === "i") {
+          activeStyle.italic = true;
+          return;
+        }
+        if (tagName === "u") {
+          activeStyle.underline = true;
+          return;
+        }
+        if (tagName === "font") {
+          const color = extractHtmlFontColor(attrsRaw);
+          if (color) {
+            activeStyle.color = color;
+          }
+          return;
+        }
+        const classes = extractHtmlTagClasses(attrsRaw);
+        activeStyle.classes = classes ?? [];
+      };
+      const consumeDisplayControlToken = (rawText, cursor, segments, activeStyle, styleStack) => {
+        const remainder = rawText.slice(cursor);
+        if (remainder.startsWith("\\N") || remainder.startsWith("\\n")) {
+          pushSegment(segments, "\n", activeStyle);
+          return cursor + 2;
+        }
+        if (remainder.startsWith("\\h")) {
+          pushSegment(segments, " ", activeStyle);
+          return cursor + 2;
+        }
+        if (remainder[0] === "\n") {
+          pushSegment(segments, "\n", activeStyle);
+          return cursor + 1;
+        }
+        const assMatch = ASS_OVERRIDE_RE.exec(remainder);
+        if (assMatch) {
+          applyAssOverrideBlock(assMatch[1], activeStyle);
+          return cursor + assMatch[0].length;
+        }
+        const htmlMatch = HTML_TAG_RE.exec(remainder);
+        if (!htmlMatch) {
+          return null;
+        }
+        applyHtmlTagStyle(htmlMatch, segments, activeStyle, styleStack);
+        return cursor + htmlMatch[0].length;
+      };
+      const buildStyledSpans = (segments) => {
+        const styledSpans = [];
+        let text = "";
+        for (const segment of segments) {
+          if (!segment.text) continue;
+          const start = text.length;
+          text += segment.text;
+          styledSpans.push({
+            start,
+            end: text.length,
+            style: segment.style
+          });
+        }
+        return { text, styledSpans };
+      };
+      const trimStyledDisplayResult = (text, styledSpans) => {
+        const normalizedText = text.replaceAll(" ", " ");
+        const leadingTrim = /^\s*/u.exec(normalizedText)?.[0].length ?? 0;
+        const trailingTrim = /\s*$/u.exec(normalizedText)?.[0].length ?? 0;
+        const trimmedEnd = Math.max(
+          leadingTrim,
+          normalizedText.length - trailingTrim
+        );
+        const finalText = normalizedText.slice(leadingTrim, trimmedEnd);
+        const finalSpans = styledSpans.map((span) => ({
+          start: Math.max(0, span.start - leadingTrim),
+          end: Math.max(0, span.end - leadingTrim),
+          style: span.style
+        })).filter((span) => span.end > span.start && span.start < finalText.length).map((span) => ({
+          ...span,
+          end: Math.min(span.end, finalText.length)
+        }));
+        return {
+          text: finalText,
+          styledSpans: finalSpans
+        };
+      };
+      const buildStyledDisplayModel = (rawText) => {
+        const segments = [];
+        const activeStyle = {
+          italic: false,
+          bold: false,
+          underline: false,
+          color: void 0,
+          classes: []
+        };
+        const styleStack = [];
+        let cursor = 0;
+        while (cursor < rawText.length) {
+          const nextCursor = consumeDisplayControlToken(
+            rawText,
+            cursor,
+            segments,
+            activeStyle,
+            styleStack
+          );
+          if (nextCursor !== null) {
+            cursor = nextCursor;
+            continue;
+          }
+          pushSegment(segments, rawText[cursor], activeStyle);
+          cursor += 1;
+        }
+        normalizeLeadingSpeakerMarker(segments);
+        normalizeAttachedTimeExpressions(segments);
+        normalizeAttachedWordNumberExpressions(segments);
+        const built = buildStyledSpans(segments);
+        return trimStyledDisplayResult(built.text, built.styledSpans);
+      };
+      const getStyleForRange = (styledSpans, start, end) => {
+        if (!styledSpans?.length || end <= start) {
+          return void 0;
+        }
+        const overlap = styledSpans.find(
+          (span) => start < span.end && end > span.start && span.style
+        );
+        return overlap?.style;
+      };
+      const BOM = "\uFEFF";
+      const ASS_OVERRIDE_TAG_RE = /\{[^}]*\}/gu;
+      const SRT_TIMING_RE = /^\s*(?<start>\d{1,2}:\d{2}:\d{2}[,.]\d{1,3})\s*-->\s*(?<end>\d{1,2}:\d{2}:\d{2}[,.]\d{1,3})\s*$/u;
+      const VTT_TIMING_RE = /^(?<start>(?:\d{2}:)?\d{2}:\d{2}\.\d{3})\s+-->\s+(?<end>(?:\d{2}:)?\d{2}:\d{2}\.\d{3})(?<settings>(?:[ \t]+.+)?)$/u;
+      const normalizeNewlines = (value) => value.replace(BOM, "").replaceAll(/\r\n?/gu, "\n");
+      const padMilliseconds = (value) => value.length >= 3 ? value.slice(0, 3) : value.padEnd(3, "0");
+      const parseClockTime = (value, millisecondsLength) => {
+        const parts = value.trim().split(":");
+        if (parts.length < 2 || parts.length > 3) {
+          return null;
+        }
+        const normalizedParts = parts.length === 2 ? ["00", ...parts] : parts;
+        const [hoursRaw, minutesRaw, secondsRaw] = normalizedParts;
+        const [secondsPart, millisecondsPart = "0"] = secondsRaw.split(/[.,]/u);
+        if (!/^\d+$/u.test(hoursRaw) || !/^\d{2}$/u.test(minutesRaw) || !/^\d{2}$/u.test(secondsPart) || !/^\d+$/u.test(millisecondsPart)) {
+          return null;
+        }
+        const hours = Number(hoursRaw);
+        const minutes = Number(minutesRaw);
+        const seconds = Number(secondsPart);
+        const milliseconds = Number(
+          padMilliseconds(millisecondsPart).slice(0, millisecondsLength)
+        );
+        if (!Number.isFinite(hours) || !Number.isFinite(minutes) || !Number.isFinite(seconds) || minutes > 59 || seconds > 59) {
+          return null;
+        }
+        return ((hours * 60 + minutes) * 60 + seconds) * 1e3 + milliseconds;
+      };
+      const formatClockTime = (totalMs, {
+        delimiter,
+        allowOptionalHours,
+        fractionDigits
+      }) => {
+        const { hours, minutes, seconds, milliseconds } = splitTimestampParts(
+          totalMs,
+          Math.round
+        );
+        const fraction = milliseconds.toString().padStart(3, "0").slice(0, fractionDigits);
+        const hourPart = allowOptionalHours && hours === 0 ? "" : `${hours.toString().padStart(2, "0")}:`;
+        return `${hourPart}${minutes.toString().padStart(2, "0")}:${seconds.toString().padStart(2, "0")}${delimiter}${fraction}`;
+      };
+      const splitTimestampParts = (totalMs, normalizeMs) => {
+        const safeMs = Math.max(0, normalizeMs(totalMs));
+        return {
+          hours: Math.floor(safeMs / 36e5),
+          minutes: Math.floor(safeMs % 36e5 / 6e4),
+          seconds: Math.floor(safeMs % 6e4 / 1e3),
+          milliseconds: safeMs % 1e3
+        };
+      };
+      const formatAssTime = (totalMs) => {
+        const { hours, minutes, seconds, milliseconds } = splitTimestampParts(
+          totalMs,
+          Math.round
+        );
+        const centiseconds = Math.floor(milliseconds / 10);
+        return `${hours}:${minutes.toString().padStart(2, "0")}:${seconds.toString().padStart(2, "0")}.${centiseconds.toString().padStart(2, "0")}`;
+      };
+      const parseAssTime = (value) => {
+        const match = /^(?<hours>\d+):(?<minutes>\d{2}):(?<seconds>\d{2})\.(?<centiseconds>\d{2})$/u.exec(
+          value.trim()
+        );
+        if (!match?.groups) return null;
+        const hours = Number(match.groups.hours);
+        const minutes = Number(match.groups.minutes);
+        const seconds = Number(match.groups.seconds);
+        const centiseconds = Number(match.groups.centiseconds);
+        if (minutes > 59 || seconds > 59 || !Number.isFinite(hours) || !Number.isFinite(centiseconds)) {
+          return null;
+        }
+        return ((hours * 60 + minutes) * 60 + seconds) * 1e3 + centiseconds * 10;
+      };
+      const normalizeSubtitleTextForDisplay = (value) => buildStyledDisplayModel(value).text;
+      const getSubtitleLineEndMs = (line) => line.startMs + Math.max(0, line.durationMs);
+      const getCueDurationMs = (startMs, endMs) => Math.max(0, endMs - startMs);
+      const toComparableSubtitleOrder = (subtitles) => subtitles.sort((left, right) => {
+        const startDiff = left.line.startMs - right.line.startMs;
+        if (startDiff !== 0) return startDiff;
+        const endDiff = getSubtitleLineEndMs(left.line) - getSubtitleLineEndMs(right.line);
+        if (endDiff !== 0) return endDiff;
+        return left.index - right.index;
+      }).map(({ line }) => line);
+      const trimEmptyBoundaryLines = (lines) => {
+        let start = 0;
+        let end = lines.length;
+        while (start < end && lines[start] === "") {
+          start += 1;
+        }
+        while (end > start && lines[end - 1] === "") {
+          end -= 1;
+        }
+        return lines.slice(start, end);
+      };
+      const parseCueSettings = (rawSettings) => {
+        const raw = rawSettings.trim();
+        if (!raw) return void 0;
+        const values = {};
+        for (const token of raw.split(/\s+/u)) {
+          const separatorIndex = token.indexOf(":");
+          if (separatorIndex <= 0) continue;
+          values[token.slice(0, separatorIndex)] = token.slice(separatorIndex + 1);
+        }
+        return {
+          raw,
+          values
+        };
+      };
+      const extractVttVoice = (payload) => {
+        const match = /^\s*<v(?:\.[^ >]+)?(?:\s+([^>]*?))?>/iu.exec(payload) ?? /^\s*<v\s+([^>]*?)>/iu.exec(payload);
+        const voice = match?.[1]?.trim();
+        return voice ? voice : void 0;
+      };
+      const isSrtCueStart = (lines, index) => {
+        const current = lines[index]?.trim() ?? "";
+        const next = lines[index + 1]?.trim() ?? "";
+        return SRT_TIMING_RE.test(current) || /^\d+$/u.test(current) && SRT_TIMING_RE.test(next);
+      };
+      const getSrtTimingLineIndex = (lines, cursor) => /^\d+$/u.test(lines[cursor]?.trim() ?? "") && SRT_TIMING_RE.test(lines[cursor + 1]?.trim() ?? "") ? cursor + 1 : cursor;
+      const parseSrtTiming = (lines, timingLineIndex) => {
+        const timingMatch = SRT_TIMING_RE.exec(lines[timingLineIndex]?.trim() ?? "");
+        if (!timingMatch?.groups) {
+          return null;
+        }
+        const startMs = parseClockTime(timingMatch.groups.start, 3);
+        const endMs = parseClockTime(timingMatch.groups.end, 3);
+        return startMs == null || endMs == null || endMs < startMs ? null : { startMs, endMs };
+      };
+      const readSrtPayload = (lines, startCursor) => {
+        let cursor = startCursor;
+        const payloadLines = [];
+        while (cursor < lines.length) {
+          if (lines[cursor].trim() === "") {
+            const nextCursor = cursor + 1;
+            if (isSrtCueStart(lines, nextCursor)) {
+              break;
+            }
+            cursor += 1;
+            continue;
+          }
+          if (payloadLines.length > 0 && isSrtCueStart(lines, cursor)) {
+            break;
+          }
+          payloadLines.push(lines[cursor]);
+          cursor += 1;
+        }
+        return {
+          rawText: trimEmptyBoundaryLines(payloadLines).join("\n"),
+          nextCursor: cursor
+        };
+      };
+      const createStyledCueDraft = (index, {
+        rawText,
+        startMs,
+        endMs,
+        speakerId,
+        displayModel,
+        metadata
+      }) => ({
+        index,
+        line: {
+          text: displayModel.text,
+          startMs,
+          durationMs: getCueDurationMs(startMs, endMs),
+          speakerId,
+          tokens: [],
+          metadata: {
+            rawText,
+            styledSpans: displayModel.styledSpans,
+            ...metadata
+          }
+        }
+      });
+      const createEmptyVttResult = () => ({
+        format: "vtt",
+        subtitles: [],
+        metadata: {
+          vtt: {
+            headerText: "",
+            blocks: []
+          }
+        }
+      });
+      const isWebVttDocumentBlock = (line) => line.startsWith("NOTE") || line === "STYLE" || line === "REGION";
+      const readVttBlockLines = (lines, startCursor) => {
+        const blockLines = [];
+        let cursor = startCursor;
+        while (cursor < lines.length && lines[cursor].trim() !== "") {
+          blockLines.push(lines[cursor]);
+          cursor += 1;
+        }
+        return { blockLines, nextCursor: cursor };
+      };
+      const resolveVttCueIdentity = (lines, cursor) => {
+        if (!VTT_TIMING_RE.test(lines[cursor] ?? "") && VTT_TIMING_RE.test(lines[cursor + 1] ?? "")) {
+          return {
+            cueId: lines[cursor],
+            timingCursor: cursor + 1
+          };
+        }
+        return {
+          cueId: void 0,
+          timingCursor: cursor
+        };
+      };
+      const parseVttTiming = (line) => {
+        const timingMatch = VTT_TIMING_RE.exec(line);
+        if (!timingMatch?.groups) {
+          return null;
+        }
+        const startMs = parseClockTime(timingMatch.groups.start, 3);
+        const endMs = parseClockTime(timingMatch.groups.end, 3);
+        if (startMs == null || endMs == null || endMs < startMs) {
+          return null;
+        }
+        return {
+          startMs,
+          endMs,
+          settingsRaw: timingMatch.groups.settings ?? ""
+        };
+      };
+      const readVttPayloadLines = (lines, startCursor) => {
+        const payloadLines = [];
+        let cursor = startCursor;
+        while (cursor < lines.length && lines[cursor].trim() !== "") {
+          payloadLines.push(lines[cursor]);
+          cursor += 1;
+        }
+        return { payloadLines, nextCursor: cursor };
+      };
+      const parseAssEventFormatFields = (formatLine) => formatLine.slice("Format:".length).split(",").map((field) => field.trim());
+      const ensureAssEventFields = (eventFields, metadata) => eventFields.length || !metadata.eventFormat ? eventFields : parseAssEventFormatFields(metadata.eventFormat);
+      const buildAssEventRecord = (eventFields, value) => {
+        const values = splitAssFields(value, eventFields.length);
+        return Object.fromEntries(
+          eventFields.map((field, fieldIndex) => [field, values[fieldIndex] ?? ""])
+        );
+      };
+      const applyAssStyleSectionLine = (metadata, line) => {
+        if (line.startsWith("Format:")) {
+          metadata.styleFormat = line;
+          return;
+        }
+        if (line.startsWith("Style:")) {
+          metadata.styleLines.push(line);
+          return;
+        }
+        metadata.preEventLines.push(line);
+      };
+      const createAssCueDraft = (index, event) => {
+        const startMs = parseAssTime(event.Start ?? "");
+        const endMs = parseAssTime(event.End ?? "");
+        if (startMs == null || endMs == null || endMs < startMs) {
+          return null;
+        }
+        const rawText = event.Text ?? "";
+        const displayModel = buildStyledDisplayModel(rawText);
+        const assMetadata = {
+          kind: "dialogue",
+          layer: event.Layer ?? "0",
+          style: event.Style ?? "Default",
+          name: event.Name ?? "",
+          marginL: event.MarginL ?? "0",
+          marginR: event.MarginR ?? "0",
+          marginV: event.MarginV ?? "0",
+          effect: event.Effect ?? "",
+          rawText,
+          overrideTags: rawText.match(ASS_OVERRIDE_TAG_RE) ?? []
+        };
+        return {
+          index,
+          line: createStyledCueDraft(index, {
+            rawText,
+            startMs,
+            endMs,
+            speakerId: assMetadata.name || "0",
+            displayModel,
+            metadata: {
+              ass: assMetadata
+            }
+          }).line
+        };
+      };
+      const processAssEventLine = (metadata, line, index, eventFields) => {
+        if (line.startsWith("Format:")) {
+          return {
+            eventFields: parseAssEventFormatFields(line),
+            cue: null
+          };
+        }
+        if (!line.includes(":")) {
+          metadata.preEventLines.push(line);
+          return { eventFields, cue: null };
+        }
+        const separatorIndex = line.indexOf(":");
+        const kind = line.slice(0, separatorIndex).trim();
+        const value = line.slice(separatorIndex + 1).trim();
+        const resolvedEventFields = ensureAssEventFields(eventFields, metadata);
+        const event = buildAssEventRecord(resolvedEventFields, value);
+        if (kind === "Comment") {
+          metadata.commentLines.push(line);
+          return { eventFields: resolvedEventFields, cue: null };
+        }
+        if (kind !== "Dialogue") {
+          metadata.preEventLines.push(line);
+          return { eventFields: resolvedEventFields, cue: null };
+        }
+        return {
+          eventFields: resolvedEventFields,
+          cue: createAssCueDraft(index, event)
+        };
+      };
+      const parseSrt = (text) => {
+        const normalized = normalizeNewlines(text);
+        const lines = normalized.split("\n");
+        const cues = [];
+        let cursor = 0;
+        let cueIndex = 0;
+        while (cursor < lines.length) {
+          while (cursor < lines.length && lines[cursor].trim() === "") {
+            cursor += 1;
+          }
+          if (cursor >= lines.length) break;
+          const timingLineIndex = getSrtTimingLineIndex(lines, cursor);
+          const timing = parseSrtTiming(lines, timingLineIndex);
+          if (!timing) {
+            cursor += 1;
+            continue;
+          }
+          const payload = readSrtPayload(lines, timingLineIndex + 1);
+          cursor = payload.nextCursor;
+          const rawText = payload.rawText;
+          const displayModel = buildStyledDisplayModel(rawText);
+          cues.push(
+            createStyledCueDraft(cueIndex, {
+              rawText,
+              startMs: timing.startMs,
+              endMs: timing.endMs,
+              speakerId: "0",
+              displayModel
+            })
+          );
+          cueIndex += 1;
+        }
+        return {
+          format: "srt",
+          subtitles: toComparableSubtitleOrder(cues)
+        };
+      };
+      const resolveSerializedText = (processed, line, format) => {
+        if (processed.format === format) {
+          return line.metadata?.rawText ?? line.text;
+        }
+        if (format === "ass") {
+          return line.text.replaceAll("\n", "\\N");
+        }
+        return line.text;
+      };
+      const serializeSrt = (processed) => processed.subtitles.map((line, index) => {
+        const rawText = resolveSerializedText(processed, line, "srt");
+        const endMs = getSubtitleLineEndMs(line);
+        return [
+          String(index + 1),
+          `${formatClockTime(line.startMs, {
+      delimiter: ",",
+      allowOptionalHours: false,
+      fractionDigits: 3
+    })} --> ${formatClockTime(endMs, {
+      delimiter: ",",
+      allowOptionalHours: false,
+      fractionDigits: 3
+    })}`,
+          rawText
+        ].join("\n");
+      }).join("\n\n");
+      const pushWebVttBlock = (blocks, cueIndex, lines) => {
+        blocks.push({
+          cueIndex,
+          lines
+        });
+      };
+      const parseVtt = (text) => {
+        const normalized = normalizeNewlines(text);
+        const lines = normalized.split("\n");
+        const headerLine = lines[0] ?? "";
+        if (!headerLine.startsWith("WEBVTT")) {
+          return createEmptyVttResult();
+        }
+        const metadata = {
+          headerText: headerLine.slice("WEBVTT".length).trim(),
+          blocks: []
+        };
+        const cues = [];
+        let cursor = 1;
+        while (cursor < lines.length) {
+          while (cursor < lines.length && lines[cursor].trim() === "") {
+            cursor += 1;
+          }
+          if (cursor >= lines.length) break;
+          if (isWebVttDocumentBlock(lines[cursor])) {
+            const block = readVttBlockLines(lines, cursor);
+            cursor = block.nextCursor;
+            pushWebVttBlock(metadata.blocks, cues.length, block.blockLines);
+            continue;
+          }
+          const identity = resolveVttCueIdentity(lines, cursor);
+          const timing = parseVttTiming(lines[identity.timingCursor] ?? "");
+          if (!timing) {
+            cursor += 1;
+            continue;
+          }
+          const payload = readVttPayloadLines(lines, identity.timingCursor + 1);
+          cursor = payload.nextCursor;
+          const payloadLines = payload.payloadLines;
+          const rawText = payloadLines.join("\n");
+          const displayModel = buildStyledDisplayModel(rawText);
+          const voice = extractVttVoice(rawText);
+          cues.push({
+            index: cues.length,
+            line: createStyledCueDraft(cues.length, {
+              rawText,
+              startMs: timing.startMs,
+              endMs: timing.endMs,
+              speakerId: voice ?? "0",
+              displayModel,
+              metadata: {
+                vtt: {
+                  cueId: identity.cueId,
+                  settings: parseCueSettings(timing.settingsRaw),
+                  voice,
+                  rawPayload: payloadLines
+                }
+              }
+            }).line
+          });
+        }
+        return {
+          format: "vtt",
+          subtitles: toComparableSubtitleOrder(cues),
+          metadata: {
+            vtt: metadata
+          }
+        };
+      };
+      const serializeVttTiming = (line) => {
+        const endMs = getSubtitleLineEndMs(line);
+        const settings = line.metadata?.vtt?.settings?.raw;
+        const settingsSuffix = settings ? ` ${settings}` : "";
+        return `${formatClockTime(line.startMs, {
+    delimiter: ".",
+    allowOptionalHours: true,
+    fractionDigits: 3
+  })} --> ${formatClockTime(endMs, {
+    delimiter: ".",
+    allowOptionalHours: true,
+    fractionDigits: 3
+  })}${settingsSuffix}`;
+      };
+      const serializeVtt = (processed) => {
+        const metadata = processed.metadata?.vtt;
+        const headerSuffix = metadata?.headerText ? ` ${metadata.headerText}` : "";
+        const sections = [`WEBVTT${headerSuffix}`];
+        const blocksByIndex = new Map();
+        for (const block of metadata?.blocks ?? []) {
+          const existing = blocksByIndex.get(block.cueIndex) ?? [];
+          existing.push(block.lines);
+          blocksByIndex.set(block.cueIndex, existing);
+        }
+        const emitBlocks = (cueIndex) => {
+          for (const lines of blocksByIndex.get(cueIndex) ?? []) {
+            sections.push(lines.join("\n"));
+          }
+        };
+        emitBlocks(0);
+        processed.subtitles.forEach((line, index) => {
+          const cueId = line.metadata?.vtt?.cueId;
+          const cueSections = [
+            ...cueId ? [cueId] : [],
+            serializeVttTiming(line),
+            (processed.format === "vtt" ? line.metadata?.vtt?.rawPayload : line.text.split("\n"))?.join("\n") ?? line.text
+          ];
+          sections.push(cueSections.join("\n"));
+          emitBlocks(index + 1);
+        });
+        return sections.filter(Boolean).join("\n\n");
+      };
+      const splitAssFields = (value, fieldCount) => {
+        if (fieldCount <= 1) {
+          return [value];
+        }
+        const fields = [];
+        let cursor = 0;
+        for (let i2 = 0; i2 < fieldCount - 1; i2 += 1) {
+          const separatorIndex = value.indexOf(",", cursor);
+          if (separatorIndex < 0) {
+            fields.push(value.slice(cursor).trim());
+            cursor = value.length;
+            break;
+          }
+          fields.push(value.slice(cursor, separatorIndex).trim());
+          cursor = separatorIndex + 1;
+        }
+        fields.push(value.slice(cursor).trim());
+        return fields;
+      };
+      const createEmptyAssMetadata = () => ({
+        scriptInfoLines: [],
+        styleFormat: "",
+        styleLines: [],
+        eventFormat: "",
+        preEventLines: [],
+        commentLines: []
+      });
+      const createDefaultAssMetadata = (title = "Exported subtitles") => ({
+        scriptInfoLines: [
+          `Title: ${title}`,
+          "ScriptType: v4.00+",
+          "WrapStyle: 0",
+          "ScaledBorderAndShadow: yes"
+        ],
+        styleFormat: "Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding",
+        styleLines: [
+          "Style: Default,Arial,42,&H00FFFFFF,&H000000FF,&H00000000,&H64000000,0,0,0,0,100,100,0,0,1,2,0,2,20,20,20,1"
+        ],
+        eventFormat: "Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text",
+        preEventLines: [],
+        commentLines: []
+      });
+      const parseAss = (text) => {
+        const normalized = normalizeNewlines(text);
+        const lines = normalized.split("\n");
+        const metadata = createEmptyAssMetadata();
+        const cues = [];
+        let currentSection = "";
+        let eventFields = [];
+        lines.forEach((line, index) => {
+          const trimmed = line.trim();
+          if (!trimmed) return;
+          const sectionMatch = /^\[(.+)\]$/u.exec(trimmed);
+          if (sectionMatch) {
+            currentSection = sectionMatch[1];
+            return;
+          }
+          if (currentSection === "Script Info") {
+            metadata.scriptInfoLines.push(line);
+            return;
+          }
+          if (currentSection === "V4+ Styles" || currentSection === "V4 Styles") {
+            applyAssStyleSectionLine(metadata, line);
+            return;
+          }
+          if (currentSection === "Events") {
+            if (line.startsWith("Format:")) {
+              metadata.eventFormat = line;
+            }
+            const result = processAssEventLine(metadata, line, index, eventFields);
+            eventFields = result.eventFields;
+            if (result.cue) {
+              cues.push(result.cue);
+            }
+          }
+        });
+        return {
+          format: "ass",
+          subtitles: toComparableSubtitleOrder(cues),
+          metadata: {
+            ass: metadata
+          }
+        };
+      };
+      const serializeAssDialogue = (line) => {
+        const ass = line.metadata?.ass;
+        const endMs = getSubtitleLineEndMs(line);
+        const rawText = ass?.rawText ?? line.metadata?.rawText ?? line.text.replaceAll("\n", "\\N");
+        return [
+          ass?.kind === "comment" ? "Comment" : "Dialogue",
+          ": ",
+          [
+            ass?.layer ?? "0",
+            formatAssTime(line.startMs),
+            formatAssTime(endMs),
+            ass?.style ?? "Default",
+            ass?.name ?? "",
+            ass?.marginL ?? "0",
+            ass?.marginR ?? "0",
+            ass?.marginV ?? "0",
+            ass?.effect ?? "",
+            rawText
+          ].join(",")
+        ].join("");
+      };
+      const withAssTitle = (metadata, assTitle) => {
+        if (!assTitle) {
+          return metadata;
+        }
+        const titleLine = `Title: ${assTitle}`;
+        const scriptInfoLines = [...metadata.scriptInfoLines];
+        const existingIndex = scriptInfoLines.findIndex(
+          (line) => line.startsWith("Title:")
+        );
+        if (existingIndex >= 0) {
+          if (scriptInfoLines[existingIndex] === "Title: Exported subtitles") {
+            scriptInfoLines[existingIndex] = titleLine;
+          }
+        } else {
+          scriptInfoLines.unshift(titleLine);
+        }
+        return {
+          ...metadata,
+          scriptInfoLines
+        };
+      };
+      const serializeAss = (processed, options) => {
+        const sourceMetadata = processed.metadata?.ass;
+        const metadataBase = sourceMetadata && sourceMetadata.scriptInfoLines.length > 0 && sourceMetadata.styleFormat && sourceMetadata.styleLines.length > 0 && sourceMetadata.eventFormat ? sourceMetadata : createDefaultAssMetadata(options?.assTitle);
+        const metadata = withAssTitle(metadataBase, options?.assTitle);
+        const sections = [
+          "[Script Info]",
+          ...metadata.scriptInfoLines,
+          "",
+          "[V4+ Styles]",
+          metadata.styleFormat,
+          ...metadata.styleLines,
+          ...metadata.preEventLines,
+          "",
+          "[Events]",
+          metadata.eventFormat,
+          ...metadata.commentLines,
+          ...processed.subtitles.map(
+            (line) => serializeAssDialogue({
+              ...line,
+              metadata: processed.format === "ass" ? line.metadata : {
+                ...line.metadata,
+                rawText: resolveSerializedText(processed, line, "ass")
+              }
+            })
+          )
+        ];
+        return sections.join("\n").trim();
+      };
+      const parseSubtitleText = (text, format) => {
+        if (format === "srt") return parseSrt(text);
+        if (format === "vtt") return parseVtt(text);
+        return parseAss(text);
+      };
+      const sortProcessedSubtitles = (processed) => ({
+        ...processed,
+        subtitles: toComparableSubtitleOrder(
+          processed.subtitles.map((line, index) => ({
+            index,
+            line
+          }))
+        )
+      });
+      const toSubtitlesData = (processed) => {
+        const subtitles = processed.subtitles.map((line) => ({
+          text: line.text,
+          startMs: line.startMs,
+          durationMs: line.durationMs,
+          speakerId: line.speakerId,
+          tokens: line.tokens.map((token) => ({
+            text: token.text,
+            startMs: token.startMs,
+            durationMs: token.durationMs
+          }))
+        }));
+        return {
+          containsTokens: subtitles.some((line) => line.tokens.length > 0),
+          subtitles
+        };
+      };
+      const serializeProcessedSubtitles = (processed, format, options) => {
+        if (format === "json") {
+          return toSubtitlesData(processed);
+        }
+        if (format === "srt") return serializeSrt(processed);
+        if (format === "vtt") return serializeVtt(processed);
+        return serializeAss(processed, options);
+      };
       function toUint32BE(value) {
         return new Uint8Array([
           value >>> 24 & 255,
@@ -15172,6 +17504,26 @@ updateMultilineAlignmentClass(measureSignature) {
         out.set(audioBytes, header.length + frame.length);
         return new Blob([out], { type: "audio/mpeg" });
       }
+      function appendChunkToOutputBuffer(out, value, loaded) {
+        const needed = loaded + value.byteLength;
+        let nextOut = out;
+        if (needed > nextOut.length) {
+          const grown = new Uint8Array(Math.max(needed, nextOut.length * 2));
+          grown.set(nextOut.subarray(0, loaded));
+          nextOut = grown;
+        }
+        nextOut.set(value, loaded);
+        return { out: nextOut, loaded: needed };
+      }
+      function mergeChunks(chunks, loaded) {
+        const merged = new Uint8Array(loaded);
+        let offset = 0;
+        for (const chunk of chunks) {
+          merged.set(chunk, offset);
+          offset += chunk.byteLength;
+        }
+        return merged.buffer;
+      }
       async function readResponseArrayBuffer(res, onProgress) {
         const total = Number(res.headers.get("Content-Length") ?? 0);
         if (!res.body) return res.arrayBuffer();
@@ -15184,14 +17536,9 @@ updateMultilineAlignmentClass(measureSignature) {
           if (done) break;
           if (!value || value.byteLength === 0) continue;
           if (out) {
-            const needed = loaded + value.byteLength;
-            if (needed > out.length) {
-              const grown = new Uint8Array(Math.max(needed, out.length * 2));
-              grown.set(out.subarray(0, loaded));
-              out = grown;
-            }
-            out.set(value, loaded);
-            loaded = needed;
+            const appended = appendChunkToOutputBuffer(out, value, loaded);
+            out = appended.out;
+            loaded = appended.loaded;
           } else {
             chunks.push(value);
             loaded += value.byteLength;
@@ -15203,13 +17550,7 @@ updateMultilineAlignmentClass(measureSignature) {
         if (out) {
           return out.buffer.slice(0, loaded);
         }
-        const merged = new Uint8Array(loaded);
-        let offset = 0;
-        for (const c2 of chunks) {
-          merged.set(c2, offset);
-          offset += c2.byteLength;
-        }
-        return merged.buffer;
+        return mergeChunks(chunks, loaded);
       }
       async function downloadTranslation(res, filename, onProgress = () => {
       }, saveOptions = {}) {
@@ -15221,6 +17562,19 @@ updateMultilineAlignmentClass(measureSignature) {
         const arrayBuffer = await readResponseArrayBuffer(res, onProgress);
         onProgress(100);
         return addTitleId3Tag(arrayBuffer, filename);
+      }
+      function isSameOverlayMount(previous, next) {
+        return previous.root === next.root && previous.portalContainer === next.portalContainer && previous.subtitlesMountContainer === next.subtitlesMountContainer && previous.tooltipLayoutRoot === next.tooltipLayoutRoot;
+      }
+      function applyOverlayMountUpdate(previous, next, onChanged) {
+        if (isSameOverlayMount(previous, next)) {
+          return previous;
+        }
+        onChanged(next);
+        return next;
+      }
+      function didTooltipMountContextChange(previous, next) {
+        return previous.root !== next.root || previous.tooltipLayoutRoot !== next.tooltipLayoutRoot;
       }
       const TRANSLATE_ICON_SVG = w`<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24">
   <path
@@ -15300,165 +17654,6 @@ updateMultilineAlignmentClass(measureSignature) {
       }
       function getHiddenState(element) {
         return element.hidden;
-      }
-      class VOTButton {
-        container;
-        translateButton;
-        separator;
-        pipButton;
-        separator2;
-        menuButton;
-        label;
-
-_opacity = 1;
-        _position;
-        _direction;
-        _status;
-_labelText;
-        constructor({
-          position: position2 = "default",
-          direction = "default",
-          status = "none",
-          labelHtml = ""
-        }) {
-          this._position = position2;
-          this._direction = direction;
-          this._status = status;
-          this._labelText = labelHtml;
-          const elements = this.createElements();
-          this.container = elements.container;
-          this.translateButton = elements.translateButton;
-          this.separator = elements.separator;
-          this.pipButton = elements.pipButton;
-          this.separator2 = elements.separator2;
-          this.menuButton = elements.menuButton;
-          this.label = elements.label;
-        }
-        static calcPosition(percentX, isBigContainer) {
-          if (!isBigContainer) {
-            return "default";
-          }
-          if (percentX <= 44) {
-            return "left";
-          }
-          if (percentX >= 66) {
-            return "right";
-          }
-          return "default";
-        }
-        static calcDirection(position2) {
-          return ["default", "top"].includes(position2) ? "row" : "column";
-        }
-        createElements() {
-          const container = UI.createEl("vot-block", ["vot-segmented-button"]);
-          container.dataset.position = this._position;
-          container.dataset.direction = this._direction;
-          container.dataset.status = this._status;
-          const translateButton = UI.createEl("vot-block", [
-            "vot-segment",
-            "vot-translate-button"
-          ]);
-          translateButton.setAttribute("role", "button");
-          translateButton.tabIndex = 0;
-          translateButton.setAttribute("aria-label", this._labelText || "Translate");
-          D(TRANSLATE_ICON_SVG, translateButton);
-          const label = UI.createEl("span", ["vot-segment-label"]);
-          label.textContent = this._labelText;
-          translateButton.appendChild(label);
-          const separator = UI.createEl("vot-block", ["vot-separator"]);
-          const pipButton = UI.createEl("vot-block", ["vot-segment-only-icon"]);
-          pipButton.setAttribute("role", "button");
-          pipButton.tabIndex = 0;
-          pipButton.setAttribute("aria-label", "Picture in picture");
-          D(PIP_ICON_SVG, pipButton);
-          const separator2 = UI.createEl("vot-block", ["vot-separator"]);
-          const menuButton = UI.createEl("vot-block", ["vot-segment-only-icon"]);
-          menuButton.setAttribute("role", "button");
-          menuButton.tabIndex = 0;
-          menuButton.setAttribute("aria-label", "Menu");
-          menuButton.setAttribute("aria-haspopup", "dialog");
-          menuButton.setAttribute("aria-expanded", "false");
-          D(MENU_ICON, menuButton);
-          container.append(
-            translateButton,
-            separator,
-            pipButton,
-            separator2,
-            menuButton
-          );
-          return {
-            container,
-            translateButton,
-            separator,
-            pipButton,
-            separator2,
-            menuButton,
-            label
-          };
-        }
-        showPiPButton(visible) {
-          this.separator2.hidden = this.pipButton.hidden = !visible;
-          return this;
-        }
-        setText(labelText) {
-          this._labelText = labelText;
-          this.label.textContent = labelText;
-          this.translateButton.setAttribute("aria-label", labelText || "Translate");
-          return this;
-        }
-        remove() {
-          this.container.remove();
-          return this;
-        }
-        get tooltipPos() {
-          switch (this.position) {
-            case "left":
-              return "right";
-            case "right":
-              return "left";
-            default:
-              return "bottom";
-          }
-        }
-        set status(status) {
-          this._status = this.container.dataset.status = status;
-        }
-        get status() {
-          return this._status;
-        }
-        set loading(isLoading) {
-          this.container.dataset.loading = isLoading.toString();
-        }
-        get loading() {
-          return this.container.dataset.loading === "true";
-        }
-        set hidden(isHidden) {
-          setHiddenState(this.container, isHidden);
-        }
-        get hidden() {
-          return getHiddenState(this.container);
-        }
-        get position() {
-          return this._position;
-        }
-        set position(position2) {
-          this._position = this.container.dataset.position = position2;
-        }
-        get direction() {
-          return this._direction;
-        }
-        set direction(direction) {
-          this._direction = this.container.dataset.direction = direction;
-        }
-        set opacity(opacity) {
-          const o2 = Number.isFinite(opacity) ? opacity : 1;
-          this._opacity = o2;
-          const isHidden = o2 <= 0.01;
-          this.container.classList.toggle("vot-segmented-button--hidden", isHidden);
-        }
-        get opacity() {
-          return this._opacity;
-        }
       }
       class DownloadButton {
         button;
@@ -15963,9 +18158,12 @@ set value(val) {
         _selectTitle;
         _dialogTitle;
         multiSelect;
+        baseItems;
         _items;
+        searchItemsProvider;
         isLoading = false;
         isDialogOpen = false;
+        searchRequestId = 0;
         onSelectItem = new EventImpl();
         onBeforeOpen = new EventImpl();
         events = {
@@ -15981,13 +18179,16 @@ set value(val) {
           selectTitle,
           dialogTitle,
           items,
+          searchItemsProvider,
           labelElement,
           dialogParent = document.documentElement,
           multiSelect
         }) {
           this._selectTitle = selectTitle;
           this._dialogTitle = dialogTitle;
-          this._items = items;
+          this.baseItems = this.cloneItems(items);
+          this._items = this.cloneItems(items);
+          this.searchItemsProvider = searchItemsProvider;
           this.multiSelect = multiSelect ?? false;
           this.labelElement = labelElement;
           this.dialogParent = dialogParent;
@@ -15997,6 +18198,9 @@ set value(val) {
           this.outer = elements.outer;
           this.arrowIcon = elements.arrowIcon;
           this.title = elements.title;
+        }
+        cloneItems(items) {
+          return items.map((item) => ({ ...item }));
         }
         static genLanguageItems(langs2, conditionString) {
           return langs2.map((lang2) => {
@@ -16017,6 +18221,7 @@ set value(val) {
             this.selectedValues.add(value);
           }
           this.syncItemsSelectionState();
+          this.syncItemsSelectionState(this.baseItems);
           this.updateSelectedState();
           this.onSelectItem.dispatch(Array.from(this.selectedValues));
         };
@@ -16024,6 +18229,7 @@ set value(val) {
           const value = item.value;
           this.selectedValues = new Set([value]);
           this.syncItemsSelectionState();
+          this.syncItemsSelectionState(this.baseItems);
           this.updateSelectedState();
           this.onSelectItem.dispatch(value);
         };
@@ -16051,10 +18257,15 @@ set value(val) {
           }
           this.singleSelectItemHandle(item);
         };
-        syncItemsSelectionState() {
-          for (const item of this._items) {
+        syncItemsSelectionState(items = this._items) {
+          for (const item of items) {
             item.selected = this.selectedValues.has(item.value);
           }
+        }
+        restoreBaseItems() {
+          this._items = this.cloneItems(this.baseItems);
+          this.syncItemsSelectionState();
+          this.updateSelectedState();
         }
         createDialogContentList() {
           const contentList = UI.createEl("vot-block", ["vot-select-content-list"]);
@@ -16111,7 +18322,15 @@ set value(val) {
               const votSearchLangTextfield = new Textfield({
                 labelHtml: localizationProvider.get("searchField")
               });
-              votSearchLangTextfield.addEventListener("input", (searchText) => {
+              votSearchLangTextfield.addEventListener("input", async (searchText) => {
+                const requestId = ++this.searchRequestId;
+                if (this.searchItemsProvider) {
+                  const providedItems = await this.searchItemsProvider(searchText);
+                  if (requestId !== this.searchRequestId) {
+                    return;
+                  }
+                  this.updateItems(providedItems, { persist: false });
+                }
                 const normalizedSearchText = searchText.toLowerCase();
                 for (const contentItem of this.selectedItems) {
                   const searchableText = contentItem.dataset[this.contentItemSearchDatasetKey] ?? "";
@@ -16125,6 +18344,7 @@ set value(val) {
               );
               tempDialog.addEventListener("close", () => {
                 this.isDialogOpen = false;
+                this.restoreBaseItems();
                 this.selectedItems = [];
                 this.contentList = void 0;
                 outer.setAttribute("aria-expanded", "false");
@@ -16182,11 +18402,17 @@ set value(val) {
           }
           this.selectedValues = new Set(selectedValues);
           this.syncItemsSelectionState();
+          this.syncItemsSelectionState(this.baseItems);
           this.updateSelectedState();
           return this;
         }
-updateItems(newItems) {
-          this._items = newItems;
+updateItems(newItems, options = {}) {
+          const { persist = true } = options;
+          const nextItems = this.cloneItems(newItems);
+          if (persist) {
+            this.baseItems = this.cloneItems(nextItems);
+          }
+          this._items = nextItems;
           this.selectedValues = this.calcSelectedValues();
           this.updateSelectedState();
           const dialogContainer = this.contentList?.parentElement;
@@ -16485,6 +18711,165 @@ set value(val) {
           return getHiddenState(this.container);
         }
       }
+      class VOTButton {
+        container;
+        translateButton;
+        separator;
+        pipButton;
+        separator2;
+        menuButton;
+        label;
+
+_opacity = 1;
+        _position;
+        _direction;
+        _status;
+_labelText;
+        constructor({
+          position: position2 = "default",
+          direction = "default",
+          status = "none",
+          labelHtml = ""
+        }) {
+          this._position = position2;
+          this._direction = direction;
+          this._status = status;
+          this._labelText = labelHtml;
+          const elements = this.createElements();
+          this.container = elements.container;
+          this.translateButton = elements.translateButton;
+          this.separator = elements.separator;
+          this.pipButton = elements.pipButton;
+          this.separator2 = elements.separator2;
+          this.menuButton = elements.menuButton;
+          this.label = elements.label;
+        }
+        static calcPosition(percentX, isBigContainer) {
+          if (!isBigContainer) {
+            return "default";
+          }
+          if (percentX <= 44) {
+            return "left";
+          }
+          if (percentX >= 66) {
+            return "right";
+          }
+          return "default";
+        }
+        static calcDirection(position2) {
+          return ["default", "top"].includes(position2) ? "row" : "column";
+        }
+        createElements() {
+          const container = UI.createEl("vot-block", ["vot-segmented-button"]);
+          container.dataset.position = this._position;
+          container.dataset.direction = this._direction;
+          container.dataset.status = this._status;
+          const translateButton = UI.createEl("vot-block", [
+            "vot-segment",
+            "vot-translate-button"
+          ]);
+          translateButton.setAttribute("role", "button");
+          translateButton.tabIndex = 0;
+          translateButton.setAttribute("aria-label", this._labelText || "Translate");
+          D(TRANSLATE_ICON_SVG, translateButton);
+          const label = UI.createEl("span", ["vot-segment-label"]);
+          label.textContent = this._labelText;
+          translateButton.appendChild(label);
+          const separator = UI.createEl("vot-block", ["vot-separator"]);
+          const pipButton = UI.createEl("vot-block", ["vot-segment-only-icon"]);
+          pipButton.setAttribute("role", "button");
+          pipButton.tabIndex = 0;
+          pipButton.setAttribute("aria-label", "Picture in picture");
+          D(PIP_ICON_SVG, pipButton);
+          const separator2 = UI.createEl("vot-block", ["vot-separator"]);
+          const menuButton = UI.createEl("vot-block", ["vot-segment-only-icon"]);
+          menuButton.setAttribute("role", "button");
+          menuButton.tabIndex = 0;
+          menuButton.setAttribute("aria-label", "Menu");
+          menuButton.setAttribute("aria-haspopup", "dialog");
+          menuButton.setAttribute("aria-expanded", "false");
+          D(MENU_ICON, menuButton);
+          container.append(
+            translateButton,
+            separator,
+            pipButton,
+            separator2,
+            menuButton
+          );
+          return {
+            container,
+            translateButton,
+            separator,
+            pipButton,
+            separator2,
+            menuButton,
+            label
+          };
+        }
+        showPiPButton(visible) {
+          this.separator2.hidden = this.pipButton.hidden = !visible;
+          return this;
+        }
+        setText(labelText) {
+          this._labelText = labelText;
+          this.label.textContent = labelText;
+          this.translateButton.setAttribute("aria-label", labelText || "Translate");
+          return this;
+        }
+        remove() {
+          this.container.remove();
+          return this;
+        }
+        get tooltipPos() {
+          switch (this.position) {
+            case "left":
+              return "right";
+            case "right":
+              return "left";
+            default:
+              return "bottom";
+          }
+        }
+        set status(status) {
+          this._status = this.container.dataset.status = status;
+        }
+        get status() {
+          return this._status;
+        }
+        set loading(isLoading) {
+          this.container.dataset.loading = isLoading.toString();
+        }
+        get loading() {
+          return this.container.dataset.loading === "true";
+        }
+        set hidden(isHidden) {
+          setHiddenState(this.container, isHidden);
+        }
+        get hidden() {
+          return getHiddenState(this.container);
+        }
+        get position() {
+          return this._position;
+        }
+        set position(position2) {
+          this._position = this.container.dataset.position = position2;
+        }
+        get direction() {
+          return this._direction;
+        }
+        set direction(direction) {
+          this._direction = this.container.dataset.direction = direction;
+        }
+        set opacity(opacity) {
+          const o2 = Number.isFinite(opacity) ? opacity : 1;
+          this._opacity = o2;
+          const isHidden = o2 <= 0.01;
+          this.container.classList.toggle("vot-segmented-button--hidden", isHidden);
+        }
+        get opacity() {
+          return this._opacity;
+        }
+      }
       class VOTMenu {
         container;
         contentWrapper;
@@ -16605,7 +18990,6 @@ menuId = typeof crypto !== "undefined" && "randomUUID" in crypto ? `vot-menu-${c
           "select:toLanguage": new EventImpl(),
           "select:subtitles": new EventImpl()
         };
-votOverlayPortal;
 votButton;
         votButtonTooltip;
 votMenu;
@@ -16644,16 +19028,11 @@ votMenu;
 updateMount(nextMount) {
           const prevRoot = this.mount.root;
           const nextRoot = nextMount.root;
-          const prevPortal = this.mount.portalContainer;
-          const nextPortal = nextMount.portalContainer;
           const prevTooltipRoot = this.mount.tooltipLayoutRoot;
           const nextTooltipRoot = nextMount.tooltipLayoutRoot;
           this.mount = nextMount;
           if (!this.isInitialized()) {
             return this;
-          }
-          if (this.votOverlayPortal && prevPortal !== nextPortal) {
-            nextPortal.appendChild(this.votOverlayPortal);
           }
           if (prevRoot !== nextRoot) {
             if (this.votButton) {
@@ -16663,7 +19042,15 @@ updateMount(nextMount) {
               nextRoot.appendChild(this.votMenu.container);
             }
           }
-          if (this.votButtonTooltip && prevTooltipRoot !== nextTooltipRoot) {
+          if (this.votButtonTooltip && didTooltipMountContextChange(
+            {
+              root: prevRoot,
+              portalContainer: this.mount.portalContainer,
+              subtitlesMountContainer: this.mount.subtitlesMountContainer,
+              tooltipLayoutRoot: prevTooltipRoot
+            },
+            nextMount
+          )) {
             this.votButtonTooltip.updateMount({
               layoutRoot: nextTooltipRoot ?? document.documentElement
             });
@@ -16718,8 +19105,6 @@ updateMount(nextMount) {
           }
           this.initialized = true;
           const { position: position2, direction } = this.calcButtonLayout(buttonPosition2);
-          this.votOverlayPortal = UI.createPortal(true);
-          this.portalContainer.appendChild(this.votOverlayPortal);
           this.votButton = new VOTButton({
             position: position2,
             direction,
@@ -16735,9 +19120,11 @@ updateMount(nextMount) {
             target: this.votButton.translateButton,
             content: localizationProvider.get("translateVideo"),
             position: this.votButton.tooltipPos,
+
+autoLayout: false,
             hidden: direction === "row",
             bordered: false,
-            parentElement: this.votOverlayPortal,
+            parentElement: this.globalPortal,
             layoutRoot: this.tooltipLayoutRoot
           });
           this.votMenu = new VOTMenu({
@@ -16778,7 +19165,8 @@ selectTitle: localizationProvider.get(
                 `langs.${responseLanguage}`
               ),
               items: Select.genLanguageItems(availableTTS, responseLanguage)
-            }
+            },
+            dialogParent: this.globalPortal
           });
           this.subtitlesSelectLabel = new Label({
             labelText: localizationProvider.get("VOTSubtitles")
@@ -17040,7 +19428,11 @@ selectTitle: localizationProvider.get(
               this.videoHandler.videoData.detectedLanguage,
               this.videoHandler.videoData.responseLanguage
             );
-            if (this.videoHandler.cacheManager.getSubtitles(cacheKey)) {
+            if (this.videoHandler.subtitlesCacheKey === cacheKey) {
+              return;
+            }
+            if (this.videoHandler.cacheManager.getSubtitles(cacheKey) !== void 0) {
+              await this.videoHandler.ensureSubtitlesForCurrentLangPair();
               return;
             }
             const prevLoading = this.votButton?.loading ?? false;
@@ -17051,7 +19443,7 @@ selectTitle: localizationProvider.get(
             loadingEl.style.margin = "0 auto";
             dialog.footerContainer.appendChild(loadingEl);
             try {
-              await this.videoHandler.loadSubtitles();
+              await this.videoHandler.ensureSubtitlesForCurrentLangPair();
             } finally {
               loadingEl.remove();
               if (this.votButton) {
@@ -17232,7 +19624,6 @@ onTouchDragStart = (event) => {
           this.votButton?.remove();
           this.votMenu?.remove();
           this.votButtonTooltip?.release();
-          this.votOverlayPortal?.remove();
         }
         doReleaseUIEvents() {
           this.abortController?.abort();
@@ -17244,22 +19635,6 @@ onTouchDragStart = (event) => {
           for (const event of Object.values(this.events)) {
             event.clear();
           }
-        }
-        releaseUI(initialized = false) {
-          if (!this.isInitialized()) {
-            throw new Error("[VOT] OverlayView isn't initialized");
-          }
-          this.doReleaseUI();
-          this.initialized = initialized;
-          return this;
-        }
-        releaseUIEvents(initialized = false) {
-          if (!this.isInitialized()) {
-            throw new Error("[VOT] OverlayView isn't initialized");
-          }
-          this.doReleaseUIEvents();
-          this.initialized = initialized;
-          return this;
         }
         release() {
           if (!this.isInitialized()) {
@@ -20085,6 +22460,7 @@ set key(newKey) {
         "change:useLivelyVoice",
         "change:subtitlesHighlightWords",
         "change:subtitlesSmartLayout",
+        "select:subtitlesFontFamily",
         "change:proxyWorkerHost",
         "change:useNewAudioPlayer",
         "change:onlyBypassMediaCSP",
@@ -20104,6 +22480,25 @@ set key(newKey) {
           events[key] = new EventImpl();
         }
         return events;
+      }
+      const GOOGLE_FONTS_SEARCH_LIMIT = 30;
+      const subtitleFontFamilyLabels = {
+        "default-sans": "Default Sans",
+        arial: "Arial",
+        helvetica: "Helvetica",
+        roboto: "Roboto",
+        verdana: "Verdana",
+        "open-sans": "Open Sans",
+        poppins: "Poppins",
+        lato: "Lato",
+        montserrat: "Montserrat",
+        barlow: "Barlow"
+      };
+      function getSubtitleFontFamilyLabel(fontFamily) {
+        if (isBuiltInSubtitleFontFamily(fontFamily)) {
+          return subtitleFontFamilyLabels[fontFamily];
+        }
+        return getGoogleSubtitleFontFamilyName(fontFamily) ?? "Default Sans";
       }
       class SettingsView {
         static PERSIST_DELAY_MS = 250;
@@ -20145,6 +22540,8 @@ set key(newKey) {
         subtitlesMaxLengthSlider;
         subtitlesFontSizeSliderLabel;
         subtitlesFontSizeSlider;
+        subtitlesFontFamilySelectLabel;
+        subtitlesFontFamilySelect;
         subtitlesBackgroundOpacitySliderLabel;
         subtitlesBackgroundOpacitySlider;
         translateHotkeyButton;
@@ -20268,53 +22665,37 @@ set key(newKey) {
             dispatch?.(value);
           });
         }
-        initUI() {
-          if (this.isInitialized()) {
-            throw new Error("[VOT] SettingsView is already initialized");
-          }
-          this.dialog = new Dialog({
-            titleHtml: localizationProvider.get("VOTSettings")
-          });
-          this.globalPortal.appendChild(this.dialog.container);
-          const accountSection = this.createAccordionSection(
-            localizationProvider.get("VOTMyAccount"),
-            { open: true }
-          );
-          const translationSection = this.createAccordionSection(
-            localizationProvider.get("translationSettings"),
-            { open: true }
-          );
-          const subtitlesSection = this.createAccordionSection(
-            localizationProvider.get("subtitlesSettings")
-          );
-          const hotkeysSection = this.createAccordionSection(
-            localizationProvider.get("hotkeysSettings")
-          );
-          const proxySection = this.createAccordionSection(
-            localizationProvider.get("proxySettings")
-          );
-          const miscSection = this.createAccordionSection(
-            localizationProvider.get("miscSettings")
-          );
-          const appearanceSection = this.createAccordionSection(
-            localizationProvider.get("appearance")
-          );
-          const aboutSection = this.createAccordionSection(
-            localizationProvider.get("aboutExtension")
-          );
+        createSettingsSections() {
           const sections = [
-            accountSection,
-            translationSection,
-            subtitlesSection,
-            hotkeysSection,
-            proxySection,
-            miscSection,
-            appearanceSection,
-            aboutSection
+            this.createAccordionSection(localizationProvider.get("VOTMyAccount"), {
+              open: true
+            }),
+            this.createAccordionSection(
+              localizationProvider.get("translationSettings"),
+              { open: true }
+            ),
+            this.createAccordionSection(
+              localizationProvider.get("subtitlesSettings")
+            ),
+            this.createAccordionSection(localizationProvider.get("hotkeysSettings")),
+            this.createAccordionSection(localizationProvider.get("proxySettings")),
+            this.createAccordionSection(localizationProvider.get("miscSettings")),
+            this.createAccordionSection(localizationProvider.get("appearance")),
+            this.createAccordionSection(localizationProvider.get("aboutExtension"))
           ];
-          this.dialog.bodyContainer.append(
-            ...sections.map((section) => section.container)
-          );
+          return {
+            accountSection: sections[0],
+            translationSection: sections[1],
+            subtitlesSection: sections[2],
+            hotkeysSection: sections[3],
+            proxySection: sections[4],
+            miscSection: sections[5],
+            appearanceSection: sections[6],
+            aboutSection: sections[7],
+            sections
+          };
+        }
+        initAccountControls() {
           this.accountButton = new AccountButton({
             avatarId: this.data.account?.avatarId,
             username: this.data.account?.username,
@@ -20339,6 +22720,75 @@ set key(newKey) {
             backgroundColor: "var(--vot-helper-ondialog)",
             parentElement: this.globalPortal
           });
+        }
+        buildSubtitleFontItems(selectedFontFamily, dynamicFontFamilies = []) {
+          const items = subtitleFontFamilies.map(
+            (fontFamily) => ({
+              label: subtitleFontFamilyLabels[fontFamily],
+              value: fontFamily,
+              selected: fontFamily === selectedFontFamily
+            })
+          );
+          const dynamicItems = dynamicFontFamilies.filter((familyName) => {
+            const lowerFamilyName = familyName.toLowerCase();
+            return !items.some(
+              (item) => item.label.toLowerCase() === lowerFamilyName
+            );
+          }).map((familyName) => {
+            const fontValue = toGoogleSubtitleFontFamily(familyName);
+            return {
+              label: familyName,
+              value: fontValue,
+              selected: fontValue === selectedFontFamily
+            };
+          });
+          if (!isBuiltInSubtitleFontFamily(selectedFontFamily) && !dynamicItems.some((item) => item.value === selectedFontFamily)) {
+            const currentGoogleFontFamily = getGoogleSubtitleFontFamilyName(selectedFontFamily);
+            if (currentGoogleFontFamily) {
+              dynamicItems.unshift({
+                label: currentGoogleFontFamily,
+                value: selectedFontFamily,
+                selected: true
+              });
+            }
+          }
+          return [...items, ...dynamicItems];
+        }
+        async searchSubtitleFontItems(query, fallbackFontFamily) {
+          const activeFontFamily = Array.from(this.subtitlesFontFamilySelect?.selectedValues ?? [])[0] ?? fallbackFontFamily;
+          const normalizedQuery = query.trim().toLowerCase();
+          if (!normalizedQuery) {
+            return this.buildSubtitleFontItems(activeFontFamily);
+          }
+          const googleFontsCatalog = await loadGoogleFontsCatalog();
+          const matchingGoogleFonts = googleFontsCatalog.filter(
+            (familyName) => familyName.toLowerCase().includes(normalizedQuery)
+          ).slice(0, GOOGLE_FONTS_SEARCH_LIMIT);
+          return this.buildSubtitleFontItems(activeFontFamily, matchingGoogleFonts);
+        }
+        initUI() {
+          if (this.isInitialized()) {
+            throw new Error("[VOT] SettingsView is already initialized");
+          }
+          this.dialog = new Dialog({
+            titleHtml: localizationProvider.get("VOTSettings")
+          });
+          this.globalPortal.appendChild(this.dialog.container);
+          const {
+            accountSection,
+            translationSection,
+            subtitlesSection,
+            hotkeysSection,
+            proxySection,
+            miscSection,
+            appearanceSection,
+            aboutSection,
+            sections
+          } = this.createSettingsSections();
+          this.dialog.bodyContainer.append(
+            ...sections.map((section) => section.container)
+          );
+          this.initAccountControls();
           this.autoTranslateCheckbox = new Checkbox({
             labelHtml: localizationProvider.get("VOTAutoTranslate"),
             checked: this.data.autoTranslate
@@ -20472,7 +22922,7 @@ set key(newKey) {
             dialogTitle: localizationProvider.get("VOTSubtitlesDownloadFormat"),
             dialogParent: this.globalPortal,
             labelElement: this.subtitlesDownloadFormatSelectLabel.container,
-            items: subtitlesFormats.map((format) => ({
+            items: subtitleFormats.map((format) => ({
               label: format.toUpperCase(),
               value: format,
               selected: format === this.data.subtitlesDownloadFormat
@@ -20513,6 +22963,28 @@ set key(newKey) {
             min: 8,
             max: 50
           });
+          const storedSubtitlesFontFamily = typeof this.data.subtitlesFontFamily === "string" ? this.data.subtitlesFontFamily : void 0;
+          const subtitlesFontFamily = storedSubtitlesFontFamily && (isBuiltInSubtitleFontFamily(storedSubtitlesFontFamily) || getGoogleSubtitleFontFamilyName(storedSubtitlesFontFamily)) ? storedSubtitlesFontFamily : "default-sans";
+          this.subtitlesFontFamilySelectLabel = new Label({
+            labelText: localizationProvider.get("VOTSubtitlesFont")
+          });
+          this.subtitlesFontFamilySelect = new Select({
+            selectTitle: getSubtitleFontFamilyLabel(subtitlesFontFamily),
+            dialogTitle: localizationProvider.get("VOTSubtitlesFont"),
+            dialogParent: this.globalPortal,
+            labelElement: this.subtitlesFontFamilySelectLabel.container,
+            items: this.buildSubtitleFontItems(subtitlesFontFamily),
+            searchItemsProvider: (query) => this.searchSubtitleFontItems(query, subtitlesFontFamily)
+          });
+          this.subtitlesFontFamilySelect.addEventListener("selectItem", (item) => {
+            if (!this.subtitlesFontFamilySelect) {
+              return;
+            }
+            this.subtitlesFontFamilySelect.updateItems(
+              this.buildSubtitleFontItems(item)
+            );
+            this.subtitlesFontFamilySelect.selectTitle = getSubtitleFontFamilyLabel(item);
+          });
           const subtitlesOpacity = this.data.subtitlesOpacity ?? 20;
           this.subtitlesBackgroundOpacitySliderLabel = new SliderLabel({
             labelText: localizationProvider.get("VOTSubtitlesOpacity"),
@@ -20528,6 +23000,7 @@ set key(newKey) {
           });
           subtitlesSection.content.append(
             this.subtitlesDownloadFormatSelect.container,
+            this.subtitlesFontFamilySelect.container,
             this.subtitlesHighlightWordsCheckbox.container,
             this.subtitlesSmartLayoutCheckbox.container,
             this.subtitlesMaxLengthSlider.container,
@@ -21052,6 +23525,17 @@ set key(newKey) {
             this.events["input:subtitlesBackgroundOpacity"].dispatch(value);
           });
           this.bindPersistedSetting({
+            control: this.subtitlesFontFamilySelect,
+            event: "selectItem",
+            apply: (item) => {
+              this.data.subtitlesFontFamily = item;
+            },
+            storageKey: "subtitlesFontFamily",
+            readPersistedValue: () => this.data.subtitlesFontFamily,
+            logLabel: "subtitlesFontFamily",
+            dispatch: (item) => this.events["select:subtitlesFontFamily"].dispatch(item)
+          });
+          this.bindPersistedSetting({
             control: this.translateHotkeyButton,
             event: "change",
             apply: (key) => {
@@ -21230,20 +23714,6 @@ set key(newKey) {
           this.flushStoragePersists();
           for (const event of Object.values(this.events)) event.clear();
         }
-        releaseUI(initialized = false) {
-          if (!this.isInitialized())
-            throw new Error("[VOT] SettingsView isn't initialized");
-          this.doReleaseUI();
-          this.initialized = initialized;
-          return this;
-        }
-        releaseUIEvents(initialized = false) {
-          if (!this.isInitialized())
-            throw new Error("[VOT] SettingsView isn't initialized");
-          this.doReleaseUIEvents();
-          this.initialized = initialized;
-          return this;
-        }
         release() {
           if (!this.isInitialized()) return this;
           this.doReleaseUIEvents();
@@ -21273,23 +23743,6 @@ set key(newKey) {
           return this.dialog.close();
         }
       }
-      const mapProcessedSubtitlesToSharedData = (data) => {
-        const subtitles = data.subtitles.map((line) => ({
-          text: line.text,
-          startMs: line.startMs,
-          durationMs: line.durationMs,
-          speakerId: line.speakerId,
-          tokens: line.tokens.map((token) => ({
-            text: token.text,
-            startMs: token.startMs,
-            durationMs: token.durationMs
-          }))
-        }));
-        return {
-          containsTokens: subtitles.some((line) => line.tokens.length > 0),
-          subtitles
-        };
-      };
       class UIManager {
         mount;
         initialized = false;
@@ -21328,7 +23781,7 @@ votSettingsView;
           }
           this.initialized = true;
           this.votGlobalPortal = UI.createPortal();
-          document.documentElement.appendChild(this.votGlobalPortal);
+          this.getGlobalPortalHost(this.mount).appendChild(this.votGlobalPortal);
           this.votOverlayView = new OverlayView({
             mount: this.mount,
             globalPortal: this.votGlobalPortal,
@@ -21346,9 +23799,28 @@ votSettingsView;
           return this;
         }
         updateMount(mount) {
-          this.mount = mount;
-          this.votOverlayView?.updateMount?.(mount);
+          const globalPortalHost = this.getGlobalPortalHost(mount);
+          if (this.votGlobalPortal?.parentElement !== globalPortalHost) {
+            globalPortalHost.appendChild(this.votGlobalPortal);
+          }
+          this.mount = applyOverlayMountUpdate(this.mount, mount, (nextMount) => {
+            this.votOverlayView?.updateMount(nextMount);
+          });
+          this.videoHandler?.subtitlesWidget?.updateMount({
+            container: mount.subtitlesMountContainer,
+            tooltipLayoutRoot: mount.tooltipLayoutRoot
+          });
           return this;
+        }
+        getGlobalPortalHost(mount) {
+          const doc = document;
+          const fullscreenEl = doc.fullscreenElement ?? doc.webkitFullscreenElement;
+          const isCurrentVideoFullscreen = Boolean(
+            resolveScopedFullscreenElement(fullscreenEl, [mount.root], {
+              allowDocumentViewport: true
+            })
+          );
+          return isCurrentVideoFullscreen ? mount.root : document.documentElement;
         }
         initUIEvents() {
           if (!this.isInitialized()) {
@@ -21380,7 +23852,6 @@ votSettingsView;
             this.videoHandler?.overlayVisibility?.cancel();
             this.videoHandler?.overlayVisibility?.show();
             this.votSettingsView.open();
-            await exitFullscreen();
           }).addEventListener("click:downloadTranslation", async () => {
             await this.handleDownloadTranslationClick();
           }).addEventListener("click:downloadSubtitles", async () => {
@@ -21429,7 +23900,7 @@ votSettingsView;
           }).addEventListener("change:autoTranslate", async (checked) => {
             const videoHandler = this.videoHandler;
             if (checked && videoHandler && !videoHandler.hasActiveSource()) {
-              await this.handleTranslationBtnClick({ isAutoTrigger: true });
+              await this.handleTranslationBtnClick();
             }
           }).addEventListener("change:autoSubtitles", async (checked) => {
             if (!checked || !this.videoHandler?.videoData?.videoId) {
@@ -21514,6 +23985,14 @@ votSettingsView;
                 widget.setFontSize(nextValue);
               }
             );
+          }).addEventListener("select:subtitlesFontFamily", (item) => {
+            this.updateSubtitlesWidgetSetting(
+              item,
+              this.data.subtitlesFontFamily,
+              (widget, nextValue) => {
+                widget.setFontFamily(nextValue);
+              }
+            );
           }).addEventListener("input:subtitlesBackgroundOpacity", (value) => {
             this.updateSubtitlesWidgetSetting(
               value,
@@ -21557,11 +24036,9 @@ votSettingsView;
             });
           }).addEventListener("select:buttonPosition", (item) => {
             this.withInitializedOverlayView((overlayView) => {
-              const newPosition = this.data.buttonPos ?? item;
-              overlayView.updateButtonLayout(
-                newPosition,
-                VOTButton.calcDirection(newPosition)
-              );
+              const preferredPosition = this.data.buttonPos ?? item;
+              const { position: position2, direction } = overlayView.calcButtonLayout(preferredPosition);
+              overlayView.updateButtonLayout(position2, direction);
             });
           }).addEventListener("select:menuLanguage", async () => {
             await this.reloadMenu();
@@ -21626,9 +24103,12 @@ votSettingsView;
             return;
           }
           const subsFormat = this.data.subtitlesDownloadFormat ?? "json";
-          const subsContent = convertSubs(
-            mapProcessedSubtitlesToSharedData(videoHandler.yandexSubtitles),
-            subsFormat
+          const subsContent = serializeProcessedSubtitles(
+            videoHandler.yandexSubtitles,
+            subsFormat,
+            {
+              assTitle: videoHandler.videoData.localizedTitle ?? videoHandler.videoData.title ?? videoHandler.videoData.downloadTitle
+            }
           );
           const blob = new Blob(
             [
@@ -21681,12 +24161,11 @@ votSettingsView;
           await this.videoHandler.updateSubtitlesLangSelect();
           const widget = this.videoHandler.subtitlesWidget;
           if (widget) {
-            widget.setPortal(this.votOverlayView.votOverlayPortal);
             widget.resetTranslationContext(true);
           }
           return this;
         }
-        async handleTranslationBtnClick(options = {}) {
+        async handleTranslationBtnClick() {
           if (!this.votOverlayView?.isInitialized()) {
             throw new Error("[VOT] OverlayView isn't initialized");
           }
@@ -21709,6 +24188,9 @@ votSettingsView;
           try {
             debug.log("[handleTranslationBtnClick] trying execute translation");
             const videoData = await this.getVideoDataForTranslation(videoHandler);
+            await videoHandler.videoManager.ensureDetectedLanguageForTranslation(
+              videoData
+            );
             debug.log(
               "[handleTranslationBtnClick] Run translateFunc",
               videoData.videoId
@@ -21725,10 +24207,6 @@ votSettingsView;
               this.transformBtn("none", localizationProvider.get("translateVideo"));
               return this;
             }
-            if (options.isAutoTrigger && err instanceof VOTLocalizedError && err.unlocalizedMessage === "VOTDisableFromYourLang") {
-              this.transformBtn("none", localizationProvider.get("translateVideo"));
-              return this;
-            }
             console.error("[VOT]", err);
             if (!(err instanceof Error)) {
               this.transformBtn("error", String(err));
@@ -21740,17 +24218,19 @@ votSettingsView;
           return this;
         }
         async getVideoDataForTranslation(videoHandler) {
-          videoHandler.videoData = await videoHandler.getVideoData({
-            allowLanguageDetection: true
-          });
           if (!videoHandler.videoData?.videoId) {
             throw new VOTLocalizedError("VOTNoVideoIDFound");
           }
-          videoHandler.setSelectMenuValues(
-            videoHandler.videoData.detectedLanguage,
-            videoHandler.videoData.responseLanguage
-          );
+          if (this.shouldRefreshVideoDataBeforeTranslation(videoHandler)) {
+            videoHandler.videoData = await videoHandler.getVideoData();
+          }
+          if (!videoHandler.videoData?.videoId) {
+            throw new VOTLocalizedError("VOTNoVideoIDFound");
+          }
           return videoHandler.videoData;
+        }
+        shouldRefreshVideoDataBeforeTranslation(videoHandler) {
+          return videoHandler.site.host === "vk" && videoHandler.site.additionalData === "clips" || videoHandler.site.host === "douyin";
         }
         isAbortError(error2) {
           return error2 instanceof Error && error2.name === "AbortError";
@@ -21767,25 +24247,6 @@ votSettingsView;
           this.votOverlayView.votButton.loading = status === "error" && this.isLoadingText(text);
           this.votOverlayView.votButton.setText(text);
           this.votOverlayView.votButtonTooltip.setContent(text);
-          return this;
-        }
-        releaseUI(initialized = false) {
-          if (!this.isInitialized()) {
-            throw new Error("[VOT] UIManager isn't initialized");
-          }
-          this.votOverlayView.releaseUI(true);
-          this.votSettingsView.releaseUI(true);
-          this.votGlobalPortal.remove();
-          this.initialized = initialized;
-          return this;
-        }
-        releaseUIEvents(initialized = false) {
-          if (!this.isInitialized()) {
-            throw new Error("[VOT] UIManager isn't initialized");
-          }
-          this.votOverlayView.releaseUIEvents(false);
-          this.votSettingsView.releaseUIEvents(false);
-          this.initialized = initialized;
           return this;
         }
         release() {
@@ -21993,33 +24454,11 @@ scheduleHide(event) {
         }
         return Math.max(0, Math.trunc(value));
       }
-      function normalizeOptionalPositiveMs(value) {
-        if (typeof value !== "number" || !Number.isFinite(value)) {
-          return null;
-        }
-        return Math.max(1, Math.trunc(value));
-      }
-      function resolveLegacyCheckIntervalMs(profile) {
-        const hidden = normalizeOptionalPositiveMs(profile.hiddenIntervalMs);
-        if (hidden !== null) {
-          return hidden;
-        }
-        const idle = normalizeOptionalPositiveMs(profile.idleIntervalMs);
-        if (idle !== null) {
-          return idle;
-        }
-        const active = normalizeOptionalPositiveMs(profile.activeIntervalMs);
-        if (active !== null) {
-          return active;
-        }
-        return null;
-      }
       function normalizeProfile(profile = {}) {
-        const legacyCheckIntervalMs = resolveLegacyCheckIntervalMs(profile);
         return {
           checkIntervalMs: normalizePositiveMs(
             profile.checkIntervalMs,
-            legacyCheckIntervalMs ?? DEFAULT_PROFILE.checkIntervalMs
+            DEFAULT_PROFILE.checkIntervalMs
           ),
           idleAfterMs: normalizeNonNegativeMs(
             profile.idleAfterMs,
@@ -22210,30 +24649,38 @@ scheduleHide(event) {
           return null;
         }
       }
-      function resolveLocalizedErrorMessage(message) {
-        if (message && typeof message === "object") {
-          const localizedError = message;
-          if (localizedError.name === "VOTLocalizedError") {
-            if (typeof localizedError.localizedMessage === "string" && localizedError.localizedMessage.trim()) {
-              return localizedError.localizedMessage;
-            }
-            if (typeof localizedError.unlocalizedMessage === "string") {
-              const byPhraseKey = localizePhraseText(
-                localizedError.unlocalizedMessage
-              );
-              if (byPhraseKey) return byPhraseKey;
-            }
-          }
+      function resolveLocalizedErrorFromObject(message) {
+        if (!message || typeof message !== "object") {
+          return null;
         }
+        const localizedError = message;
+        if (localizedError.name !== "VOTLocalizedError") {
+          return null;
+        }
+        if (typeof localizedError.localizedMessage === "string" && localizedError.localizedMessage.trim()) {
+          return localizedError.localizedMessage;
+        }
+        if (typeof localizedError.unlocalizedMessage === "string") {
+          return localizePhraseText(localizedError.unlocalizedMessage);
+        }
+        return null;
+      }
+      function localizeExtractedErrorMessage(message) {
+        const extracted = getErrorMessage(message);
+        if (!extracted) {
+          return null;
+        }
+        return localizePhraseText(extracted) || extracted;
+      }
+      function resolveLocalizedErrorMessage(message) {
+        const localizedObjectMessage = resolveLocalizedErrorFromObject(message);
+        if (localizedObjectMessage) return localizedObjectMessage;
         if (typeof message === "string") {
           const byPhraseKey = localizePhraseText(message);
           if (byPhraseKey) return byPhraseKey;
         }
-        const extracted = getErrorMessage(message);
-        if (extracted) {
-          const byPhraseKey = localizePhraseText(extracted);
-          return byPhraseKey || extracted;
-        }
+        const extractedMessage = localizeExtractedErrorMessage(message);
+        if (extractedMessage) return extractedMessage;
         return safeL10n("requestTranslationFailed", "Translation failed");
       }
       function trySendViaUserscriptApi(details) {
@@ -22935,7 +25382,7 @@ tag: `VOTtranslationFailed_${videoId || "unknown"}`,
         if (options.skipYouTubeLikeHosts && isYouTubeLikeHost(self.site.host)) {
           return;
         }
-        if (typeof self.smartVolumeDuckingInterval === "number") return;
+        if (self.smartVolumeDuckingInterval !== void 0) return;
         if (!self.data?.syncVolume || !self.audioPlayer?.player?.src) return;
         if (self.isLikelyInternalVideoVolumeChange(videoPercent)) return;
         self.syncVolumeWrapper("video", videoPercent);
@@ -22983,17 +25430,26 @@ tag: `VOTtranslationFailed_${videoId || "unknown"}`,
       }
       function bindOverlayLayoutEvents(ctx) {
         const { self, overlayView, addMany } = ctx;
+        const syncMountAndLayout = () => {
+          self.refreshOverlayMount();
+          applyOverlayLayout(self, overlayView);
+        };
         self.resizeObserver = new ResizeObserver((entries) => {
           for (const entry of entries) {
             applyOverlayLayout(self, overlayView, entry.contentRect.height);
           }
         });
         self.resizeObserver.observe(self.video);
-        applyOverlayLayout(self, overlayView);
+        syncMountAndLayout();
         addMany(
           document,
           ["fullscreenchange", "webkitfullscreenchange"],
-          () => applyOverlayLayout(self, overlayView)
+          () => syncMountAndLayout()
+        );
+        addMany(
+          self.video,
+          ["webkitbeginfullscreen", "webkitendfullscreen"],
+          () => syncMountAndLayout()
         );
       }
       function bindYouTubeVolumeSync(ctx) {
@@ -23064,9 +25520,7 @@ tag: `VOTtranslationFailed_${videoId || "unknown"}`,
                 `[VOT] Audio track language changed to ${currentLanguage}, triggering auto-translation`
               );
               try {
-                await self.uiManager.handleTranslationBtnClick({
-                  isAutoTrigger: true
-                });
+                await self.uiManager.handleTranslationBtnClick();
               } catch (error2) {
                 debug.log(
                   "[VOT] Failed to trigger auto-translation on audio track change:",
@@ -23357,6 +25811,7 @@ tag: `VOTtranslationFailed_${videoId || "unknown"}`,
           subtitlesSmartLayout: true,
           highlightWords: false,
           subtitlesFontSize: 20,
+          subtitlesFontFamily: "default-sans",
           subtitlesOpacity: 20,
           subtitlesDownloadFormat: "srt",
           responseLanguage: calculatedResLang,
@@ -23411,7 +25866,7 @@ useAudioDownload: isSupportGMXhr,
           this.data.translateProxyEnabled,
           this.data.translateProxyEnabledDefault
         );
-        this.initVOTClient();
+        await this.initVOTClient();
         this.uiManager.initUI();
         this.uiManager.initUIEvents();
         if (this.uiManager.votOverlayView?.votButton?.container) {
@@ -23422,81 +25877,238 @@ useAudioDownload: isSupportGMXhr,
         this.initExtraEvents();
         this.initialized = true;
       }
+      const AUDIO_SOURCE_PREFIX = "https://vtrans.s3-private.mds.yandex.net/tts/prod/";
+      const AUDIO_PROXY_PATH_PREFIX = "/video-translation/audio-proxy/";
+      const SUBTITLE_SOURCE_PREFIX = "https://brosubs.s3-private.mds.yandex.net/vtrans/";
+      const SUBTITLE_PROXY_PATH_PREFIX = "/video-subtitles/subtitles-proxy/";
+      function resolveProxyWorkerHost(host) {
+        return host ?? proxyWorkerHost;
+      }
+      function isProxyClientEnabled(config2) {
+        return Boolean(config2.translateProxyEnabled);
+      }
+      function isProxyRoutingEnabled(config2) {
+        return config2.translateProxyEnabled === 2;
+      }
+      function shouldForceProxyClientGmXhr(config2) {
+        return Boolean(config2.gmXhrSupported && isProxyClientEnabled(config2));
+      }
+      function proxifyYandexAudioUrl(audioUrl, config2) {
+        if (!isProxyRoutingEnabled(config2) || !audioUrl.startsWith(AUDIO_SOURCE_PREFIX)) {
+          return audioUrl;
+        }
+        return audioUrl.replace(
+          AUDIO_SOURCE_PREFIX,
+          `https://${resolveProxyWorkerHost(config2.proxyWorkerHost)}${AUDIO_PROXY_PATH_PREFIX}`
+        );
+      }
+      function unproxifyYandexAudioUrl(audioUrl) {
+        const str = String(audioUrl || "");
+        if (!str) return str;
+        try {
+          const url = new URL(str);
+          if (!url.pathname.startsWith(AUDIO_PROXY_PATH_PREFIX)) {
+            return str;
+          }
+          url.host = "vtrans.s3-private.mds.yandex.net";
+          url.pathname = `/tts/prod/${url.pathname.slice(AUDIO_PROXY_PATH_PREFIX.length).replace(/^\/+/, "")}`;
+          url.protocol = "https:";
+          return url.toString();
+        } catch {
+          return str;
+        }
+      }
+      function isYandexAudioUrlOrProxy(url, config2) {
+        return url.startsWith(AUDIO_SOURCE_PREFIX) || url.startsWith(
+          `https://${resolveProxyWorkerHost(config2.proxyWorkerHost)}${AUDIO_PROXY_PATH_PREFIX}`
+        );
+      }
+      function proxifyYandexSubtitlesUrl(subtitlesUrl, config2) {
+        if (!isProxyRoutingEnabled(config2) || !subtitlesUrl.startsWith(SUBTITLE_SOURCE_PREFIX)) {
+          return subtitlesUrl;
+        }
+        const subtitlesPath = subtitlesUrl.slice(SUBTITLE_SOURCE_PREFIX.length);
+        return `https://${resolveProxyWorkerHost(config2.proxyWorkerHost)}${SUBTITLE_PROXY_PATH_PREFIX}${subtitlesPath}`;
+      }
       function timeout(ms, message = "Operation timed out") {
         return new Promise(
           (_2, reject) => setTimeout(() => reject(new Error(message)), ms)
         );
       }
-      const DEFAULT_LOCALE = "und";
-      const segmenterCache = new Map();
-      const hasNativeSegmenter = () => typeof Intl !== "undefined" && typeof Intl.Segmenter === "function";
-      const splitTextRegexp = /[\p{L}\p{N}]+|[^\p{L}\p{N}]+/gu;
-      const wordLikeRegexp = /[\p{L}\p{N}]/u;
+      const DEFAULT_CACHE_LOCALE = "und";
+      const wordSegmenterCache = new Map();
+      const sentenceSegmenterCache = new Map();
       const canonicalizeLocale = (locale) => {
-        if (typeof Intl === "undefined") return DEFAULT_LOCALE;
-        if (!locale) return DEFAULT_LOCALE;
+        if (!locale) return void 0;
         try {
-          const canonical = Intl.getCanonicalLocales(locale)[0];
-          return canonical || DEFAULT_LOCALE;
+          return Intl.getCanonicalLocales(locale)[0];
         } catch {
-          return DEFAULT_LOCALE;
+          return void 0;
         }
       };
       const resolveSegmenterLocale = (locale) => {
         const canonicalLocale = canonicalizeLocale(locale);
-        if (canonicalLocale === DEFAULT_LOCALE) return void 0;
-        const supported = Intl.Segmenter.supportedLocalesOf([canonicalLocale]);
-        return supported[0];
+        if (!canonicalLocale) return void 0;
+        return Intl.Segmenter.supportedLocalesOf([canonicalLocale])[0];
       };
-      const getSegmenter = (locale) => {
-        if (!hasNativeSegmenter()) return null;
+      const getSegmenter = (locale, granularity) => {
         const resolvedLocale = resolveSegmenterLocale(locale);
-        const cacheKey = resolvedLocale ?? DEFAULT_LOCALE;
+        const cacheKey = `${granularity}:${resolvedLocale ?? DEFAULT_CACHE_LOCALE}`;
+        const segmenterCache = granularity === "sentence" ? sentenceSegmenterCache : wordSegmenterCache;
         const cached = segmenterCache.get(cacheKey);
         if (cached) return cached;
-        const segmenter = new Intl.Segmenter(resolvedLocale, { granularity: "word" });
+        const segmenter = new Intl.Segmenter(resolvedLocale, { granularity });
         segmenterCache.set(cacheKey, segmenter);
         return segmenter;
       };
-      const segmentTextFallback = (text) => {
-        const result = [];
-        splitTextRegexp.lastIndex = 0;
-        for (const match of text.matchAll(splitTextRegexp)) {
-          const segment = match[0];
-          if (!segment) continue;
-          result.push({
-            text: segment,
-            index: match.index ?? 0,
-            isWordLike: wordLikeRegexp.test(segment)
-          });
-        }
-        return result;
-      };
       const segmentText = (text, locale) => {
         if (!text) return [];
-        const segmenter = getSegmenter(locale);
-        if (!segmenter) {
-          return segmentTextFallback(text);
-        }
-        const segments = segmenter.segment(text);
-        const result = [];
-        for (const part of segments) {
-          result.push({
-            text: part.segment,
-            index: part.index,
-            isWordLike: Boolean(part.isWordLike)
-          });
-        }
-        return result;
+        return Array.from(getSegmenter(locale, "word").segment(text), (part) => ({
+          text: part.segment,
+          index: part.index,
+          isWordLike: Boolean(part.isWordLike)
+        }));
       };
-      const isSubtitleFormat = (value) => value === "json" || value === "srt" || value === "vtt";
-      const isRecord$1 = (value) => Boolean(value && typeof value === "object");
+      const segmentSentences = (text, locale) => {
+        if (!text) return [];
+        return Array.from(getSegmenter(locale, "sentence").segment(text), (part) => ({
+          text: part.segment,
+          index: part.index
+        }));
+      };
+      const WHITESPACE_RE$1 = /\s/u;
+      const NO_SPACE_BEFORE_RE = /^[,.:;!?%)\]}>»]/u;
+      const NO_SPACE_AFTER_RE = /[([{<«'"-]$/u;
+      const CJK_CHAR_RE = /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}]/u;
+      const shouldInsertSpaceBetweenTextFragments = (leftText, rightText) => {
+        const leftLastChar = leftText.at(-1) ?? "";
+        const rightFirstChar = rightText[0] ?? "";
+        if (!leftLastChar || !rightFirstChar) return false;
+        if (WHITESPACE_RE$1.test(leftLastChar) || WHITESPACE_RE$1.test(rightFirstChar)) {
+          return false;
+        }
+        if (NO_SPACE_AFTER_RE.test(leftLastChar) || NO_SPACE_BEFORE_RE.test(rightFirstChar)) {
+          return false;
+        }
+        if (CJK_CHAR_RE.test(leftLastChar) && CJK_CHAR_RE.test(rightFirstChar)) {
+          return false;
+        }
+        return true;
+      };
+      const WHITESPACE_RE = /\s/u;
+      const hasVisibleText = (value) => Boolean(value.trim());
+      const buildNormalizedLineSpans = (lines) => {
+        let streamText = "";
+        let previousText = "";
+        const spans = [];
+        for (const line of lines) {
+          const normalizedText = line.text.trim();
+          if (!normalizedText) continue;
+          if (streamText && shouldInsertSpaceBetweenTextFragments(previousText, normalizedText)) {
+            streamText += " ";
+          }
+          const start = streamText.length;
+          streamText += normalizedText;
+          const end = streamText.length;
+          spans.push({
+            line: {
+              ...line,
+              text: normalizedText
+            },
+            text: normalizedText,
+            start,
+            end
+          });
+          previousText = normalizedText;
+        }
+        return { streamText, spans };
+      };
+      const trimSentenceRange = (streamText, start, end) => {
+        let trimmedStart = start;
+        let trimmedEnd = end;
+        while (trimmedStart < trimmedEnd && WHITESPACE_RE.test(streamText[trimmedStart] ?? "")) {
+          trimmedStart += 1;
+        }
+        while (trimmedEnd > trimmedStart && WHITESPACE_RE.test(streamText[trimmedEnd - 1] ?? "")) {
+          trimmedEnd -= 1;
+        }
+        if (trimmedStart >= trimmedEnd) {
+          return null;
+        }
+        return {
+          start: trimmedStart,
+          end: trimmedEnd
+        };
+      };
+      const sliceLineToken = (span, rangeStart, rangeEnd) => {
+        const overlapStart = Math.max(rangeStart, span.start);
+        const overlapEnd = Math.min(rangeEnd, span.end);
+        if (overlapStart >= overlapEnd) {
+          return null;
+        }
+        const localStart = overlapStart - span.start;
+        const localEnd = overlapEnd - span.start;
+        const text = span.text.slice(localStart, localEnd);
+        if (!text) {
+          return null;
+        }
+        const textLength = Math.max(span.text.length, 1);
+        const startMs = span.line.startMs + Math.round(span.line.durationMs * localStart / textLength);
+        const endMs = span.line.startMs + Math.round(span.line.durationMs * localEnd / textLength);
+        return {
+          text,
+          startMs,
+          durationMs: Math.max(0, endMs - startMs),
+          isWordLike: hasVisibleText(text)
+        };
+      };
+      const buildSentenceLine = (streamText, spans, segment) => {
+        const rawStart = segment.index;
+        const rawEnd = rawStart + segment.text.length;
+        const trimmedRange = trimSentenceRange(streamText, rawStart, rawEnd);
+        if (!trimmedRange) {
+          return null;
+        }
+        const text = streamText.slice(trimmedRange.start, trimmedRange.end);
+        if (!hasVisibleText(text)) {
+          return null;
+        }
+        const tokens = [];
+        let speakerId = "0";
+        for (const span of spans) {
+          const token = sliceLineToken(span, trimmedRange.start, trimmedRange.end);
+          if (!token) continue;
+          if (tokens.length === 0) {
+            speakerId = span.line.speakerId;
+          }
+          tokens.push(token);
+        }
+        if (!tokens.length) {
+          return null;
+        }
+        const startMs = Math.min(...tokens.map((token) => token.startMs));
+        const endMs = Math.max(
+          ...tokens.map((token) => token.startMs + Math.max(0, token.durationMs))
+        );
+        return {
+          text,
+          startMs,
+          durationMs: Math.max(0, endMs - startMs),
+          speakerId,
+          tokens
+        };
+      };
+      const mergeAutoGeneratedSubtitleLines = (lines, locale) => {
+        const { streamText, spans } = buildNormalizedLineSpans(lines);
+        if (!streamText || !spans.length) {
+          return [];
+        }
+        const segments = segmentSentences(streamText, locale);
+        const sentenceLines = segments.map((segment) => buildSentenceLine(streamText, spans, segment)).filter((line) => line !== null);
+        return sentenceLines.length ? sentenceLines : spans.map(({ line }) => line);
+      };
       const toFiniteNumber = (value) => typeof value === "number" && Number.isFinite(value) ? value : 0;
       const toNonNegativeNumber = (value) => Math.max(0, toFiniteNumber(value));
-      const isSubtitleDescriptor = (arg) => {
-        if (!isRecord$1(arg)) return false;
-        return typeof arg.source === "string" && isSubtitleFormat(arg.format) && typeof arg.language === "string" && typeof arg.url === "string" && (arg.translatedFromLanguage === void 0 || typeof arg.translatedFromLanguage === "string") && (arg.isAutoGenerated === void 0 || typeof arg.isAutoGenerated === "boolean");
-      };
       const pickDescriptorFromVideoData = (videoData, requestLang, spokenLang) => {
         const list = videoData.subtitles;
         if (!Array.isArray(list) || list.length === 0) return null;
@@ -23511,6 +26123,7 @@ useAudioDownload: isSupportGMXhr,
         }
         return list[0] ?? null;
       };
+      const isVideoDataForSubtitles = (value) => "host" in value && "videoId" in value && "detectedLanguage" in value && "duration" in value && typeof value.host === "string" && typeof value.videoId === "string" && typeof value.detectedLanguage === "string" && typeof value.duration === "number";
       const appendYoutubePoTokenParams = (inputUrl) => {
         const poToken = YoutubeHelper.getPoToken();
         if (!poToken) return inputUrl;
@@ -23632,6 +26245,43 @@ useAudioDownload: isSupportGMXhr,
         if (typeof value === "boolean") return value;
         return Boolean(text.trim());
       };
+      const sanitizeStyledSpan = (span) => {
+        if (!span || typeof span !== "object") {
+          return null;
+        }
+        const raw = span;
+        const start = toNonNegativeNumber(raw.start);
+        const end = toNonNegativeNumber(raw.end);
+        if (end <= start) {
+          return null;
+        }
+        return {
+          start,
+          end,
+          style: sanitizeSubtitleInlineStyle(raw.style)
+        };
+      };
+      const sanitizeLineMetadata = (value) => {
+        if (!value || typeof value !== "object") {
+          return void 0;
+        }
+        const raw = value;
+        const metadata = {};
+        if (typeof raw.rawText === "string") {
+          metadata.rawText = raw.rawText;
+        }
+        const styledSpans = Array.isArray(raw.styledSpans) ? raw.styledSpans.map(sanitizeStyledSpan).filter((span) => span !== null) : [];
+        if (styledSpans.length) {
+          metadata.styledSpans = styledSpans;
+        }
+        if (raw.vtt && typeof raw.vtt === "object") {
+          metadata.vtt = raw.vtt;
+        }
+        if (raw.ass && typeof raw.ass === "object") {
+          metadata.ass = raw.ass;
+        }
+        return Object.keys(metadata).length ? metadata : void 0;
+      };
       const sanitizeToken = (token) => {
         if (!token || typeof token !== "object") {
           return {
@@ -23647,7 +26297,8 @@ useAudioDownload: isSupportGMXhr,
           text,
           startMs: toNonNegativeNumber(raw.startMs),
           durationMs: toNonNegativeNumber(raw.durationMs),
-          isWordLike: resolveTokenWordLike(raw.isWordLike, text)
+          isWordLike: resolveTokenWordLike(raw.isWordLike, text),
+          style: sanitizeSubtitleInlineStyle(raw.style)
         };
       };
       const sanitizeLine = (line) => {
@@ -23667,43 +26318,18 @@ useAudioDownload: isSupportGMXhr,
           startMs: toNonNegativeNumber(raw.startMs),
           durationMs: toNonNegativeNumber(raw.durationMs),
           speakerId: typeof raw.speakerId === "string" ? raw.speakerId : "0",
-          tokens
+          tokens,
+          metadata: sanitizeLineMetadata(raw.metadata)
         };
       };
       const ensureProcessedSubtitles = (input) => {
         if (!input || typeof input !== "object") {
-          return { subtitles: [] };
+          return { format: "json", subtitles: [] };
         }
         const payload = input;
         const subtitles = Array.isArray(payload.subtitles) ? payload.subtitles.map(sanitizeLine) : [];
-        return { subtitles };
+        return { format: payload.format ?? "json", subtitles };
       };
-      const VK_INLINE_TIMESTAMP_RE = /<(?:\d{1,2}:)?\d{2}:\d{2}(?:[.,]\d{1,3})?>/gu;
-      const VK_DUPLICATE_MAX_GAP_MS = 120;
-      const VK_PUNCTUATION_SPACING_RE = /\s+([,.:;!?])/gu;
-      const VK_AROUND_NEWLINE_SPACING_RE = /[ \t]*\n[ \t]*/gu;
-      const VK_MULTIPLE_SPACES_RE = /[ \t]{2,}/gu;
-      const VK_EXCESS_NEWLINES_RE = /\n{3,}/gu;
-      const VK_COMPARABLE_SPACING_RE = /\s+/gu;
-      const stripHtmlToText = (value) => {
-        if (!value.includes("<")) return value;
-        if (typeof document !== "undefined") {
-          const template = document.createElement("template");
-          template.innerHTML = value;
-          return template.content.textContent ?? "";
-        }
-        return value.replaceAll(/<\/?[^>]+>/gu, "");
-      };
-      const normalizeSubtitleText = (value) => {
-        let normalized = value;
-        if (normalized.includes("<")) {
-          normalized = stripHtmlToText(
-            normalized.replaceAll(VK_INLINE_TIMESTAMP_RE, "")
-          );
-        }
-        return normalized.replaceAll(VK_PUNCTUATION_SPACING_RE, "$1").replaceAll(VK_AROUND_NEWLINE_SPACING_RE, "\n").replaceAll(VK_MULTIPLE_SPACES_RE, " ").replaceAll(VK_EXCESS_NEWLINES_RE, "\n\n").trim();
-      };
-      const normalizeComparableText = (value) => value.toLowerCase().replaceAll(VK_COMPARABLE_SPACING_RE, " ").trim();
       const getYoutubeEventDurationMs = (event, nextEvent) => {
         if (!nextEvent) return Math.max(0, event.dDurationMs);
         if (event.tStartMs + event.dDurationMs <= nextEvent.tStartMs) {
@@ -23715,6 +26341,7 @@ useAudioDownload: isSupportGMXhr,
         const sourceTokens = [];
         let text = "";
         let remainingDuration = durationMs;
+        let previousRawText = "";
         for (let j = 0; j < segs.length; j += 1) {
           const segment = segs[j];
           const rawText = typeof segment.utf8 === "string" ? segment.utf8 : "";
@@ -23731,6 +26358,15 @@ useAudioDownload: isSupportGMXhr,
           if (nextSegment) {
             tokenDuration = Math.max(0, segmentDuration);
           }
+          if (text && shouldInsertSpaceBetweenTextFragments(previousRawText, rawText)) {
+            sourceTokens.push({
+              text: " ",
+              startMs: event.tStartMs + offset,
+              durationMs: 0,
+              isWordLike: false
+            });
+            text += " ";
+          }
           sourceTokens.push({
             text: rawText,
             startMs: event.tStartMs + offset,
@@ -23738,14 +26374,17 @@ useAudioDownload: isSupportGMXhr,
             isWordLike: Boolean(rawText.trim())
           });
           text += rawText;
+          previousRawText = rawText;
         }
         return { text, sourceTokens };
       };
       const hasPositiveDuration = (token) => token.durationMs > 0;
       const normalizeLineText = (line) => {
-        if (line.text) return line.text;
+        if (line.text) return normalizeSubtitleTextForDisplay(line.text);
         if (!line.tokens.length) return "";
-        return line.tokens.map((token) => token.text).join("");
+        return normalizeSubtitleTextForDisplay(
+          line.tokens.map((token) => token.text).join("")
+        );
       };
       const allocateTimingsByLength = (texts, startMs, durationMs) => {
         if (!texts.length) return [];
@@ -23767,11 +26406,46 @@ useAudioDownload: isSupportGMXhr,
         }
         return timings;
       };
+      const splitSegmentText = (text) => {
+        const slices = [];
+        let sliceStart = 0;
+        for (let index = 0; index < text.length; index += 1) {
+          if (text[index] !== "\n") continue;
+          if (sliceStart < index) {
+            slices.push({
+              text: text.slice(sliceStart, index),
+              startOffset: sliceStart,
+              endOffset: index
+            });
+          }
+          slices.push({
+            text: "\n",
+            startOffset: index,
+            endOffset: index + 1
+          });
+          sliceStart = index + 1;
+        }
+        if (sliceStart < text.length) {
+          slices.push({
+            text: text.slice(sliceStart),
+            startOffset: sliceStart,
+            endOffset: text.length
+          });
+        }
+        return slices.length ? slices : [
+          {
+            text,
+            startOffset: 0,
+            endOffset: text.length
+          }
+        ];
+      };
       const collectSourceTimedWords = (sourceTokens, locale) => {
         const timedWords = [];
         for (const token of sourceTokens) {
-          if (!token.text || !hasPositiveDuration(token)) continue;
-          const segmentedWords = segmentText(token.text, locale).filter(
+          const normalizedTokenText = normalizeSubtitleTextForDisplay(token.text);
+          if (!normalizedTokenText || !hasPositiveDuration(token)) continue;
+          const segmentedWords = segmentText(normalizedTokenText, locale).filter(
             (segment) => segment.isWordLike && segment.text.trim()
           );
           if (!segmentedWords.length) continue;
@@ -23784,29 +26458,63 @@ useAudioDownload: isSupportGMXhr,
         }
         return timedWords;
       };
-      const buildLineTokens = (line, descriptor, lineText) => {
-        if (!lineText) return [];
-        const locale = descriptor.language;
-        const segments = segmentText(lineText, locale);
-        if (!segments.length) return [];
-        const baseTimings = allocateTimingsByLength(
-          segments.map((segment) => segment.text),
-          line.startMs,
-          line.durationMs
+      const buildDirectSegmentToken = (segment, segmentStartMs, segmentDurationMs, styledSpans) => ({
+        text: segment.text,
+        startMs: segmentStartMs,
+        durationMs: segmentDurationMs,
+        isWordLike: segment.isWordLike,
+        style: getStyleForRange(
+          styledSpans,
+          segment.index,
+          segment.index + segment.text.length
+        )
+      });
+      const buildSegmentSliceTokens = (segment, segmentStartMs, segmentDurationMs, styledSpans) => {
+        const slices = splitSegmentText(segment.text);
+        if (slices.length === 1 && slices[0].text === segment.text) {
+          return [
+            buildDirectSegmentToken(
+              segment,
+              segmentStartMs,
+              segmentDurationMs,
+              styledSpans
+            )
+          ];
+        }
+        const sliceTimings = allocateTimingsByLength(
+          slices.map((slice) => slice.text === "\n" ? "" : slice.text),
+          segmentStartMs,
+          segmentDurationMs
         );
-        const nextTokens = segments.map((segment, index) => ({
-          text: segment.text,
-          startMs: baseTimings[index]?.startMs ?? line.startMs,
-          durationMs: baseTimings[index]?.durationMs ?? 0,
-          isWordLike: segment.isWordLike
-        }));
-        const sourceTimedWords = collectSourceTimedWords(line.tokens, locale);
-        if (!sourceTimedWords.length) return nextTokens;
-        const wordIndices = nextTokens.reduce((indices, token, index) => {
-          if (token.isWordLike && token.text.trim()) indices.push(index);
-          return indices;
-        }, []);
-        if (!wordIndices.length) return nextTokens;
+        return slices.map((slice, sliceIndex) => {
+          const isLineBreak = slice.text === "\n";
+          return {
+            text: slice.text,
+            startMs: sliceTimings[sliceIndex]?.startMs ?? segmentStartMs,
+            durationMs: isLineBreak ? 0 : sliceTimings[sliceIndex]?.durationMs ?? 0,
+            isWordLike: !isLineBreak && segment.isWordLike,
+            style: isLineBreak ? void 0 : getStyleForRange(
+              styledSpans,
+              segment.index + slice.startOffset,
+              segment.index + slice.endOffset
+            )
+          };
+        });
+      };
+      const collectWordIndices = (tokens) => tokens.reduce((indices, token, index) => {
+        if (token.isWordLike && token.text.trim()) {
+          indices.push(index);
+        }
+        return indices;
+      }, []);
+      const applySourceWordTimings = (tokens, sourceTimedWords) => {
+        if (!sourceTimedWords.length) {
+          return tokens;
+        }
+        const wordIndices = collectWordIndices(tokens);
+        if (!wordIndices.length) {
+          return tokens;
+        }
         const totalTargetWords = wordIndices.length;
         for (let i2 = 0; i2 < totalTargetWords; i2 += 1) {
           const targetIndex = wordIndices[i2];
@@ -23814,19 +26522,47 @@ useAudioDownload: isSupportGMXhr,
             i2 * sourceTimedWords.length / totalTargetWords
           );
           const sourceTiming = sourceTimedWords[Math.min(sourceIndex, sourceTimedWords.length - 1)];
-          nextTokens[targetIndex] = {
-            ...nextTokens[targetIndex],
+          tokens[targetIndex] = {
+            ...tokens[targetIndex],
             startMs: sourceTiming.startMs,
             durationMs: sourceTiming.durationMs
           };
         }
-        return nextTokens;
+        return tokens;
+      };
+      const buildLineTokens = (line, descriptor, lineText) => {
+        if (!lineText) return [];
+        const locale = descriptor.language;
+        const styledSpans = line.metadata?.styledSpans ?? buildStyledDisplayModel(line.metadata?.rawText ?? line.text ?? lineText).styledSpans;
+        const segments = segmentText(lineText, locale);
+        if (!segments.length) return [];
+        const baseTimings = allocateTimingsByLength(
+          segments.map((segment) => segment.text),
+          line.startMs,
+          line.durationMs
+        );
+        const nextTokens = [];
+        for (let index = 0; index < segments.length; index += 1) {
+          const segment = segments[index];
+          const segmentStartMs = baseTimings[index]?.startMs ?? line.startMs;
+          const segmentDurationMs = baseTimings[index]?.durationMs ?? 0;
+          nextTokens.push(
+            ...buildSegmentSliceTokens(
+              segment,
+              segmentStartMs,
+              segmentDurationMs,
+              styledSpans
+            )
+          );
+        }
+        const sourceTimedWords = collectSourceTimedWords(line.tokens, locale);
+        return applySourceWordTimings(nextTokens, sourceTimedWords);
       };
       const fetchRawSubtitles = async (url, format) => {
         const response = await GM_fetch(url, { timeout: 7e3 });
-        if (format === "vtt" || format === "srt") {
+        if (format === "vtt" || format === "srt" || format === "ass") {
           const text = await response.text();
-          return convertSubs(text, "json");
+          return parseSubtitleText(text, format);
         }
         return response.json();
       };
@@ -23837,15 +26573,19 @@ useAudioDownload: isSupportGMXhr,
             Boolean(descriptor.isAutoGenerated)
           );
         }
-        const normalized = ensureProcessedSubtitles(rawSubtitles);
-        if (descriptor.source === "vk") {
-          return SubtitlesProcessor.cleanJsonSubtitles(normalized);
+        if (descriptor.format === "srt" || descriptor.format === "vtt" || descriptor.format === "ass") {
+          return sortProcessedSubtitles(ensureProcessedSubtitles(rawSubtitles));
         }
-        return normalized;
+        const normalized = ensureProcessedSubtitles(rawSubtitles);
+        return sortProcessedSubtitles(normalized);
       };
-      const processFetchedSubtitles = (subtitles, descriptor) => ({
-        subtitles: SubtitlesProcessor.processTokens(subtitles, descriptor)
-      });
+      const processFetchedSubtitles = (subtitles, descriptor) => {
+        const maybeMerged = SubtitlesProcessor.autoMerge(subtitles, descriptor);
+        return {
+          ...maybeMerged,
+          subtitles: SubtitlesProcessor.processTokens(maybeMerged, descriptor)
+        };
+      };
       const buildYandexSubtitles = (response) => {
         const subtitles = [];
         const seenOriginal = new Set();
@@ -23888,7 +26628,7 @@ useAudioDownload: isSupportGMXhr,
           const events = subtitles.events ?? [];
           if (!events.length) {
             console.error("[VOT] Invalid YouTube subtitles format:", subtitles);
-            return { subtitles: [] };
+            return { format: "json", subtitles: [] };
           }
           const processed = [];
           for (let i2 = 0; i2 < events.length; i2 += 1) {
@@ -23912,91 +26652,37 @@ useAudioDownload: isSupportGMXhr,
               tokens: isAsr ? sourceTokens : []
             });
           }
-          return { subtitles: processed };
-        },
-        cleanJsonSubtitles(subtitles) {
-          const lineEndMs = (line) => line.startMs + Math.max(0, line.durationMs);
-          const tokensTextLength = (tokens) => {
-            let totalLength = 0;
-            for (const token of tokens) {
-              totalLength += token.text.length;
-            }
-            return totalLength;
+          return {
+            format: "json",
+            subtitles: processed
           };
-          const cleanedLines = [];
-          const comparableTexts = [];
-          const tokensLengths = [];
-          for (const line of subtitles.subtitles) {
-            const normalizedLineText = normalizeSubtitleText(line.text);
-            if (!normalizedLineText) continue;
-            const normalizedTokens = [];
-            for (const token of line.tokens) {
-              const normalizedTokenText = normalizeSubtitleText(token.text);
-              if (!normalizedTokenText) continue;
-              normalizedTokens.push({
-                ...token,
-                text: normalizedTokenText
-              });
-            }
-            cleanedLines.push({
-              ...line,
-              text: normalizedLineText,
-              tokens: normalizedTokens
-            });
-            comparableTexts.push(normalizeComparableText(normalizedLineText));
-            tokensLengths.push(tokensTextLength(normalizedTokens));
+        },
+        autoMerge(subtitles, descriptor) {
+          if (!descriptor.isAutoGenerated) {
+            return subtitles;
           }
-          const mergedLines = [];
-          const mergedComparable = [];
-          const mergedTokensLength = [];
-          for (let i2 = 0; i2 < cleanedLines.length; i2 += 1) {
-            const line = cleanedLines[i2];
-            const currentComparable = comparableTexts[i2];
-            if (!currentComparable) continue;
-            const previous = mergedLines.at(-1);
-            if (!previous) {
-              mergedLines.push(line);
-              mergedComparable.push(currentComparable);
-              mergedTokensLength.push(tokensLengths[i2]);
-              continue;
-            }
-            const previousComparable = mergedComparable.at(-1);
-            const previousEnd = lineEndMs(previous);
-            const currentEnd = lineEndMs(line);
-            const isDuplicateText = previousComparable === currentComparable;
-            const isNearPrevious = line.startMs <= previousEnd + VK_DUPLICATE_MAX_GAP_MS;
-            if (!isDuplicateText || !isNearPrevious) {
-              mergedLines.push(line);
-              continue;
-            }
-            const mergedStart = Math.min(previous.startMs, line.startMs);
-            const mergedEnd = Math.max(previousEnd, currentEnd);
-            const previousTokensLength = mergedTokensLength.at(-1) ?? 0;
-            const currentTokensLength = tokensLengths[i2];
-            const mergedTokens = currentTokensLength >= previousTokensLength ? line.tokens : previous.tokens;
-            mergedLines[mergedLines.length - 1] = {
-              ...previous,
-              startMs: mergedStart,
-              durationMs: Math.max(0, mergedEnd - mergedStart),
-              tokens: mergedTokens
-            };
-            mergedTokensLength[mergedTokensLength.length - 1] = Math.max(
-              previousTokensLength,
-              currentTokensLength
-            );
+          if (subtitles.subtitles.length < 2 || !subtitles.subtitles.some((line) => line.tokens.length > 0)) {
+            return subtitles;
           }
           return {
-            subtitles: mergedLines
+            ...subtitles,
+            subtitles: mergeAutoGeneratedSubtitleLines(
+              subtitles.subtitles,
+              descriptor.language
+            )
           };
         },
         async fetchSubtitles(descriptorOrVideoData, requestLang, spokenLang) {
-          const descriptor = isSubtitleDescriptor(descriptorOrVideoData) ? descriptorOrVideoData : pickDescriptorFromVideoData(
-            descriptorOrVideoData,
-            requestLang,
-            spokenLang
-          );
+          let descriptor = parseSubtitleDescriptor(descriptorOrVideoData);
+          if (!descriptor && isVideoDataForSubtitles(descriptorOrVideoData)) {
+            descriptor = pickDescriptorFromVideoData(
+              descriptorOrVideoData,
+              requestLang,
+              spokenLang
+            );
+          }
           if (!descriptor) {
-            return { subtitles: [] };
+            return { format: "json", subtitles: [] };
           }
           const { source, format } = descriptor;
           let { url } = descriptor;
@@ -24014,7 +26700,7 @@ useAudioDownload: isSupportGMXhr,
             return subtitlesWithTokens;
           } catch (error2) {
             console.error("[VOT] Failed to process subtitles:", error2);
-            return { subtitles: [] };
+            return { format: "json", subtitles: [] };
           }
         },
         async getSubtitles(client, videoData) {
@@ -24041,7 +26727,7 @@ useAudioDownload: isSupportGMXhr,
               timeout(5e3, "Timeout")
             ]);
             const res = response;
-            console.log("[VOT] Subtitles response:", res);
+            debug.log("[VOT] Subtitles response:", res);
             if (res.waiting) {
               console.error("[VOT] Failed to get Yandex subtitles");
             }
@@ -24058,86 +26744,12 @@ useAudioDownload: isSupportGMXhr,
           }
         }
       };
-      const AUDIO_SOURCE_PREFIX = "https://vtrans.s3-private.mds.yandex.net/tts/prod/";
-      const AUDIO_PROXY_PATH_PREFIX = "/video-translation/audio-proxy/";
-      const SUBTITLE_SOURCE_PREFIX = "https://brosubs.s3-private.mds.yandex.net/vtrans/";
-      const SUBTITLE_PROXY_PATH_PREFIX = "/video-subtitles/subtitles-proxy/";
-      function getProxyHost(host) {
-        return host ?? proxyWorkerHost;
-      }
-      function isProxyRoutingEnabled(config2) {
-        return config2.translateProxyEnabled === 2;
-      }
-      function proxifyYandexAudioUrl(audioUrl, config2) {
-        if (!isProxyRoutingEnabled(config2) || !audioUrl.startsWith(AUDIO_SOURCE_PREFIX)) {
-          return audioUrl;
-        }
-        return audioUrl.replace(
-          AUDIO_SOURCE_PREFIX,
-          `https://${getProxyHost(config2.proxyWorkerHost)}${AUDIO_PROXY_PATH_PREFIX}`
-        );
-      }
-      function unproxifyYandexAudioUrl(audioUrl) {
-        const str = String(audioUrl || "");
-        if (!str) return str;
-        try {
-          const url = new URL(str);
-          if (!url.pathname.startsWith(AUDIO_PROXY_PATH_PREFIX)) {
-            return str;
-          }
-          url.host = "vtrans.s3-private.mds.yandex.net";
-          url.pathname = `/tts/prod/${url.pathname.slice(AUDIO_PROXY_PATH_PREFIX.length).replace(/^\/+/, "")}`;
-          url.protocol = "https:";
-          return url.toString();
-        } catch {
-          return str;
-        }
-      }
-      function isYandexAudioUrlOrProxy(url, config2) {
-        return url.startsWith(AUDIO_SOURCE_PREFIX) || url.startsWith(
-          `https://${getProxyHost(config2.proxyWorkerHost)}${AUDIO_PROXY_PATH_PREFIX}`
-        );
-      }
-      function proxifyYandexSubtitlesUrl(subtitlesUrl, config2) {
-        if (!isProxyRoutingEnabled(config2) || !subtitlesUrl.startsWith(SUBTITLE_SOURCE_PREFIX)) {
-          return subtitlesUrl;
-        }
-        const subtitlesPath = subtitlesUrl.slice(SUBTITLE_SOURCE_PREFIX.length);
-        return `https://${getProxyHost(config2.proxyWorkerHost)}${SUBTITLE_PROXY_PATH_PREFIX}${subtitlesPath}`;
-      }
       const DISABLED_SUBTITLES_VALUE = "disabled";
-      const VALID_SUBTITLE_FORMATS = new Set([
-        "srt",
-        "vtt",
-        "json"
-      ]);
       const SUBTITLES_INDEX_OPTION_PATTERN = /^\d+$/u;
-      const subtitlesSelectionRequestVersion = new WeakMap();
-      function isRecord(value) {
-        return value !== null && typeof value === "object";
-      }
-      function asSubtitleDescriptor(value) {
-        if (!isRecord(value)) {
-          return null;
-        }
-        const descriptor = value;
-        const format = descriptor.format;
-        if (typeof descriptor.source !== "string" || typeof descriptor.language !== "string" || typeof descriptor.url !== "string" || typeof format !== "string" || !VALID_SUBTITLE_FORMATS.has(format)) {
-          return null;
-        }
-        return {
-          source: descriptor.source,
-          format,
-          language: descriptor.language,
-          url: descriptor.url,
-          translatedFromLanguage: typeof descriptor.translatedFromLanguage === "string" ? descriptor.translatedFromLanguage : void 0,
-          isAutoGenerated: typeof descriptor.isAutoGenerated === "boolean" ? descriptor.isAutoGenerated : void 0
-        };
-      }
       function getIndexedSubtitleDescriptors(subtitles) {
         const descriptors = [];
         for (let index = 0; index < subtitles.length; index += 1) {
-          const descriptor = asSubtitleDescriptor(subtitles[index]);
+          const descriptor = parseSubtitleDescriptor(subtitles[index]);
           if (!descriptor) {
             continue;
           }
@@ -24162,15 +26774,7 @@ useAudioDownload: isSupportGMXhr,
         if (!Number.isInteger(index) || index < 0 || index >= subtitles.length) {
           return null;
         }
-        return asSubtitleDescriptor(subtitles[index]);
-      }
-      function nextSubtitlesSelectionRequestVersion(handler) {
-        const nextVersion = (subtitlesSelectionRequestVersion.get(handler) ?? 0) + 1;
-        subtitlesSelectionRequestVersion.set(handler, nextVersion);
-        return nextVersion;
-      }
-      function isCurrentSubtitlesSelectionRequest(handler, requestVersion) {
-        return subtitlesSelectionRequestVersion.get(handler) === requestVersion;
+        return parseSubtitleDescriptor(subtitles[index]);
       }
       function createDisabledSubtitlesOption() {
         return {
@@ -24179,6 +26783,15 @@ useAudioDownload: isSupportGMXhr,
           selected: true,
           disabled: false
         };
+      }
+      function buildSubtitleLabel(subtitle) {
+        const languageLabel = localizationProvider.getLangLabel(subtitle.language);
+        const translatedFromLabel = subtitle.translatedFromLanguage ? ` ${localizationProvider.get("VOTTranslatedFrom")} ${localizationProvider.getLangLabel(
+    subtitle.translatedFromLanguage
+  )}` : "";
+        const sourceSuffix = subtitle.source === "yandex" ? "" : `, ${globalThis.location.hostname}`;
+        const autogeneratedSuffix = subtitle.isAutoGenerated ? ` (${localizationProvider.get("VOTAutogenerated")})` : "";
+        return `${languageLabel}${translatedFromLabel}${sourceSuffix}${autogeneratedSuffix}`;
       }
       function buildSubtitlesSelectOptions(subtitleDescriptors) {
         const options = [createDisabledSubtitlesOption()];
@@ -24196,15 +26809,6 @@ useAudioDownload: isSupportGMXhr,
         const iterator = selectedValues[Symbol.iterator]();
         const first = iterator.next();
         return first.done ? void 0 : first.value;
-      }
-      function buildSubtitleLabel(subtitle) {
-        const languageLabel = localizationProvider.getLangLabel(subtitle.language);
-        const translatedFromLabel = subtitle.translatedFromLanguage ? ` ${localizationProvider.get("VOTTranslatedFrom")} ${localizationProvider.getLangLabel(
-    subtitle.translatedFromLanguage
-  )}` : "";
-        const sourceSuffix = subtitle.source === "yandex" ? "" : `, ${globalThis.location.hostname}`;
-        const autogeneratedSuffix = subtitle.isAutoGenerated ? ` (${localizationProvider.get("VOTAutogenerated")})` : "";
-        return `${languageLabel}${translatedFromLabel}${sourceSuffix}${autogeneratedSuffix}`;
       }
       function normalizeLang(lang2) {
         return (lang2 ?? "").toLowerCase();
@@ -24226,53 +26830,87 @@ useAudioDownload: isSupportGMXhr,
         const fromIsAuto = from === "auto" || from === "";
         const fromBase = baseLang(from);
         const toBase = baseLang(to);
-        const isYandex = (s2) => s2.source === "yandex";
-        const isAutoGenerated = (s2) => Boolean(s2.isAutoGenerated);
-        const matchesPair = (s2, wantFrom, wantTo) => {
-          if (!langMatches(s2.language, wantTo)) return false;
+        const isYandex = (descriptor) => descriptor.source === "yandex";
+        const isAutoGenerated = (descriptor) => Boolean(descriptor.isAutoGenerated);
+        const matchesPair = (descriptor, wantFrom, wantTo) => {
+          if (!langMatches(descriptor.language, wantTo)) return false;
           if (fromIsAuto) return true;
-          return langMatches(s2.translatedFromLanguage, wantFrom);
+          return langMatches(descriptor.translatedFromLanguage, wantFrom);
         };
-        const isSameLangOriginal = (s2, lang2) => {
-          if (!langMatches(s2.language, lang2)) return false;
-          if (!s2.translatedFromLanguage) return true;
-          return langMatches(s2.translatedFromLanguage, lang2);
+        const isSameLangOriginal = (descriptor, lang2) => {
+          if (!langMatches(descriptor.language, lang2)) return false;
+          if (!descriptor.translatedFromLanguage) return true;
+          return langMatches(descriptor.translatedFromLanguage, lang2);
         };
         const find = (predicate) => subtitles.find(({ descriptor }) => predicate(descriptor))?.index ?? null;
         const findOtherTarget = () => {
           const otherTargetManual = find(
-            (s2) => !isYandex(s2) && langMatches(s2.language, to) && !isAutoGenerated(s2)
+            (descriptor) => !isYandex(descriptor) && langMatches(descriptor.language, to) && !isAutoGenerated(descriptor)
           );
           if (otherTargetManual != null) return otherTargetManual;
           return find(
-            (s2) => !isYandex(s2) && langMatches(s2.language, to) && isAutoGenerated(s2)
+            (descriptor) => !isYandex(descriptor) && langMatches(descriptor.language, to) && isAutoGenerated(descriptor)
           );
         };
-        const yandexPair = find((s2) => isYandex(s2) && matchesPair(s2, from, to));
+        const yandexPair = find(
+          (descriptor) => isYandex(descriptor) && matchesPair(descriptor, from, to)
+        );
         if (yandexPair != null) return yandexPair;
         if (!fromIsAuto && fromBase && toBase && fromBase === toBase) {
           const nativeManual = find(
-            (s2) => isSameLangOriginal(s2, to) && !isAutoGenerated(s2)
+            (descriptor) => isSameLangOriginal(descriptor, to) && !isAutoGenerated(descriptor)
           );
           if (nativeManual != null) return nativeManual;
           const nativeAuto = find(
-            (s2) => isSameLangOriginal(s2, to) && isAutoGenerated(s2)
+            (descriptor) => isSameLangOriginal(descriptor, to) && isAutoGenerated(descriptor)
           );
           if (nativeAuto != null) return nativeAuto;
           const otherTarget2 = findOtherTarget();
           if (otherTarget2 != null) return otherTarget2;
           const yandexTargetSameLang = find(
-            (s2) => isYandex(s2) && langMatches(s2.language, to)
+            (descriptor) => isYandex(descriptor) && langMatches(descriptor.language, to)
           );
           if (yandexTargetSameLang != null) return yandexTargetSameLang;
         }
-        const yandexTarget = find((s2) => isYandex(s2) && langMatches(s2.language, to));
+        const yandexTarget = find(
+          (descriptor) => isYandex(descriptor) && langMatches(descriptor.language, to)
+        );
         if (yandexTarget != null) return yandexTarget;
-        const otherPair = find((s2) => !isYandex(s2) && matchesPair(s2, from, to));
+        const otherPair = find(
+          (descriptor) => !isYandex(descriptor) && matchesPair(descriptor, from, to)
+        );
         if (otherPair != null) return otherPair;
         const otherTarget = findOtherTarget();
         if (otherTarget != null) return otherTarget;
         return null;
+      }
+      const subtitlesSelectionRequestVersion = new WeakMap();
+      function getCurrentSubtitlesCacheKey(handler) {
+        const videoData = handler.videoData;
+        if (!videoData?.videoId) {
+          return null;
+        }
+        return handler.getSubtitlesCacheKey(
+          videoData.videoId,
+          videoData.detectedLanguage,
+          videoData.responseLanguage
+        );
+      }
+      function nextSubtitlesSelectionRequestVersion(handler) {
+        const nextVersion = (subtitlesSelectionRequestVersion.get(handler) ?? 0) + 1;
+        subtitlesSelectionRequestVersion.set(handler, nextVersion);
+        return nextVersion;
+      }
+      function isCurrentSubtitlesSelectionRequest(handler, requestVersion) {
+        return subtitlesSelectionRequestVersion.get(handler) === requestVersion;
+      }
+      function clearSelectedSubtitles(handler, overlayView) {
+        if (handler.hasSubtitlesWidget()) {
+          handler.subtitlesWidget?.setContent(null);
+        }
+        overlayView.downloadSubtitlesButton.hidden = true;
+        handler.yandexSubtitles = null;
+        return handler;
       }
       async function changeSubtitlesLang(subs) {
         const requestVersion = nextSubtitlesSelectionRequestVersion(this);
@@ -24282,33 +26920,18 @@ useAudioDownload: isSupportGMXhr,
         }
         overlayView.subtitlesSelect.setSelectedValue(subs);
         if (subs === DISABLED_SUBTITLES_VALUE) {
-          if (this.hasSubtitlesWidget()) {
-            this.subtitlesWidget?.setContent(null);
-          }
-          overlayView.downloadSubtitlesButton.hidden = true;
-          this.yandexSubtitles = null;
-          return this;
+          return clearSelectedSubtitles(this, overlayView);
         }
         const subtitlesIndex = parseSubtitlesOptionIndex(subs);
         if (subtitlesIndex == null) {
-          if (this.hasSubtitlesWidget()) {
-            this.subtitlesWidget?.setContent(null);
-          }
-          overlayView.downloadSubtitlesButton.hidden = true;
-          this.yandexSubtitles = null;
-          return this;
+          return clearSelectedSubtitles(this, overlayView);
         }
         const descriptor = getSubtitleDescriptorAtIndex(
           this.subtitles,
           subtitlesIndex
         );
         if (!descriptor) {
-          if (this.hasSubtitlesWidget()) {
-            this.subtitlesWidget?.setContent(null);
-          }
-          overlayView.downloadSubtitlesButton.hidden = true;
-          this.yandexSubtitles = null;
-          return this;
+          return clearSelectedSubtitles(this, overlayView);
         }
         let subtitlesObj = { ...descriptor };
         const proxiedSubtitlesUrl = proxifyYandexSubtitlesUrl(subtitlesObj.url, {
@@ -24344,15 +26967,39 @@ useAudioDownload: isSupportGMXhr,
         overlayView.subtitlesSelect.updateItems(updatedOptions);
         await this.changeSubtitlesLang(DISABLED_SUBTITLES_VALUE);
       }
+      async function ensureSubtitlesForCurrentLangPair() {
+        const cacheKey = getCurrentSubtitlesCacheKey(this);
+        if (!cacheKey) {
+          if (this.subtitlesCacheKey !== null || this.subtitles.length > 0) {
+            this.subtitles = [];
+            this.subtitlesCacheKey = null;
+            await this.updateSubtitlesLangSelect();
+          }
+          return this;
+        }
+        if (this.subtitlesCacheKey === cacheKey) {
+          const hasCachedSubtitles = this.cacheManager.getSubtitles(cacheKey) !== void 0;
+          if (this.subtitles.length > 0 || hasCachedSubtitles) {
+            return this;
+          }
+        }
+        const cachedSubs = this.cacheManager.getSubtitles(cacheKey);
+        if (cachedSubs !== void 0) {
+          this.subtitles = Array.isArray(cachedSubs) ? cachedSubs : [];
+          this.subtitlesCacheKey = cacheKey;
+          await this.updateSubtitlesLangSelect();
+          return this;
+        }
+        await this.loadSubtitles();
+        return this;
+      }
       async function enableSubtitlesForCurrentLangPair() {
         const overlayView = this.uiManager.votOverlayView;
         if (!overlayView?.subtitlesSelect) return this;
-        if (!Array.isArray(this.subtitles) || this.subtitles.length === 0) {
-          try {
-            await this.loadSubtitles();
-          } catch {
-            return this;
-          }
+        try {
+          await ensureSubtitlesForCurrentLangPair.call(this);
+        } catch {
+          return this;
         }
         const fromLang = this.videoData?.detectedLanguage ?? this.translateFromLang;
         const toLang = this.videoData?.responseLanguage ?? this.translateToLang;
@@ -24392,6 +27039,7 @@ useAudioDownload: isSupportGMXhr,
             `[VOT] ${localizationProvider.getDefault("VOTNoVideoIDFound")}`
           );
           this.subtitles = [];
+          this.subtitlesCacheKey = null;
           return;
         }
         const cacheKey = this.getSubtitlesCacheKey(
@@ -24421,9 +27069,11 @@ useAudioDownload: isSupportGMXhr,
             }
           }
           this.subtitles = Array.isArray(cachedSubs) ? cachedSubs : [];
+          this.subtitlesCacheKey = cacheKey;
         } catch (error2) {
           console.error("[VOT] Failed to load subtitles:", error2);
           this.subtitles = [];
+          this.subtitlesCacheKey = null;
         }
         await this.updateSubtitlesLangSelect();
       }
@@ -24462,6 +27112,84 @@ useAudioDownload: isSupportGMXhr,
       function resetSmartDuckingRuntime() {
         return initSmartDuckingRuntime();
       }
+      function updateSpeechGate(input, runtime, config2, now2, hasRms) {
+        const gateOpen = runtime.speechGateOpen;
+        if (input.audioIsPlaying && !hasRms) {
+          runtime.rmsMissingSinceAt ??= now2;
+          if (gateOpen) {
+            runtime.lastSoundAt = now2;
+          }
+          if (runtime.rmsMissingSinceAt !== null && now2 - runtime.rmsMissingSinceAt >= config2.rmsMissingGraceMs) {
+            runtime.lastSoundAt = now2;
+            return true;
+          }
+          return gateOpen;
+        }
+        runtime.rmsMissingSinceAt = null;
+        if (!input.audioIsPlaying) {
+          return gateOpen && now2 - runtime.lastSoundAt <= config2.holdMs;
+        }
+        if (!gateOpen && runtime.rmsEnvelope >= config2.thresholdOnRms) {
+          runtime.lastSoundAt = now2;
+          return true;
+        }
+        if (gateOpen && runtime.rmsEnvelope >= config2.thresholdOffRms) {
+          runtime.lastSoundAt = now2;
+          return true;
+        }
+        return gateOpen && now2 - runtime.lastSoundAt <= config2.holdMs;
+      }
+      function resolveBaseline(runtime, currentVideoVolume, volumeOnStart, config2) {
+        if (runtime.isDucked && isFiniteNumber(runtime.lastApplied) && Math.abs(currentVideoVolume - runtime.lastApplied) > config2.externalBaselineDelta01) {
+          runtime.baseline = currentVideoVolume;
+        }
+        if (!runtime.isDucked) {
+          runtime.baseline = currentVideoVolume;
+        }
+        const baseline = runtime.baseline ?? volumeOnStart ?? currentVideoVolume;
+        runtime.baseline = baseline;
+        return baseline;
+      }
+      function resolveDesiredVolume(runtime, gateOpen, currentVideoVolume, baseline, duckingTarget01, config2) {
+        const duckedTarget = Math.min(baseline, duckingTarget01);
+        if (gateOpen) {
+          runtime.isDucked = true;
+          return duckedTarget;
+        }
+        if (runtime.isDucked && Math.abs(baseline - currentVideoVolume) < config2.unduckTolerance01) {
+          runtime.isDucked = false;
+        }
+        return baseline;
+      }
+      function smoothVolumeChange(desired, currentVideoVolume, dtMs, dtSec, config2) {
+        const smoothingTauMs = desired < currentVideoVolume ? config2.attackTauMs : config2.releaseTauMs;
+        const smoothingAlpha = smoothingTauMs > 0 ? -Math.expm1(-dtMs / smoothingTauMs) : 1;
+        let nextVolume = currentVideoVolume + (desired - currentVideoVolume) * smoothingAlpha;
+        const maxDelta = (desired < currentVideoVolume ? config2.maxDownPerSec : config2.maxUpPerSec) * dtSec;
+        if (maxDelta > 0) {
+          nextVolume = clamp$2(
+            nextVolume,
+            currentVideoVolume - maxDelta,
+            currentVideoVolume + maxDelta
+          );
+        }
+        return clamp$2(nextVolume, VOLUME_MIN_01, VOLUME_MAX_01);
+      }
+      function buildVolumeDecision(runtime, currentVideoVolume, quantized, applyDeltaThreshold01) {
+        if (Math.abs(quantized - currentVideoVolume) < applyDeltaThreshold01) {
+          runtime.lastApplied = quantized;
+          return { kind: "noop", runtime };
+        }
+        if (!isFiniteNumber(runtime.lastApplied) || Math.abs(quantized - runtime.lastApplied) >= applyDeltaThreshold01) {
+          runtime.lastApplied = quantized;
+          return {
+            kind: "apply",
+            runtime,
+            volume01: quantized
+          };
+        }
+        return { kind: "noop", runtime };
+      }
       function computeSmartDuckingStep(input, runtime, config2 = SMART_DUCKING_DEFAULT_CONFIG) {
         const nextRuntime = normalizeRuntime(runtime);
         const volumeOnStart = normalizeVolume01(input.volumeOnStart);
@@ -24487,69 +27215,38 @@ useAudioDownload: isSupportGMXhr,
           VOLUME_MIN_01,
           VOLUME_MAX_01
         );
-        let gateOpen = nextRuntime.speechGateOpen;
-        if (input.audioIsPlaying && !hasRms) {
-          nextRuntime.rmsMissingSinceAt ??= now2;
-          if (gateOpen) {
-            nextRuntime.lastSoundAt = now2;
-          }
-          if (nextRuntime.rmsMissingSinceAt !== null && now2 - nextRuntime.rmsMissingSinceAt >= config2.rmsMissingGraceMs) {
-            gateOpen = true;
-            nextRuntime.lastSoundAt = now2;
-          }
-        } else {
-          nextRuntime.rmsMissingSinceAt = null;
-          if (!gateOpen) {
-            if (input.audioIsPlaying && nextRuntime.rmsEnvelope >= config2.thresholdOnRms) {
-              gateOpen = true;
-              nextRuntime.lastSoundAt = now2;
-            }
-          } else if (input.audioIsPlaying && nextRuntime.rmsEnvelope >= config2.thresholdOffRms) {
-            nextRuntime.lastSoundAt = now2;
-          } else if (now2 - nextRuntime.lastSoundAt > config2.holdMs) {
-            gateOpen = false;
-          }
-        }
+        const gateOpen = updateSpeechGate(input, nextRuntime, config2, now2, hasRms);
         nextRuntime.speechGateOpen = gateOpen;
         const currentVideoVolume = normalizeVolume01(input.currentVideoVolume);
         if (!isFiniteNumber(currentVideoVolume)) {
           return { kind: "noop", runtime: nextRuntime };
         }
-        if (nextRuntime.isDucked && isFiniteNumber(nextRuntime.lastApplied) && Math.abs(currentVideoVolume - nextRuntime.lastApplied) > config2.externalBaselineDelta01) {
-          nextRuntime.baseline = currentVideoVolume;
-        }
-        if (!nextRuntime.isDucked) {
-          nextRuntime.baseline = currentVideoVolume;
-        }
-        const baseline = nextRuntime.baseline ?? volumeOnStart ?? currentVideoVolume;
-        nextRuntime.baseline = baseline;
+        const baseline = resolveBaseline(
+          nextRuntime,
+          currentVideoVolume,
+          volumeOnStart,
+          config2
+        );
         if (!input.hostVideoActive) {
           nextRuntime.lastApplied = currentVideoVolume;
           return { kind: "noop", runtime: nextRuntime };
         }
         const duckingTarget01 = normalizeVolume01(input.duckingTarget01) ?? baseline;
-        const duckedTarget = Math.min(baseline, duckingTarget01);
-        let desired = baseline;
-        if (gateOpen) {
-          if (!nextRuntime.isDucked) {
-            nextRuntime.isDucked = true;
-          }
-          desired = duckedTarget;
-        } else if (nextRuntime.isDucked && Math.abs(baseline - currentVideoVolume) < config2.unduckTolerance01) {
-          nextRuntime.isDucked = false;
-        }
-        const smoothingTauMs = desired < currentVideoVolume ? config2.attackTauMs : config2.releaseTauMs;
-        const smoothingAlpha = smoothingTauMs > 0 ? -Math.expm1(-dtMs / smoothingTauMs) : 1;
-        let nextVolume = currentVideoVolume + (desired - currentVideoVolume) * smoothingAlpha;
-        const maxDelta = (desired < currentVideoVolume ? config2.maxDownPerSec : config2.maxUpPerSec) * dtSec;
-        if (maxDelta > 0) {
-          nextVolume = clamp$2(
-            nextVolume,
-            currentVideoVolume - maxDelta,
-            currentVideoVolume + maxDelta
-          );
-        }
-        nextVolume = clamp$2(nextVolume, VOLUME_MIN_01, VOLUME_MAX_01);
+        const desired = resolveDesiredVolume(
+          nextRuntime,
+          gateOpen,
+          currentVideoVolume,
+          baseline,
+          duckingTarget01,
+          config2
+        );
+        const nextVolume = smoothVolumeChange(
+          desired,
+          currentVideoVolume,
+          dtMs,
+          dtSec,
+          config2
+        );
         const quantized = snapVolume01Towards(
           nextVolume,
           currentVideoVolume,
@@ -24557,19 +27254,12 @@ useAudioDownload: isSupportGMXhr,
           config2.volumeStep01
         );
         const applyDeltaThreshold01 = config2.applyDeltaThreshold01;
-        if (Math.abs(quantized - currentVideoVolume) < applyDeltaThreshold01) {
-          nextRuntime.lastApplied = quantized;
-          return { kind: "noop", runtime: nextRuntime };
-        }
-        if (!isFiniteNumber(nextRuntime.lastApplied) || Math.abs(quantized - nextRuntime.lastApplied) >= applyDeltaThreshold01) {
-          nextRuntime.lastApplied = quantized;
-          return {
-            kind: "apply",
-            runtime: nextRuntime,
-            volume01: quantized
-          };
-        }
-        return { kind: "noop", runtime: nextRuntime };
+        return buildVolumeDecision(
+          nextRuntime,
+          currentVideoVolume,
+          quantized,
+          applyDeltaThreshold01
+        );
       }
       function normalizeRuntime(runtime) {
         return {
@@ -24775,7 +27465,7 @@ useAudioDownload: isSupportGMXhr,
       }
       function stopSmartVolumeDucking(handler, options = {}) {
         const { restoreVolume } = options;
-        if (typeof handler.smartVolumeDuckingInterval === "number") {
+        if (handler.smartVolumeDuckingInterval !== void 0) {
           clearTimeout(handler.smartVolumeDuckingInterval);
           handler.smartVolumeDuckingInterval = void 0;
         }
@@ -24791,22 +27481,22 @@ useAudioDownload: isSupportGMXhr,
       }
       function scheduleNextSmartDuckingTick(handler) {
         if (typeof globalThis === "undefined") return;
-        if (typeof handler.smartVolumeDuckingInterval !== "number") return;
+        if (handler.smartVolumeDuckingInterval === void 0) return;
         handler.smartVolumeDuckingInterval = globalThis.setTimeout(() => {
-          if (typeof handler.smartVolumeDuckingInterval !== "number") return;
+          if (handler.smartVolumeDuckingInterval === void 0) return;
           try {
             smartDuckingTick(handler);
           } catch (err) {
             stopSmartVolumeDucking(handler);
             return;
           }
-          if (typeof handler.smartVolumeDuckingInterval !== "number") return;
+          if (handler.smartVolumeDuckingInterval === void 0) return;
           scheduleNextSmartDuckingTick(handler);
         }, SMART_DUCKING_TICK_MS);
       }
       function startSmartVolumeDucking(handler) {
         if (typeof globalThis === "undefined") return;
-        if (typeof handler.smartVolumeDuckingInterval === "number") return;
+        if (handler.smartVolumeDuckingInterval !== void 0) return;
         if (getAutoVolumeMode(handler) !== "smart") return;
         const currentVideoVolume = handler.getVideoVolume();
         const baseline = typeof handler.smartVolumeDuckingBaseline === "number" ? handler.smartVolumeDuckingBaseline : currentVideoVolume;
@@ -24819,7 +27509,9 @@ useAudioDownload: isSupportGMXhr,
           runtime.lastSoundAt = now2;
         }
         writeSmartDuckingRuntime(handler, runtime);
-        handler.smartVolumeDuckingInterval = 0;
+        handler.smartVolumeDuckingInterval = globalThis.setTimeout(() => {
+        }, 0);
+        clearTimeout(handler.smartVolumeDuckingInterval);
         scheduleNextSmartDuckingTick(handler);
       }
       function getTranslatedAudioRms(handler, media) {
@@ -24904,28 +27596,37 @@ useAudioDownload: isSupportGMXhr,
             throw new TypeError("Unhandled smart ducking decision");
         }
       }
-      function wait(ms) {
+      function waitForProbeRetry(delayMs, signal) {
+        if (signal.aborted) {
+          return Promise.resolve();
+        }
         return new Promise((resolve) => {
-          setTimeout(resolve, ms);
+          const timeoutId = setTimeout(() => {
+            signal.removeEventListener("abort", onAbort);
+            resolve();
+          }, delayMs);
+          const onAbort = () => {
+            clearTimeout(timeoutId);
+            signal.removeEventListener("abort", onAbort);
+            resolve();
+          };
+          signal.addEventListener("abort", onAbort, { once: true });
         });
       }
       async function probeAudioUrl(handler, audioUrl, actionContext) {
-        const fetchOpts = handler.isMultiMethodS3(audioUrl) ? {
-          method: "HEAD",
-          signal: handler.actionsAbortController.signal,
-          timeout: AUDIO_PROBE_TIMEOUT_MS
-        } : {
-headers: {
+        const signal = handler.actionsAbortController.signal;
+        const fetchOpts = {
+          headers: {
             range: "bytes=0-0"
           },
-          signal: handler.actionsAbortController.signal,
+          signal,
           timeout: AUDIO_PROBE_TIMEOUT_MS
         };
         for (let attempt = 1; attempt <= AUDIO_PROBE_MAX_ATTEMPTS; attempt++) {
-          if (handler.isActionStale(actionContext)) return false;
+          if (isProbeCancelled(handler, actionContext, signal)) return false;
           try {
             const response = await GM_fetch(audioUrl, fetchOpts);
-            if (handler.isActionStale(actionContext)) return false;
+            if (isProbeCancelled(handler, actionContext, signal)) return false;
             debug.log("[validateAudioUrl] probe response", {
               audioUrl,
               attempt,
@@ -24934,15 +27635,26 @@ headers: {
             });
             if (response.ok) return true;
           } catch (err) {
-            if (handler.isActionStale(actionContext) || handler.actionsAbortController.signal.aborted) {
-              return false;
-            }
+            if (isProbeCancelled(handler, actionContext, signal)) return false;
           }
-          if (attempt < AUDIO_PROBE_MAX_ATTEMPTS) {
-            await wait(AUDIO_PROBE_RETRY_DELAY_MS);
+          if (!await shouldRetryAudioProbe(attempt, handler, actionContext, signal)) {
+            return false;
           }
         }
         return false;
+      }
+      function isProbeCancelled(handler, actionContext, signal) {
+        return handler.isActionStale(actionContext) || signal.aborted;
+      }
+      async function shouldRetryAudioProbe(attempt, handler, actionContext, signal) {
+        if (attempt >= AUDIO_PROBE_MAX_ATTEMPTS) {
+          return true;
+        }
+        if (isProbeCancelled(handler, actionContext, signal)) {
+          return false;
+        }
+        await waitForProbeRetry(AUDIO_PROBE_RETRY_DELAY_MS, signal);
+        return !isProbeCancelled(handler, actionContext, signal);
       }
       async function validateAudioUrl(audioUrl, actionContext) {
         if (this.isActionStale(actionContext)) return audioUrl;
@@ -25065,7 +27777,7 @@ headers: {
           await this.stopTranslation();
         } catch {
         }
-        this.initVOTClient();
+        await this.initVOTClient();
       }
       function isMultiMethodS3(url) {
         return isYandexAudioUrlOrProxy(url, {
@@ -25141,55 +27853,16 @@ headers: {
         const normalizedTargetUrl = normalizeManagedAudioUrl(this, audioUrl);
         const currentSource = this.audioPlayer.player.currentSrc || this.audioPlayer.player.src || "";
         const normalizedCurrentUrl = normalizeManagedAudioUrl(this, currentSource);
-        let nextAudioUrl = normalizedTargetUrl;
-        if (normalizedTargetUrl !== normalizedCurrentUrl) {
-          nextAudioUrl = await this.validateAudioUrl(
-            normalizedTargetUrl,
-            actionContext
-          );
-        }
+        const nextAudioUrl = normalizedTargetUrl !== normalizedCurrentUrl ? await this.validateAudioUrl(normalizedTargetUrl, actionContext) : normalizedTargetUrl;
         if (this.isActionStale(actionContext)) return;
-        let applyResult = await applyTranslationSource(
+        const resolvedSource = await applyTranslationWithDirectFallback(
           this,
           nextAudioUrl,
           actionContext
         );
-        let appliedSourceUrl = applyResult.appliedSourceUrl;
-        if (applyResult.status === "error" && applyResult.didSetSource && !this.isActionStale(actionContext)) {
-          const directUrl = this.unproxifyAudio(nextAudioUrl);
-          if (directUrl !== nextAudioUrl) {
-            try {
-              debug.log(
-                "[updateTranslation] proxied audio init failed, retrying direct URL"
-              );
-              const validatedDirectUrl = await this.validateAudioUrl(
-                directUrl,
-                actionContext
-              );
-              if (this.isActionStale(actionContext)) {
-                await rollbackStaleAppliedSourceIfStillCurrent(
-                  this,
-                  appliedSourceUrl
-                );
-                return;
-              }
-              nextAudioUrl = validatedDirectUrl;
-              applyResult = await applyTranslationSource(
-                this,
-                validatedDirectUrl,
-                actionContext
-              );
-              appliedSourceUrl = applyResult.appliedSourceUrl;
-            } catch (fallbackErr) {
-              applyResult = {
-                status: "error",
-                didSetSource: true,
-                appliedSourceUrl,
-                error: fallbackErr
-              };
-            }
-          }
-        }
+        const resolvedAudioUrl = resolvedSource.nextAudioUrl;
+        const applyResult = resolvedSource.applyResult;
+        const appliedSourceUrl = applyResult.appliedSourceUrl;
         if (applyResult.status === "stale") return;
         if (applyResult.status === "error") {
           debug.log("this.audioPlayer.init() error", applyResult.error);
@@ -25200,7 +27873,74 @@ headers: {
         }
         this.setupAudioSettings();
         this.transformBtn("success", localizationProvider.get("disableTranslate"));
-        this.afterUpdateTranslation(nextAudioUrl);
+        this.afterUpdateTranslation(resolvedAudioUrl);
+      }
+      async function applyTranslationWithDirectFallback(handler, audioUrl, actionContext) {
+        const nextAudioUrl = audioUrl;
+        const applyResult = await applyTranslationSource(
+          handler,
+          nextAudioUrl,
+          actionContext
+        );
+        if (!shouldRetryTranslationSource(
+          handler,
+          applyResult,
+          actionContext,
+          nextAudioUrl
+        )) {
+          return { nextAudioUrl, applyResult };
+        }
+        const retried = await retryTranslationWithDirectSource(
+          handler,
+          nextAudioUrl,
+          applyResult.appliedSourceUrl,
+          actionContext
+        );
+        if (retried) {
+          return retried;
+        }
+        return { nextAudioUrl, applyResult };
+      }
+      function shouldRetryTranslationSource(handler, applyResult, actionContext, audioUrl) {
+        return applyResult.status === "error" && applyResult.didSetSource && !handler.isActionStale(actionContext) && handler.unproxifyAudio(audioUrl) !== audioUrl;
+      }
+      async function retryTranslationWithDirectSource(handler, audioUrl, appliedSourceUrl, actionContext) {
+        const directUrl = handler.unproxifyAudio(audioUrl);
+        try {
+          const validatedDirectUrl = await handler.validateAudioUrl(
+            directUrl,
+            actionContext
+          );
+          if (handler.isActionStale(actionContext)) {
+            await rollbackStaleAppliedSourceIfStillCurrent(handler, appliedSourceUrl);
+            return {
+              nextAudioUrl: validatedDirectUrl,
+              applyResult: {
+                status: "stale",
+                didSetSource: true,
+                appliedSourceUrl
+              }
+            };
+          }
+          return {
+            nextAudioUrl: validatedDirectUrl,
+            applyResult: await applyTranslationSource(
+              handler,
+              validatedDirectUrl,
+              actionContext
+            )
+          };
+        } catch (fallbackErr) {
+          return {
+            nextAudioUrl: audioUrl,
+            applyResult: {
+              status: "error",
+              didSetSource: true,
+              appliedSourceUrl,
+              error: fallbackErr
+            }
+          };
+        }
       }
       async function translateFunc(VIDEO_ID, _isStream, requestLang, responseLang, translationHelp) {
         await this.waitForPendingStopTranslate();
@@ -25265,7 +28005,7 @@ headers: {
             if (!updated) return;
             return;
           }
-          const translateRes = await requestApplyAndCacheTranslation(this, {
+          await requestApplyAndCacheTranslation(this, {
             videoData,
             requestLang: reqLang,
             responseLang: resLang,
@@ -25287,12 +28027,10 @@ headers: {
               )) {
                 if (subsCacheKey) this.cacheManager.deleteSubtitles(subsCacheKey);
                 this.subtitles = [];
+                this.subtitlesCacheKey = null;
               }
             }
           });
-          if (!translateRes) {
-            return;
-          }
         })();
         this.activeTranslation = {
           key: activeKey,
@@ -25343,7 +28081,7 @@ headers: {
           startSmartVolumeDucking(this);
           return;
         }
-        if (typeof this.smartVolumeDuckingInterval === "number") {
+        if (this.smartVolumeDuckingInterval !== void 0) {
           clearTimeout(this.smartVolumeDuckingInterval);
           this.smartVolumeDuckingInterval = void 0;
         }
@@ -25378,6 +28116,7 @@ translateFromLang = "auto";
 actionsGeneration = 0;
         notifier = new Notifier();
         cacheManager;
+        votSessionStorage = new VOTSessionStorageCache();
 subtitlesLoadPromises = new Map();
         downloadTranslationUrl = null;
         translationRefreshTimeout;
@@ -25410,6 +28149,7 @@ smartVolumeSpeechGateOpen = false;
         hadAsyncWait = false;
 
 subtitles = [];
+        subtitlesCacheKey = null;
         subtitlesWidget;
         activeTranslation = null;
 stopTranslatePromise = null;
@@ -25427,23 +28167,44 @@ resizeObserver;
 initialized = false;
 mountCache;
 errorTranslationCache = new Map();
+getFullscreenOverlayRoot() {
+          const doc = document;
+          const fullscreenEl = doc.fullscreenElement ?? doc.webkitFullscreenElement;
+          return resolveScopedFullscreenElement(fullscreenEl, [this.container]);
+        }
         getOverlayMountPoints(container = this.container) {
-          const base = this.site.host === "youtube" && this.site.additionalData !== "mobile" ? container.parentElement ?? container : container;
+          const fullscreenRoot = this.getFullscreenOverlayRoot();
+          const { base, root, portalContainer, subtitlesMountContainer } = resolveOverlayMountTargets({
+            container,
+            site: this.site,
+            fullscreenRoot
+          });
           const cache = this.mountCache;
-          if (cache?.container === container && cache.base === base && (cache.root.isConnected ?? document.documentElement.contains(cache.root))) {
-            return { root: cache.root, portalContainer: cache.portalContainer };
+          if (cache?.container === container && cache.base === base && cache.subtitlesMountContainer === subtitlesMountContainer && cache.fullscreenRoot === fullscreenRoot && (cache.root.isConnected ?? document.documentElement.contains(cache.root))) {
+            return {
+              root: cache.root,
+              portalContainer: cache.portalContainer,
+              subtitlesMountContainer: cache.subtitlesMountContainer,
+              fullscreenRoot: cache.fullscreenRoot
+            };
           }
-          const root = base;
-          const portalContainer = root;
-          this.mountCache = { container, base, root, portalContainer };
-          return { root, portalContainer };
+          this.mountCache = {
+            container,
+            base,
+            root,
+            portalContainer,
+            subtitlesMountContainer,
+            fullscreenRoot
+          };
+          return { root, portalContainer, subtitlesMountContainer, fullscreenRoot };
         }
         getOverlayMount(container = this.container) {
-          const { root, portalContainer } = this.getOverlayMountPoints(container);
+          const { root, portalContainer, subtitlesMountContainer, fullscreenRoot } = this.getOverlayMountPoints(container);
           return {
             root,
             portalContainer,
-            tooltipLayoutRoot: this.tooltipLayoutRoot
+            subtitlesMountContainer,
+            tooltipLayoutRoot: fullscreenRoot ?? this.tooltipLayoutRoot
           };
         }
 getTranslationCacheKey(videoId, from, to, translationHelp) {
@@ -25466,7 +28227,7 @@ getSubtitlesCacheKey(videoId, detectedLanguage, responseLanguage) {
         updateVOTClientRequestSignal() {
           if (!this.votClient) return;
           this.votClient.fetchOpts = {
-            ...this.votClient.fetchOpts ?? {},
+            ...this.votClient.fetchOpts,
             signal: this.actionsAbortController.signal
           };
         }
@@ -25485,7 +28246,7 @@ constructor(video, container, site) {
           this.site = site;
           this.abortController = new AbortController();
           this.actionsAbortController = new AbortController();
-          this.cacheManager = new CacheManager();
+          this.cacheManager = new InMemoryCacheManager();
           this.interactionChecker = createIntervalIdleChecker();
           this.interactionChecker.start();
           const self = () => this;
@@ -25545,6 +28306,9 @@ constructor(video, container, site) {
               return self().container;
             },
             set container(value) {
+              if (self().container === value) {
+                return;
+              }
               self().container = value;
               self().uiManager.updateMount(self().getOverlayMount(value));
             },
@@ -25560,7 +28324,7 @@ constructor(video, container, site) {
             },
             getVideoData: () => this.getVideoData(),
             cacheManager: {
-              getSubtitles: (key) => self().cacheManager.getSubtitles(key) ?? []
+              getSubtitles: (key) => self().cacheManager.getSubtitles(key)
             },
             getSubtitlesCacheKey: (videoId, detectedLanguage, responseLanguage) => this.getSubtitlesCacheKey(videoId, detectedLanguage, responseLanguage),
             updateSubtitlesLangSelect: () => this.updateSubtitlesLangSelect(),
@@ -25580,6 +28344,12 @@ constructor(video, container, site) {
             },
             set subtitles(value) {
               self().subtitles = value;
+            },
+            get subtitlesCacheKey() {
+              return self().subtitlesCacheKey;
+            },
+            set subtitlesCacheKey(value) {
+              self().subtitlesCacheKey = value;
             },
             get videoData() {
               return self().videoData;
@@ -25605,38 +28375,39 @@ constructor(video, container, site) {
         }
 getSubtitlesWidget() {
           if (!this.subtitlesWidget) {
-            const overlayPortal = this.uiManager.votOverlayView?.votOverlayPortal;
-            if (!overlayPortal) {
-              throw new Error(
-                "VOT UI is not initialized yet (missing overlay portal)"
-              );
-            }
+            const { subtitlesMountContainer } = this.getOverlayMountPoints();
             this.subtitlesWidget = new SubtitlesWidget(
               this.video,
-              this.portalContainer,
-              overlayPortal,
+              subtitlesMountContainer,
               this.interactionChecker,
               this.tooltipLayoutRoot
             );
-            if (this.data) {
-              this.subtitlesWidget.setSmartLayout(
-                typeof this.data.subtitlesSmartLayout === "boolean" ? this.data.subtitlesSmartLayout : true
-              );
-              if (typeof this.data.subtitlesMaxLength === "number") {
-                this.subtitlesWidget.setMaxLength(this.data.subtitlesMaxLength);
-              }
-              if (typeof this.data.highlightWords === "boolean") {
-                this.subtitlesWidget.setHighlightWords(this.data.highlightWords);
-              }
-              if (typeof this.data.subtitlesFontSize === "number") {
-                this.subtitlesWidget.setFontSize(this.data.subtitlesFontSize);
-              }
-              if (typeof this.data.subtitlesOpacity === "number") {
-                this.subtitlesWidget.setOpacity(this.data.subtitlesOpacity);
-              }
-            }
+            this.applySavedSubtitlesWidgetSettings(this.subtitlesWidget);
           }
           return this.subtitlesWidget;
+        }
+        applySavedSubtitlesWidgetSettings(widget) {
+          if (!this.data) {
+            return;
+          }
+          widget.setSmartLayout(
+            typeof this.data.subtitlesSmartLayout === "boolean" ? this.data.subtitlesSmartLayout : true
+          );
+          if (typeof this.data.subtitlesMaxLength === "number") {
+            widget.setMaxLength(this.data.subtitlesMaxLength);
+          }
+          if (typeof this.data.highlightWords === "boolean") {
+            widget.setHighlightWords(this.data.highlightWords);
+          }
+          if (typeof this.data.subtitlesFontSize === "number") {
+            widget.setFontSize(this.data.subtitlesFontSize);
+          }
+          if (typeof this.data.subtitlesFontFamily === "string") {
+            widget.setFontFamily(this.data.subtitlesFontFamily);
+          }
+          if (typeof this.data.subtitlesOpacity === "number") {
+            widget.setOpacity(this.data.subtitlesOpacity);
+          }
         }
 hasSubtitlesWidget() {
           return Boolean(this.subtitlesWidget);
@@ -25672,7 +28443,7 @@ getEventContainer() {
         }
 async runAutoTranslate() {
           await this.videoManager.videoValidator();
-          await this.uiManager.handleTranslationBtnClick({ isAutoTrigger: true });
+          await this.uiManager.handleTranslationBtnClick();
         }
 getAudioContext() {
           if (this.audioContext) return this.audioContext;
@@ -25741,17 +28512,39 @@ isLikelyInternalVideoVolumeChange(observedPercent) {
 init() {
           return init.call(this);
         }
-initVOTClient() {
+async initVOTClient() {
+          const proxyClientEnabled = isProxyClientEnabled(this.data ?? {});
+          const transportHost = proxyClientEnabled ? resolveProxyWorkerHost(this.data?.proxyWorkerHost) : workerHost;
           this.votOpts = {
             fetchFn: GM_fetch,
             fetchOpts: {
-              signal: this.actionsAbortController.signal
+              signal: this.actionsAbortController.signal,
+
+forceGmXhr: shouldForceProxyClientGmXhr({
+                ...this.data,
+                gmXhrSupported: isSupportGMXhr
+              })
             },
             apiToken: this.data?.account?.token,
             hostVOT: votBackendUrl,
-            host: this.data?.translateProxyEnabled ? this.data?.proxyWorkerHost ?? proxyWorkerHost : workerHost
+            host: transportHost
           };
-          this.votClient = new (this.data?.translateProxyEnabled ? VOTWorkerClient2 : VOTClient2)(this.votOpts);
+          this.votClient = new (proxyClientEnabled ? VOTWorkerClient2 : VOTClient2)(
+            this.votOpts
+          );
+          this.votClient.sessions = await this.votSessionStorage.restore(
+            transportHost,
+            this.votClient.sessions
+          );
+          const originalGetSession = this.votClient.getSession.bind(this.votClient);
+          this.votClient.getSession = async (module) => {
+            const session = await originalGetSession(module);
+            await this.votSessionStorage.persist(
+              transportHost,
+              this.votClient.sessions
+            );
+            return session;
+          };
           return this;
         }
 transformBtn(status, text) {
@@ -25763,6 +28556,16 @@ hasActiveSource() {
         }
 initExtraEvents() {
           return this.callModule(initExtraEvents);
+        }
+refreshOverlayMount() {
+          this.mountCache = void 0;
+          const nextMount = this.getOverlayMount(this.container);
+          const mountChanged = !isSameOverlayMount(this.uiManager.mount, nextMount);
+          this.uiManager.updateMount(nextMount);
+          if (!mountChanged) {
+            return;
+          }
+          this.rebindOverlayVisibilityTargets();
         }
 rebindOverlayVisibilityTargets = rebindOverlayVisibilityTargets;
 setCanPlay() {
@@ -25776,6 +28579,7 @@ getAutoHideDelay() {
         }
 changeSubtitlesLang = changeSubtitlesLang;
 updateSubtitlesLangSelect = updateSubtitlesLangSelect;
+ensureSubtitlesForCurrentLangPair = ensureSubtitlesForCurrentLangPair;
 loadSubtitles = loadSubtitles;
 enableSubtitlesForCurrentLangPair() {
           return this.callModuleAsync(enableSubtitlesForCurrentLangPair);
@@ -25892,8 +28696,8 @@ syncVolumeWrapper(fromType, newVolume) {
             this.setVideoVolume(nextVideo / 100);
           }
         }
-getVideoData(options) {
-          return this.videoManager.getVideoData(options);
+getVideoData() {
+          return this.videoManager.getVideoData();
         }
 videoValidator() {
           return this.videoManager.videoValidator();
@@ -25965,41 +28769,16 @@ async updateTranslationErrorMsg(errorMessage, signal) {
           if (this.longWaitingResCount > minLongWaitingCount) {
             errorMessage = new VOTLocalizedError("TranslationDelayed");
           }
-          if (errorMessage?.name === "VOTLocalizedError") {
-            this.transformBtn("error", errorMessage.localizedMessage);
-          } else if (errorMessage instanceof Error) {
-            this.transformBtn("error", errorMessage?.message);
-          } else if (this.data?.translateAPIErrors && lang2 !== "ru" && !errorMessage?.includes(translationTake2)) {
-            const overlayView = this.uiManager.votOverlayView;
-            if (!overlayView?.votButton) {
-              return;
-            }
-            const messageStr = Array.isArray(errorMessage) ? errorMessage.join(" ") : String(errorMessage);
-            const cacheKey = `${lang2}:${messageStr}`;
-            const cached = this.errorTranslationCache.get(cacheKey);
-            if (cached) {
-              this.transformBtn("error", cached);
-            } else {
-              overlayView.votButton.loading = true;
-              const translatedMessage = await translate(messageStr, "ru", lang2);
-              const translatedText = Array.isArray(translatedMessage) ? translatedMessage.join("\n") : String(translatedMessage);
-              if (signal?.aborted) {
-                return;
-              }
-              this.errorTranslationCache.set(cacheKey, translatedText);
-              if (this.errorTranslationCache.size > 50) {
-                const oldestKey = this.errorTranslationCache.keys().next().value;
-                if (oldestKey) this.errorTranslationCache.delete(oldestKey);
-              }
-              this.transformBtn("error", translatedText);
-            }
-            if (signal?.aborted) {
-              return;
-            }
-          } else {
-            const msg = Array.isArray(errorMessage) ? errorMessage.join("\n") : String(errorMessage ?? "");
-            this.transformBtn("error", msg);
+          const resolvedMessage = await this.resolveTranslationErrorDisplayMessage(
+            errorMessage,
+            translationTake2,
+            lang2,
+            signal
+          );
+          if (signal?.aborted || resolvedMessage === null) {
+            return;
           }
+          this.transformBtn("error", resolvedMessage);
           if (signal?.aborted) {
             return;
           }
@@ -26012,6 +28791,54 @@ async updateTranslationErrorMsg(errorMessage, signal) {
             if (this.uiManager.votOverlayView?.votButton) {
               this.uiManager.votOverlayView.votButton.loading = true;
             }
+          }
+        }
+        async resolveTranslationErrorDisplayMessage(errorMessage, translationTake2, lang2, signal) {
+          if (errorMessage?.name === "VOTLocalizedError") {
+            return errorMessage.localizedMessage;
+          }
+          if (errorMessage instanceof Error) {
+            return errorMessage.message;
+          }
+          if (!this.shouldTranslateErrorMessage(errorMessage, translationTake2, lang2)) {
+            return this.stringifyTranslationError(errorMessage);
+          }
+          return await this.getTranslatedErrorMessage(errorMessage, lang2, signal);
+        }
+        shouldTranslateErrorMessage(errorMessage, translationTake2, lang2) {
+          return Boolean(this.data?.translateAPIErrors) && lang2 !== "ru" && !errorMessage?.includes(translationTake2);
+        }
+        stringifyTranslationError(errorMessage) {
+          return Array.isArray(errorMessage) ? errorMessage.join("\n") : String(errorMessage ?? "");
+        }
+        async getTranslatedErrorMessage(errorMessage, lang2, signal) {
+          const overlayView = this.uiManager.votOverlayView;
+          if (!overlayView?.votButton) {
+            return null;
+          }
+          const messageStr = Array.isArray(errorMessage) ? errorMessage.join(" ") : String(errorMessage);
+          const cacheKey = `${lang2}:${messageStr}`;
+          const cached = this.errorTranslationCache.get(cacheKey);
+          if (cached) {
+            return cached;
+          }
+          overlayView.votButton.loading = true;
+          const translatedMessage = await translate(messageStr, "ru", lang2);
+          if (signal?.aborted) {
+            return null;
+          }
+          const translatedText = Array.isArray(translatedMessage) ? translatedMessage.join("\n") : String(translatedMessage);
+          this.errorTranslationCache.set(cacheKey, translatedText);
+          this.trimErrorTranslationCache();
+          return translatedText;
+        }
+        trimErrorTranslationCache() {
+          if (this.errorTranslationCache.size <= 50) {
+            return;
+          }
+          const oldestKey = this.errorTranslationCache.keys().next().value;
+          if (oldestKey) {
+            this.errorTranslationCache.delete(oldestKey);
           }
         }
 afterUpdateTranslation(audioUrl) {
