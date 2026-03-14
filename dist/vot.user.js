@@ -4546,7 +4546,7 @@ string() {
         {
           host: VideoService.jove,
           url: "https://app.jove.com/",
-          match: (url) => /^app\.jove\.com$/i.test(url.hostname) && /^\/(?:[a-z]{2}\/)?v\/\d+\/[^/?#]+\/?$/i.test(url.pathname),
+          match: (url) => /(?:^|\.)jove\.com$/i.test(url.hostname) && /^\/(?:[a-z]{2}\/)?v\/\d+\/[^/?#]+\/?$/i.test(url.pathname),
           selector: sharedSelectors.flowplayer
         },
         {
@@ -5458,11 +5458,11 @@ string() {
       }
       class JoveHelper extends BaseHelper {
         async getVideoId(url) {
-          const parts = /^\/(?:[a-z]{2}\/)?v\/(?<id>\d+)\/(?<slug>[^/]+)\/?$/i.exec(url.pathname);
-          if (!parts?.groups) {
+          const groups = /^\/(?:[a-z]{2}\/)?v\/(?<id>\d+)\/(?<slug>[^/]+)\/?$/i.exec(url.pathname)?.groups;
+          if (!groups) {
             return void 0;
           }
-          const { id, slug } = parts.groups;
+          const { id, slug } = groups;
           return `v/${id}/${slug}`;
         }
       }
