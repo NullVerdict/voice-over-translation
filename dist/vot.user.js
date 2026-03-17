@@ -3189,8 +3189,8 @@ string() {
           "User-Agent": votConfig.userAgent
         }
       }) {
-        const { timeout: timeout2 = 3e3, signal, ...fetchOptions } = options;
-        if (!signal && (!timeout2 || timeout2 <= 0)) {
+        const { timeout = 3e3, signal, ...fetchOptions } = options;
+        if (!signal && (!timeout || timeout <= 0)) {
           return await fetch(url, fetchOptions);
         }
         const controller = new AbortController();
@@ -3207,8 +3207,8 @@ string() {
           }
         }
         let timeoutId;
-        if (timeout2 && timeout2 > 0) {
-          timeoutId = setTimeout(() => abort(new Error("Fetch timeout")), timeout2);
+        if (timeout && timeout > 0) {
+          timeoutId = setTimeout(() => abort(new Error("Fetch timeout")), timeout);
         }
         try {
           return await fetch(url, {
@@ -3385,6 +3385,7 @@ string() {
         VideoService2["custom"] = "custom";
         VideoService2["directlink"] = "custom";
         VideoService2["youtube"] = "youtube";
+        VideoService2["preservetube"] = "preservetube";
         VideoService2["piped"] = "piped";
         VideoService2["invidious"] = "invidious";
         VideoService2["niconico"] = "niconico";
@@ -4138,6 +4139,13 @@ string() {
           needBypassCSP: true
         },
         {
+          host: VideoService.preservetube,
+          url: "https://preservetube.com/watch?v=",
+          match: /^preservetube\.com$/,
+          selector: "div.video-wrapper",
+          needExtraData: true
+        },
+        {
           host: VideoService.zdf,
           url: "https://www.zdf.de/play/",
           match: [/^zdf.de$/, /^(www.)?zdf.de$/],
@@ -4295,7 +4303,7 @@ string() {
           host: VideoService.rumble,
           url: "https://rumble.com/",
           match: /^rumble.com$/,
-          selector: "#videoPlayer > .videoPlayer-Rumble-cls > div"
+          selector: `[id^="vid_"] > div`
         },
         {
           host: VideoService.facebook,
@@ -5188,7 +5196,7 @@ string() {
         resolveVideoIdViaPostMessage() {
           return new Promise((resolve) => {
             const origin = "https://www.dailymotion.com";
-            const timeout2 = setTimeout(() => {
+            const timeout = setTimeout(() => {
               window.removeEventListener("message", onMessage);
               resolve(void 0);
             }, 3e3);
@@ -5199,7 +5207,7 @@ string() {
               if (!(typeof e2.data === "string" && e2.data.startsWith("getVideoId:"))) {
                 return;
               }
-              clearTimeout(timeout2);
+              clearTimeout(timeout);
               window.removeEventListener("message", onMessage);
               resolve(e2.data.replace("getVideoId:", ""));
             };
@@ -5927,6 +5935,29 @@ string() {
       class PicartoHelper extends BaseHelper {
         async getVideoId(url) {
           return /\/((?:videopopout|[^/]+(?:\/profile)?\/videos)\/[^/?#&/]+)\/?$/.exec(url.pathname)?.[1] ?? /^\/([^/#?]+)\/?$/.exec(url.pathname)?.[1];
+        }
+      }
+      class PreserveTubeHelper extends BaseHelper {
+        getVideoSrc() {
+          const videoEl = document.querySelector("#video-player video, video#video-player, video");
+          return videoEl?.currentSrc || videoEl?.src || videoEl?.querySelector("source[src]")?.src || void 0;
+        }
+        async getVideoData(videoId) {
+          try {
+            const videoUrl = this.getVideoSrc();
+            if (!videoUrl) {
+              throw new VideoHelperError("Failed to find PreserveTube video URL");
+            }
+            return {
+              url: videoUrl
+            };
+          } catch (err) {
+            Logger.error(`Failed to get PreserveTube data by videoId: ${videoId}`, err.message);
+            return void 0;
+          }
+        }
+        async getVideoId(_url) {
+          return this.getVideoSrc();
         }
       }
       class PornhubHelper extends BaseHelper {
@@ -7493,6 +7524,7 @@ string() {
         [VideoService.proxitok]: TikTokHelper,
         [VideoService.nine_gag]: NineGAGHelper,
         [VideoService.youtube]: YoutubeHelper,
+        [VideoService.preservetube]: PreserveTubeHelper,
         [VideoService.invidious]: YoutubeHelper,
         [VideoService.piped]: YoutubeHelper,
         [VideoService.zdf]: ZDFHelper,
@@ -8219,27 +8251,11 @@ string() {
         "localeLangOverride",
         "account"
       ];
-      const log = (...text) => {
-        console.log(
-          "%c[VOT DEBUG]",
-          "background: #3700ffff; color: #fff; padding: 5px;",
-          ...text
-        );
+      const noop = () => {
       };
-      const warn = (...text) => {
-        console.warn(
-          "%c[VOT DEBUG]",
-          "background: #e1ff00ff; color: #fff; padding: 5px;",
-          ...text
-        );
-      };
-      const error = (...text) => {
-        console.error(
-          "%c[VOT DEBUG]",
-          "background: #F2452D; color: #fff; padding: 5px;",
-          ...text
-        );
-      };
+      const log = noop;
+      const warn = noop;
+      const error = noop;
       const debug = { log, warn, error };
       function getNavigatorLang() {
         return navigator.language?.substring(0, 2).toLowerCase() || "en";
@@ -8405,7 +8421,7 @@ string() {
       }
       const getTimestamp = () => Math.floor(Date.now() / 1e3);
       const getHeaders = (headers) => headers ? Object.fromEntries(new Headers(headers).entries()) : {};
-      function clamp$2(value, min = 0, max = 100) {
+      function clamp(value, min = 0, max = 100) {
         const lower = Math.min(min, max);
         const upper = Math.max(min, max);
         return Math.min(Math.max(value, lower), upper);
@@ -9118,7 +9134,7 @@ clear() {
         }
         return getErrorMessage(error2) || "Unknown error";
       }
-      async function gmXhrFetch(urlStr, timeout2, fetchOptions) {
+      async function gmXhrFetch(urlStr, timeout, fetchOptions) {
         const headers = getHeaders(fetchOptions.headers);
         const callbackGmXhr = getCallbackGmXhr();
         const promiseGmXhr = getPromiseGmXhr();
@@ -9142,7 +9158,7 @@ clear() {
               url: urlStr,
               responseType: "blob",
               data: fetchOptions.body,
-              timeout: timeout2,
+              timeout,
               headers,
               onload: (resp) => {
                 if (settled) return;
@@ -9187,7 +9203,7 @@ clear() {
           url: urlStr,
           responseType: "blob",
           data: fetchOptions.body,
-          timeout: timeout2,
+          timeout,
           headers
         });
         let abortHandler;
@@ -9229,7 +9245,7 @@ clear() {
       }
       async function GM_fetch(url, opts = {}) {
         const {
-          timeout: timeout2 = 15e3,
+          timeout = 15e3,
           forceGmXhr = false,
           responseCache,
           ...fetchOptions
@@ -9239,15 +9255,10 @@ clear() {
         const method = resolveRequestMethod(url, fetchOptions.method);
         const performRequest = async () => {
           if (shouldUseGmXhr(host, urlStr, forceGmXhr)) {
-            debug.log("GM_fetch: routing request via GM_xmlhttpRequest", {
-              host: host ?? "unknown",
-              reason: forceGmXhr ? "forced" : "host-policy",
-              url: urlStr
-            });
-            return await gmXhrFetch(urlStr, timeout2, fetchOptions);
+            return await gmXhrFetch(urlStr, timeout, fetchOptions);
           }
           const { signal, cleanup } = createTimeoutSignal(
-            timeout2,
+            timeout,
             fetchOptions.signal
           );
           try {
@@ -9263,7 +9274,7 @@ clear() {
               "GM_fetch preventing CORS by GM_xmlhttpRequest",
               getErrorMessage(err) || "Unknown error"
             );
-            return await gmXhrFetch(urlStr, timeout2, fetchOptions);
+            return await gmXhrFetch(urlStr, timeout, fetchOptions);
           } finally {
             cleanup();
           }
@@ -9877,7 +9888,6 @@ locale;
           return true;
         }
         async checkUpdates(force = false) {
-          debug.log("Check locale updates...");
           try {
             const res = await GM_fetch(this.buildUrl(this.hashesUrl, "", force));
             if (!res.ok) throw res.status;
@@ -9916,7 +9926,6 @@ locale;
             return this;
           }
           const timestamp = getTimestamp();
-          debug.log("Updating locale...");
           try {
             const res = await GM_fetch(
               this.buildUrl(this.localesUrl, `/${this.lang}.json`, force)
@@ -11220,9 +11229,6 @@ locale;
         strategy;
         constructor(strategy = YT_AUDIO_STRATEGY) {
           this.strategy = strategy;
-          debug.log("Audio downloader created", {
-            strategy
-          });
         }
         async runAudioDownload(videoId, translationId, signal) {
           try {
@@ -11453,9 +11459,7 @@ requestedFailAudio = new Set();
           this.audioDownloader.addEventListener("downloadedAudio", this.onDownloadedAudio).addEventListener("downloadedPartialAudio", this.onDownloadedPartialAudio).addEventListener("downloadAudioError", this.onDownloadAudioError);
         }
         onDownloadedAudio = async (translationId, data) => {
-          debug.log("downloadedAudio", data);
           if (!this.downloading) {
-            debug.log("skip downloadedAudio");
             return;
           }
           const { videoId, fileId, audioData } = data;
@@ -11470,7 +11474,6 @@ requestedFailAudio = new Set();
               }
             );
           } catch (error2) {
-            debug.error("Failed to upload downloaded audio", error2);
             this.finishDownloadFailure(
               new Error("Audio downloader failed while uploading full audio")
             );
@@ -11479,9 +11482,7 @@ requestedFailAudio = new Set();
           this.finishDownloadSuccess();
         };
         onDownloadedPartialAudio = async (translationId, data) => {
-          debug.log("downloadedPartialAudio", data);
           if (!this.downloading) {
-            debug.log("skip downloadedPartialAudio");
             return;
           }
           const { audioData, fileId, videoId, amount, version, index } = data;
@@ -11501,7 +11502,6 @@ requestedFailAudio = new Set();
               }
             );
           } catch (error2) {
-            debug.error("Failed to upload downloaded audio chunk", error2);
             this.finishDownloadFailure(
               new Error("Audio downloader failed while uploading chunk")
             );
@@ -11513,10 +11513,8 @@ requestedFailAudio = new Set();
         };
         onDownloadAudioError = async (videoId) => {
           if (!this.downloading) {
-            debug.log("skip downloadAudioError");
             return;
           }
-          debug.log(`Failed to download audio ${videoId}`);
           const videoUrl = this.getCanonicalUrl(videoId);
           const shouldUseFallback = this.videoHandler.site.host === "youtube" && Boolean(this.videoHandler.data?.useAudioDownload);
           if (!shouldUseFallback) {
@@ -11535,7 +11533,6 @@ requestedFailAudio = new Set();
             }
             this.finishDownloadSuccess();
           } catch (error2) {
-            debug.error("fail-audio-js request failed", error2);
             this.finishDownloadFailure(
               new VOTLocalizedError("VOTFailedDownloadAudio")
             );
@@ -11606,10 +11603,6 @@ isLivelyVoiceUnavailableError(value) {
             requestLang,
             responseLang
           );
-          debug.log(
-            videoData,
-            `Translate video (requestLang: ${requestLang}, requestLangForApi: ${requestLangForApi}, responseLang: ${responseLang})`
-          );
           let livelyDisabled = disableLivelyVoice;
           try {
             throwIfAborted(signal);
@@ -11670,7 +11663,6 @@ isLivelyVoiceUnavailableError(value) {
             }
           } catch (err) {
             if (isAbortError(err)) {
-              debug.log("aborted video translation");
               return null;
             }
             const uiError = mapVotClientErrorForUi(err);
@@ -11732,10 +11724,6 @@ isLivelyVoiceUnavailableError(value) {
             if (!useLivelyVoice || !this.isLivelyVoiceUnavailableError(response)) {
               break;
             }
-            debug.log(
-              "[translateVideoImpl] Server responded that lively voices are unavailable. Falling back to standard translation.",
-              response
-            );
             livelyDisabled = true;
             useLivelyVoice = false;
             response = void 0;
@@ -11764,10 +11752,6 @@ isLivelyVoiceUnavailableError(value) {
             });
           } catch (err) {
             if (useLivelyVoice && this.isLivelyVoiceUnavailableError(err)) {
-              debug.log(
-                "[translateVideoImpl] Lively voices are unavailable. Falling back to standard translation.",
-                err
-              );
               return void 0;
             }
             throw err;
@@ -11837,7 +11821,6 @@ isLivelyVoiceUnavailableError(value) {
         }
         setState(next) {
           this.state = next;
-          debug.log("[TranslationOrchestrator] state", next);
         }
         reset() {
           this.setState({ status: "idle" });
@@ -11850,14 +11833,8 @@ isLivelyVoiceUnavailableError(value) {
             return;
           }
           if (this.deps.isMobileYouTubeMuted?.()) {
-            debug.log(
-              "[TranslationOrchestrator] Mobile YouTube video is muted, deferring auto-translate"
-            );
             this.setState({ status: "deferred", reason: "muted" });
             this.deps.setMuteWatcher?.(() => {
-              debug.log(
-                "[TranslationOrchestrator] Video unmuted, running deferred auto-translate"
-              );
               this.setState({ status: "idle" });
               void this.runAutoTranslationIfEligible();
             });
@@ -11935,7 +11912,6 @@ isLivelyVoiceUnavailableError(value) {
           this.lifecycleGeneration += 1;
           const sessionId = this.lifecycleGeneration;
           this.resetActions(`[VideoLifecycle][session:${sessionId}] ${reason}`);
-          debug.log(`[VideoLifecycle][session:${sessionId}] started`, { reason });
           return sessionId;
         }
         shouldAbortHandleSrcChanged(callId, stage) {
@@ -11988,10 +11964,6 @@ isLivelyVoiceUnavailableError(value) {
               this.invalidateActiveSession(
                 "setCanPlay source changed while previous trigger is running"
               );
-            } else {
-              debug.log("[VideoLifecycle] setCanPlay deduplicated for same source", {
-                sourceKey: incomingSourceKey
-              });
             }
             return await this.setCanPlayLoopPromise;
           }
@@ -12013,19 +11985,12 @@ isLivelyVoiceUnavailableError(value) {
         async runSetCanPlayOnce() {
           const sourceKey = this.getCurrentSourceKey();
           if (this.host.videoData?.videoId && sourceKey === this.lastSetCanPlaySourceKey) {
-            debug.log("[VideoLifecycle] setCanPlay deduplicated for same source", {
-              sourceKey
-            });
             return;
           }
           let nextVideoData;
           try {
             nextVideoData = await this.host.getVideoData();
           } catch (err) {
-            debug.log(
-              `[VideoLifecycle] getVideoData failed for source ${sourceKey}`,
-              err
-            );
             this.host.videoData = void 0;
             hideLifecycleOverlay(this.host.uiManager.votOverlayView, {
               hideMenu: true
@@ -12033,18 +11998,11 @@ isLivelyVoiceUnavailableError(value) {
             return;
           }
           if (this.getCurrentSourceKey() !== sourceKey) {
-            debug.log(
-              "[VideoLifecycle] discarded stale getVideoData result after source change",
-              { sourceKey }
-            );
             return;
           }
           this.host.videoData = nextVideoData;
           this.activeSetCanPlaySourceKey = sourceKey;
           const currentId = this.startSession(`setCanPlay (source: ${sourceKey})`);
-          debug.log(`[VideoLifecycle][session:${currentId}] setCanPlay started`, {
-            sourceKey
-          });
           try {
             await this.handleSrcChanged(currentId, sourceKey);
             if (this.isStale(currentId)) {
@@ -12082,10 +12040,6 @@ isLivelyVoiceUnavailableError(value) {
           try {
             await this.host.enableSubtitlesForCurrentLangPair();
           } catch (err) {
-            debug.log(
-              `[VideoLifecycle][session:${sessionId}] auto-subtitles failed`,
-              err
-            );
           }
         }
         async handleSrcChanged(callId, expectedSourceKey) {
@@ -12094,9 +12048,6 @@ isLivelyVoiceUnavailableError(value) {
           if (this.shouldAbortHandleSrcChanged(sessionId, "before start")) {
             return;
           }
-          debug.log(`[VideoLifecycle][session:${sessionId}] src changed`, {
-            sourceKey
-          });
           this.host.translationOrchestrator.reset();
           this.host.firstPlay = true;
           const overlayView = this.host.uiManager.votOverlayView;
@@ -12117,9 +12068,6 @@ isLivelyVoiceUnavailableError(value) {
             return;
           }
           if (!this.host.videoData?.videoId) {
-            debug.log(
-              `[VideoLifecycle][session:${sessionId}] No videoId resolved, hiding overlay`
-            );
             hideLifecycleOverlay(overlayView, { hideMenu: true });
             return;
           }
@@ -12142,7 +12090,6 @@ isLivelyVoiceUnavailableError(value) {
           );
           this.showOverlayButton(overlayView);
           this.lastSetCanPlaySourceKey = sourceKey;
-          debug.log(`[VideoLifecycle][session:${sessionId}] src handling finished`);
         }
       }
       const MAX_TEXT_LENGTH = 450;
@@ -12325,20 +12272,20 @@ String.raw`\b(?:-1|0):[a-f0-9]{64}\b`
       const VIDEO_VOLUME_MAX_PERCENT = 100;
       const VIDEO_VOLUME_STEP_01 = 0.01;
       const EPS = 1e-6;
-      function clampNumber$1(value, min, max) {
+      function clampNumber$2(value, min, max) {
         if (!Number.isFinite(value)) return min;
         if (max < min) return min;
         return Math.max(min, Math.min(max, value));
       }
       function clampInt(value, min, max) {
-        return Math.trunc(clampNumber$1(value, min, max));
+        return Math.trunc(clampNumber$2(value, min, max));
       }
       function clampPercentInt(value, min = VIDEO_VOLUME_MIN_PERCENT, max = VIDEO_VOLUME_MAX_PERCENT) {
         if (!Number.isFinite(value)) return min;
         return clampInt(Math.round(value), min, max);
       }
       function volume01ToPercent(volume01) {
-        const v2 = clampNumber$1(volume01, 0, 1);
+        const v2 = clampNumber$2(volume01, 0, 1);
         return clampPercentInt(v2 * 100);
       }
       function percentToVolume01(percent) {
@@ -12359,13 +12306,13 @@ String.raw`\b(?:-1|0):[a-f0-9]{64}\b`
         }
       }
       function snapVolume01(volume01, direction = "nearest", step = VIDEO_VOLUME_STEP_01) {
-        const clamped = clampNumber$1(volume01, 0, 1);
+        const clamped = clampNumber$2(volume01, 0, 1);
         const quantized = quantizeToStep(clamped, step, direction);
-        return clampNumber$1(quantized, 0, 1);
+        return clampNumber$2(quantized, 0, 1);
       }
       function snapVolume01Towards(next, current, desired, step = VIDEO_VOLUME_STEP_01) {
-        const cur = clampNumber$1(current, 0, 1);
-        const des = clampNumber$1(desired, 0, 1);
+        const cur = clampNumber$2(current, 0, 1);
+        const des = clampNumber$2(desired, 0, 1);
         if (des < cur) {
           const q = snapVolume01(next, "down", step);
           return Math.max(des, q);
@@ -12584,7 +12531,6 @@ String.raw`\b(?:-1|0):[a-f0-9]{64}\b`
             return inFlightDetect;
           }
           const task = (async () => {
-            debug.log(`Detecting language text: ${text}`);
             const language = normalizeToRequestLang(await detect(text));
             return isResolvedLanguage(language) ? language : void 0;
           })();
@@ -13408,7 +13354,7 @@ updateMount({
           }
           const { top, left } = this.calcPos(this.autoLayout, this.preferredPosition);
           const availableWidth = Math.max(0, this.pageWidth - this.offsetX * 2);
-          const maxWidth = clamp$2(this.maxWidth ?? availableWidth, 0, availableWidth);
+          const maxWidth = clamp(this.maxWidth ?? availableWidth, 0, availableWidth);
           this.container.style.transform = `translate(${left}px, ${top}px)`;
           this.container.dataset.position = this.position;
           this.container.style.maxWidth = `${maxWidth}px`;
@@ -13427,8 +13373,8 @@ updateMount({
             height: anchorHeight
           } = this.anchor.getBoundingClientRect();
           const { width: containerWidth, height: containerHeight } = this.container.getBoundingClientRect();
-          const width = clamp$2(containerWidth, 0, this.pageWidth);
-          const height = clamp$2(containerHeight, 0, this.pageHeight);
+          const width = clamp(containerWidth, 0, this.pageWidth);
+          const height = clamp(containerHeight, 0, this.pageHeight);
           const left = anchorLeft - this.globalOffsetX;
           const right = anchorRight - this.globalOffsetX;
           const top = anchorTop - this.globalOffsetY;
@@ -13458,7 +13404,7 @@ updateMount({
           }
           switch (position2) {
             case "top": {
-              const pTop = clamp$2(
+              const pTop = clamp(
                 anchorBox.top - size.height - this.offsetY,
                 0,
                 this.pageHeight
@@ -13466,7 +13412,7 @@ updateMount({
               return pTop + this.offsetY < size.height ? "bottom" : "top";
             }
             case "right": {
-              const pLeft = clamp$2(
+              const pLeft = clamp(
                 anchorBox.right + this.offsetX,
                 0,
                 this.pageWidth - size.width
@@ -13474,7 +13420,7 @@ updateMount({
               return pLeft + size.width > this.pageWidth - this.offsetX ? "left" : "right";
             }
             case "bottom": {
-              const pTop = clamp$2(
+              const pTop = clamp(
                 anchorBox.bottom + this.offsetY,
                 0,
                 this.pageHeight - size.height
@@ -13493,12 +13439,12 @@ updateMount({
           switch (position2) {
             case "top":
               return {
-                top: clamp$2(
+                top: clamp(
                   anchorBox.top - size.height - this.offsetY,
                   0,
                   this.pageHeight
                 ),
-                left: clamp$2(
+                left: clamp(
                   anchorBox.left - size.width / 2 + anchorBox.anchorWidth / 2,
                   this.offsetX,
                   this.pageWidth - size.width - this.offsetX
@@ -13506,12 +13452,12 @@ updateMount({
               };
             case "right":
               return {
-                top: clamp$2(
+                top: clamp(
                   anchorBox.top + (anchorBox.anchorHeight - size.height) / 2,
                   this.offsetY,
                   this.pageHeight - size.height - this.offsetY
                 ),
-                left: clamp$2(
+                left: clamp(
                   anchorBox.right + this.offsetX,
                   0,
                   this.pageWidth - size.width
@@ -13519,12 +13465,12 @@ updateMount({
               };
             case "bottom":
               return {
-                top: clamp$2(
+                top: clamp(
                   anchorBox.bottom + this.offsetY,
                   0,
                   this.pageHeight - size.height
                 ),
-                left: clamp$2(
+                left: clamp(
                   anchorBox.left - size.width / 2 + anchorBox.anchorWidth / 2,
                   this.offsetX,
                   this.pageWidth - size.width - this.offsetX
@@ -13532,7 +13478,7 @@ updateMount({
               };
             case "left":
               return {
-                top: clamp$2(
+                top: clamp(
                   anchorBox.top + (anchorBox.anchorHeight - size.height) / 2,
                   this.offsetY,
                   this.pageHeight - size.height - this.offsetY
@@ -13936,10 +13882,6 @@ updateMount({
             }
             options.onLoaded?.();
           } catch (error2) {
-            debug.log("Failed to load Google Font for subtitles", {
-              fontFamily,
-              error: error2
-            });
           } finally {
             pendingSubtitleGoogleFonts.delete(fontFamily);
           }
@@ -13970,7 +13912,6 @@ updateMount({
           );
         })().catch((error2) => {
           googleFontsCatalogPromise = null;
-          debug.log("Failed to load Google Fonts catalog", error2);
           return [];
         });
         return await googleFontsCatalogPromise;
@@ -14200,8 +14141,10 @@ updateMount({
         pendingPrefix.text = "";
         pendingPrefix.style = void 0;
         let endIndex = startIndex;
-        let breakTokenIndex = breakAfterTokenIndexSet?.has(startIndex) ? startIndex : null;
-        while (breakTokenIndex === null && endIndex + 1 <= renderEndTokenIndex) {
+        let shouldBreakAfterSuffix = Boolean(
+          breakAfterTokenIndexSet?.has(startIndex)
+        );
+        while (endIndex + 1 <= renderEndTokenIndex) {
           const next = tokens[endIndex + 1];
           if (!next || next.isWordLike || next.text === "\n" || !stylesEqual(next.style, style)) {
             break;
@@ -14209,7 +14152,7 @@ updateMount({
           text += next.text;
           endIndex += 1;
           if (breakAfterTokenIndexSet?.has(endIndex)) {
-            breakTokenIndex = endIndex;
+            shouldBreakAfterSuffix = true;
           }
         }
         plan.push({
@@ -14217,11 +14160,11 @@ updateMount({
           text,
           style
         });
-        if (breakTokenIndex === null) {
+        if (!shouldBreakAfterSuffix) {
           return endIndex + 1;
         }
         plan.push({ kind: "break" });
-        return skipWhitespaceTokens(tokens, breakTokenIndex + 1, renderEndTokenIndex);
+        return skipWhitespaceTokens(tokens, endIndex + 1, renderEndTokenIndex);
       };
       const consumeTextToken = (plan, token, tokenText, hasBreakAfter, pendingPrefix) => {
         const isWhitespaceOnly = tokenText.trim().length === 0;
@@ -14284,561 +14227,471 @@ updateMount({
         flushPendingPrefix(plan, pendingPrefix);
         return plan;
       }
-      const EST_CHAR_WIDTH_RATIO = 0.55;
-      const TARGET_CPL_MIN = 26;
-      const TARGET_CPL_MAX = 54;
-      const TARGET_CPL_BASE = 32;
-      const TARGET_CPL_ASPECT_GAIN = 10;
-      const TARGET_CPL_WIDTH_GAIN = 10;
-      const TARGET_CPL_WIDTH_BASE_PX = 540;
-      const TARGET_CPL_WIDTH_LOG_CAP = 1.8;
-      function clamp$1(value, min, max) {
-        if (Number.isNaN(value)) return min;
-        return Math.min(max, Math.max(min, value));
-      }
-      function targetCharsPerLine(anchorBox) {
-        const w2 = Math.max(1, anchorBox.w);
-        const h2 = Math.max(1, anchorBox.h);
-        const aspect = w2 / h2;
-        const aspectContribution = Math.log(Math.max(0.5, aspect));
-        const widthContribution = clamp$1(
-          Math.log2(w2 / TARGET_CPL_WIDTH_BASE_PX),
-          0,
-          TARGET_CPL_WIDTH_LOG_CAP
-        );
-        const rawTarget = TARGET_CPL_BASE + aspectContribution * TARGET_CPL_ASPECT_GAIN + widthContribution * TARGET_CPL_WIDTH_GAIN;
-        return clamp$1(Math.round(rawTarget), TARGET_CPL_MIN, TARGET_CPL_MAX);
-      }
-      function widthRatiosForAspect(aspect) {
-        if (aspect < 1) {
-          return { min: 0.8, max: 0.92 };
+      const clampNumber$1 = (value, min, max) => Math.min(max, Math.max(min, value));
+      const roundToInt = (value) => Math.round(value);
+      const resolveAspectBand = (aspect) => {
+        if (aspect < 0.8) {
+          return {
+            widthRatio: 0.9,
+            charsPerLine: 27,
+            fontHeightRatio: 0.03
+          };
         }
-        if (aspect < 1.4) {
-          return { min: 0.55, max: 0.9 };
+        if (aspect < 1.1) {
+          return {
+            widthRatio: 0.84,
+            charsPerLine: 31,
+            fontHeightRatio: 0.031
+          };
         }
-        return { min: 0.68, max: 0.84 };
-      }
-      function computeSmartLayoutForBox(anchorBox, cssMetrics) {
-        const w2 = Math.max(1, anchorBox.w);
-        const h2 = Math.max(1, anchorBox.h);
-        const aspect = w2 / h2;
-        const targetChars = targetCharsPerLine(anchorBox);
-        const widthRatios = widthRatiosForAspect(aspect);
-        let computedCPL = targetChars;
-        let maxWidthPx = Math.round(w2 * widthRatios.max);
-        if (cssMetrics) {
-          const { fontSizePx, maxWidthPx: currentCssMaxWidthPx } = cssMetrics;
-          if (Number.isFinite(fontSizePx) && Number.isFinite(currentCssMaxWidthPx) && fontSizePx > 0 && currentCssMaxWidthPx > 0) {
-            const estCharW = fontSizePx * EST_CHAR_WIDTH_RATIO;
-            if (estCharW > 0) {
-              const desiredWidthPx = targetChars * estCharW;
-              const minWidthPx = w2 * widthRatios.min;
-              const hardMaxWidthPx = w2 * widthRatios.max;
-              const resolvedMaxWidthPx = clamp$1(
-                Math.round(desiredWidthPx),
-                Math.round(minWidthPx),
-                Math.round(hardMaxWidthPx)
-              );
-              maxWidthPx = resolvedMaxWidthPx;
-              computedCPL = resolvedMaxWidthPx / estCharW;
-            }
-          }
+        if (aspect < 1.5) {
+          return {
+            widthRatio: 0.76,
+            charsPerLine: 36,
+            fontHeightRatio: 0.033
+          };
         }
-        const maxLength = clamp$1(Math.round(computedCPL * 2), 50, 180);
-        return { maxLength, maxWidthPx };
-      }
-      const isWordToken = (token) => Boolean(token?.isWordLike && token.text?.trim());
-      const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
-      const rangeSum = (prefix2, start, end) => {
-        if (end < start) return 0;
-        return prefix2[end + 1] - prefix2[start];
-      };
-      const sentenceEndingWordRegexp = /[.!?\u2026]+(?:["'`)\]}\u00BB\u201D\u2019]+)?$/u;
-      const hasExplicitLineBreakToken = (tokens) => tokens.some((token) => token.text === "\n");
-      const buildSliceForWord = (tokens, tokenIndex) => {
-        const token = tokens[tokenIndex];
-        let textToNextWord = token.text;
-        let breakAfterTokenIndex = tokenIndex;
-        let breakTextLength = token.text.length;
-        let cursor = tokenIndex + 1;
-        let seenTrailingPunctuation = false;
-        let punctuationAttachmentClosed = false;
-        while (cursor < tokens.length) {
-          const nextToken = tokens[cursor];
-          if (!nextToken) {
-            cursor += 1;
-            continue;
-          }
-          if (isWordToken(nextToken)) break;
-          if (nextToken.text === "\n") {
-            breakAfterTokenIndex = cursor;
-            break;
-          }
-          const tokenText = nextToken.text ?? "";
-          textToNextWord += tokenText;
-          if (!tokenText.trim()) {
-            if (seenTrailingPunctuation) {
-              punctuationAttachmentClosed = true;
-            }
-            cursor += 1;
-            continue;
-          }
-          if (!punctuationAttachmentClosed) {
-            breakAfterTokenIndex = cursor;
-            seenTrailingPunctuation = true;
-            breakTextLength = textToNextWord.length;
-          }
-          cursor += 1;
+        if (aspect < 1.95) {
+          return {
+            widthRatio: 0.72,
+            charsPerLine: 40,
+            fontHeightRatio: 0.034
+          };
         }
         return {
+          widthRatio: 0.68,
+          charsPerLine: 44,
+          fontHeightRatio: 0.035
+        };
+      };
+      const resolveWidthBoost = (width) => {
+        if (width >= 1920) {
+          return { extraChars: 4, widthScale: 1.04 };
+        }
+        if (width >= 1440) {
+          return { extraChars: 3, widthScale: 1.03 };
+        }
+        if (width >= 960) {
+          return { extraChars: 2, widthScale: 1.02 };
+        }
+        if (width >= 640) {
+          return { extraChars: 1, widthScale: 1.01 };
+        }
+        return { extraChars: 0, widthScale: 1 };
+      };
+      const estimateAverageGlyphWidth = (fontSizePx) => Math.max(7, fontSizePx * 0.56);
+      function computeSmartLayoutForBox(box, cssMetrics = null) {
+        const width = Number.isFinite(box.w) ? Math.max(0, box.w) : 0;
+        const height = Number.isFinite(box.h) ? Math.max(0, box.h) : 0;
+        if (width <= 0 || height <= 0) {
+          return {
+            fontSizePx: cssMetrics?.fontSizePx ?? 20,
+            maxLength: 72,
+            maxWidthPx: cssMetrics?.maxWidthPx ?? null,
+            targetCharsPerLine: 34
+          };
+        }
+        const aspect = width / height;
+        const { widthRatio, charsPerLine, fontHeightRatio } = resolveAspectBand(aspect);
+        const { extraChars, widthScale } = resolveWidthBoost(width);
+        const derivedFontSizePx = clampNumber$1(height * fontHeightRatio, 16, 42);
+        const fontSizePx = cssMetrics?.fontSizePx ?? derivedFontSizePx;
+        const averageGlyphWidth = estimateAverageGlyphWidth(fontSizePx);
+        const minWidthPx = width * Math.min(0.92, widthRatio);
+        const maxWidthPx = width * clampNumber$1(widthRatio * widthScale, 0.66, 0.92);
+        const preferredCharsPerLine = clampNumber$1(charsPerLine + extraChars, 25, 48);
+        const widthFromChars = preferredCharsPerLine * averageGlyphWidth;
+        const resolvedMaxWidthPx = clampNumber$1(
+          widthFromChars,
+          minWidthPx,
+          maxWidthPx
+        );
+        const totalCharBudget = clampNumber$1(
+          roundToInt(preferredCharsPerLine * 2.15),
+          50,
+          108
+        );
+        return {
+          fontSizePx,
+          maxLength: totalCharBudget,
+          maxWidthPx: roundToInt(resolvedMaxWidthPx),
+          targetCharsPerLine: preferredCharsPerLine
+        };
+      }
+      const STRONG_BREAK_RE = /[.!?…:;][)"'\]»”]*\s*$/u;
+      const SOFT_BREAK_RE = /[,،、][)"'\]»”]*\s*$/u;
+      const DISCOURAGED_LINE_START_RE = /^[\s]*[\p{Pe}\p{Pf},.;:!?%‰…]/u;
+      const DISCOURAGED_LINE_END_RE = /[\s]*[\p{Ps}\p{Pi}¿¡([{«“"'`-]\s*$/u;
+      const normalizeTokenText = (text) => text.replace(/\s+/gu, " ").trim();
+      const resolveBoundary = (text) => {
+        if (STRONG_BREAK_RE.test(text)) return "strong";
+        if (SOFT_BREAK_RE.test(text)) return "soft";
+        return "neutral";
+      };
+      const startsWithDiscouragedLineStart = (text) => DISCOURAGED_LINE_START_RE.test(text);
+      const endsWithDiscouragedLineEnd = (text) => DISCOURAGED_LINE_END_RE.test(text);
+      const isWordToken = (token) => Boolean(token?.isWordLike && token.text.trim());
+      const getTokenStartMs = (token) => token && Number.isFinite(token.startMs) ? token.startMs : 0;
+      const getTokenEndMs = (token) => token ? getTokenStartMs(token) + Math.max(0, token.durationMs) : 0;
+      const getRangeStartMs = (tokens, start, end) => {
+        for (let index = start; index < end; index += 1) {
+          const token = tokens[index];
+          if (isWordToken(token)) {
+            return getTokenStartMs(token);
+          }
+        }
+        return getTokenStartMs(tokens[start]);
+      };
+      const getRangeEndMs = (tokens, start, end) => {
+        for (let index = end - 1; index >= start; index -= 1) {
+          const token = tokens[index];
+          if (isWordToken(token)) {
+            return getTokenEndMs(token);
+          }
+        }
+        return getTokenEndMs(tokens[end - 1]);
+      };
+      const createForcedBreakSlice = (tokens, tokenIndex) => {
+        const token = tokens[tokenIndex];
+        const startMs = getTokenStartMs(token);
+        return {
+          text: "\n",
           tokenIndex,
-          breakAfterTokenIndex,
-          textToNextWord,
-          trailingGapAfterBreakText: textToNextWord.slice(breakTextLength)
+          breakAfterTokenIndex: tokenIndex,
+          startToken: tokenIndex,
+          endToken: tokenIndex + 1,
+          charLength: 0,
+          startMs,
+          endMs: startMs,
+          boundary: "strong",
+          forcesLineBreak: true
+        };
+      };
+      const buildSliceFromWord = (tokens, wordTokenIndex) => {
+        let startToken = wordTokenIndex;
+        while (startToken > 0 && tokens[startToken - 1]?.text !== "\n" && !isWordToken(tokens[startToken - 1])) {
+          startToken -= 1;
+        }
+        let endToken = wordTokenIndex + 1;
+        while (endToken < tokens.length && tokens[endToken]?.text !== "\n" && !isWordToken(tokens[endToken])) {
+          endToken += 1;
+        }
+        const text = tokens.slice(startToken, endToken).map((token) => token.text).join("");
+        return {
+          text,
+          tokenIndex: wordTokenIndex,
+          breakAfterTokenIndex: endToken - 1,
+          startToken,
+          endToken,
+          charLength: normalizeTokenText(text).length,
+          startMs: getRangeStartMs(tokens, startToken, endToken),
+          endMs: getRangeEndMs(tokens, startToken, endToken),
+          boundary: resolveBoundary(text),
+          forcesLineBreak: false
         };
       };
       function buildWordSlices(tokens) {
         const slices = [];
-        let key = "";
-        for (let tokenIndex = 0; tokenIndex < tokens.length; tokenIndex += 1) {
-          const token = tokens[tokenIndex];
-          if (!isWordToken(token)) continue;
-          const slice = buildSliceForWord(tokens, tokenIndex);
+        const keyParts = [];
+        for (let index = 0; index < tokens.length; index += 1) {
+          const token = tokens[index];
+          if (!token?.text) continue;
+          if (token.text === "\n") {
+            const slice2 = createForcedBreakSlice(tokens, index);
+            slices.push(slice2);
+            keyParts.push("\n");
+            continue;
+          }
+          if (!isWordToken(token)) {
+            continue;
+          }
+          const slice = buildSliceFromWord(tokens, index);
           slices.push(slice);
-          if (key) key += "";
-          key += `${slice.textToNextWord}${slice.trailingGapAfterBreakText}${slice.breakAfterTokenIndex}`;
+          keyParts.push(normalizeTokenText(slice.text));
+          index = slice.breakAfterTokenIndex;
+        }
+        if (!slices.length && tokens.length) {
+          const text = tokens.map((token) => token.text).join("");
+          slices.push({
+            text,
+            tokenIndex: 0,
+            breakAfterTokenIndex: tokens.length - 1,
+            startToken: 0,
+            endToken: tokens.length,
+            charLength: normalizeTokenText(text).length,
+            startMs: getRangeStartMs(tokens, 0, tokens.length),
+            endMs: getRangeEndMs(tokens, 0, tokens.length),
+            boundary: resolveBoundary(text),
+            forcesLineBreak: false
+          });
+          keyParts.push(normalizeTokenText(text));
         }
         return {
           slices,
-          key
+          key: keyParts.join("|")
         };
       }
-      function measureWordSlices(slices, measure) {
-        const wordsCount = slices.length;
-        const widths = new Array(wordsCount);
-        const chars = new Array(wordsCount);
-        const trailingGapWidths = new Array(wordsCount);
-        const trailingGapChars = new Array(wordsCount);
-        const prefixWidths = new Array(wordsCount + 1);
-        const prefixChars = new Array(wordsCount + 1);
-        prefixWidths[0] = 0;
-        prefixChars[0] = 0;
-        for (let i2 = 0; i2 < wordsCount; i2 += 1) {
-          const textToNextWord = slices[i2].textToNextWord;
-          const trailingGapAfterBreakText = slices[i2].trailingGapAfterBreakText;
-          const width = measure(textToNextWord);
-          const charCount = textToNextWord.length;
-          const trailingCharCount = trailingGapAfterBreakText.length;
-          const trailingWidth = trailingCharCount ? measure(trailingGapAfterBreakText) : 0;
-          widths[i2] = width;
-          chars[i2] = charCount;
-          trailingGapWidths[i2] = trailingWidth;
-          trailingGapChars[i2] = trailingCharCount;
-          prefixWidths[i2 + 1] = prefixWidths[i2] + width;
-          prefixChars[i2 + 1] = prefixChars[i2] + charCount;
-        }
-        return {
-          widths,
-          chars,
-          trailingGapWidths,
-          trailingGapChars,
-          prefixWidths,
-          prefixChars
-        };
+      function measureWordSlices(wordSlices, measureText) {
+        return wordSlices.map((slice) => ({
+          ...slice,
+          width: slice.forcesLineBreak ? 0 : measureText(slice.text)
+        }));
       }
-      const getWordRangeWidthUnsafe = (metrics, startWord, endWord) => {
-        const total = rangeSum(metrics.prefixWidths, startWord, endWord);
-        return total - (metrics.trailingGapWidths[endWord] ?? 0);
+      const getSegmentEndMs = (tokens, endTokenExclusive) => {
+        if (endTokenExclusive <= 0) return 0;
+        return getTokenEndMs(tokens[endTokenExclusive - 1]);
       };
-      const getWordRangeCharsUnsafe = (metrics, startWord, endWord) => {
-        const total = rangeSum(metrics.prefixChars, startWord, endWord);
-        return total - (metrics.trailingGapChars[endWord] ?? 0);
+      const finalizeSegment = (out, tokens, startToken, endToken) => {
+        if (endToken <= startToken) return;
+        const startMs = getRangeStartMs(tokens, startToken, endToken);
+        const endMs = getSegmentEndMs(tokens, endToken);
+        out.push({
+          startToken,
+          endToken,
+          startMs,
+          endMs: Math.max(startMs, endMs)
+        });
       };
-      function fitsInTwoLines(metrics, startWord, endWord, maxWidth) {
-        if (endWord < startWord) return true;
-        if (maxWidth <= 0) return false;
-        if (!metrics.widths.length) return true;
-        const start = clamp(startWord, 0, metrics.widths.length - 1);
-        const end = clamp(endWord, 0, metrics.widths.length - 1);
-        if (end < start) return true;
-        const prefixWidths = metrics.prefixWidths;
-        const trailingGapWidths = metrics.trailingGapWidths;
-        const startPrefix = prefixWidths[start];
-        const endPrefix = prefixWidths[end + 1];
-        const endTrailingGapWidth = trailingGapWidths[end] ?? 0;
-        if (endPrefix - startPrefix - endTrailingGapWidth <= maxWidth) {
-          return true;
-        }
-        for (let k2 = start; k2 < end; k2 += 1) {
-          const splitPrefix = prefixWidths[k2 + 1];
-          const top = splitPrefix - startPrefix - (trailingGapWidths[k2] ?? 0);
-          const bottom = endPrefix - splitPrefix - endTrailingGapWidth;
-          if (top <= maxWidth && bottom <= maxWidth) {
-            return true;
-          }
-        }
-        return false;
-      }
-      const scoreTwoLineCandidate = (w1, w2, maxWidth, count1, count2, wordsInRange) => {
-        const mean = (w1 + w2) / 2;
-        const slack1 = maxWidth - w1;
-        const slack2 = maxWidth - w2;
-        const slackCost = slack1 * slack1 + slack2 * slack2;
-        const delta1 = w1 - mean;
-        const delta2 = w2 - mean;
-        const variance = delta1 * delta1 + delta2 * delta2;
-        const canAvoidSingleton = wordsInRange >= 4;
-        const singletonPenalty = canAvoidSingleton && (count1 <= 1 || count2 <= 1) ? 1e9 : 0;
-        const canAvoidTwoWordOrphans = wordsInRange >= 6;
-        const twoWordOrphanPenalty = canAvoidTwoWordOrphans && (count1 <= 2 || count2 <= 2) ? 2e7 : 0;
-        let cost = slackCost + variance + singletonPenalty + twoWordOrphanPenalty;
-        if (w1 > w2) {
-          cost += (w1 - w2) / Math.max(1, maxWidth) * 0.15;
-        }
-        return cost;
-      };
-      function computeBestTwoLineBreak(metrics, startWord, endWord, maxWidth) {
-        if (maxWidth <= 0) return null;
-        if (!metrics.widths.length) return null;
-        const start = clamp(startWord, 0, metrics.widths.length - 1);
-        const end = clamp(endWord, 0, metrics.widths.length - 1);
-        if (end <= start) return null;
-        const prefixWidths = metrics.prefixWidths;
-        const trailingGapWidths = metrics.trailingGapWidths;
-        const startPrefix = prefixWidths[start];
-        const endPrefix = prefixWidths[end + 1];
-        const endTrailingGapWidth = trailingGapWidths[end] ?? 0;
-        let bestBreak = null;
-        let bestCost = Number.POSITIVE_INFINITY;
-        const wordsInRange = end - start + 1;
-        for (let k2 = start; k2 < end; k2 += 1) {
-          const splitPrefix = prefixWidths[k2 + 1];
-          const w1 = splitPrefix - startPrefix - (trailingGapWidths[k2] ?? 0);
-          const w2 = endPrefix - splitPrefix - endTrailingGapWidth;
-          if (w1 > maxWidth || w2 > maxWidth) continue;
-          const count1 = k2 - start + 1;
-          const count2 = end - k2;
-          const cost = scoreTwoLineCandidate(
-            w1,
-            w2,
-            maxWidth,
-            count1,
-            count2,
-            wordsInRange
-          );
-          if (cost < bestCost) {
-            bestCost = cost;
-            bestBreak = k2;
-          }
-        }
-        return bestBreak;
-      }
-      function computeBalancedBreaks(metrics, maxWidth) {
-        const n2 = metrics.widths.length;
-        if (n2 <= 1 || maxWidth <= 0) return [];
-        if (getWordRangeWidthUnsafe(metrics, 0, n2 - 1) <= maxWidth) {
+      function computeTwoLineSegments(tokens, metrics, maxWidthPx, maxLength) {
+        if (!metrics.length || !tokens.length) {
           return [];
         }
-        const breakIndex = computeBestTwoLineBreak(metrics, 0, n2 - 1, maxWidth);
-        return breakIndex === null ? [] : [breakIndex];
-      }
-      const buildWrapPlanForSegment = (tokens, measure, maxWidthPx, allowTruncation) => {
-        const { slices } = buildWordSlices(tokens);
-        if (slices.length <= 1 || maxWidthPx <= 0) {
-          return {
-            breakAfterTokenIndices: [],
-            truncateAfterTokenIndex: null
-          };
-        }
-        const words = slices.map((slice) => ({
-          tokenIndex: slice.tokenIndex,
-          breakAfterTokenIndex: slice.breakAfterTokenIndex
-        }));
-        const metrics = measureWordSlices(slices, measure);
-        if (getWordRangeWidthUnsafe(metrics, 0, metrics.widths.length - 1) <= maxWidthPx) {
-          return {
-            breakAfterTokenIndices: [],
-            truncateAfterTokenIndex: null
-          };
-        }
-        const breakWordIndices = computeBalancedBreaks(metrics, maxWidthPx);
-        if (breakWordIndices.length) {
-          return {
-            breakAfterTokenIndices: breakWordIndices.map(
-              (wordIndex) => words[wordIndex].breakAfterTokenIndex
-            ),
-            truncateAfterTokenIndex: null
-          };
-        }
-        if (!allowTruncation) {
-          return {
-            breakAfterTokenIndices: [],
-            truncateAfterTokenIndex: null
-          };
-        }
-        const strict = resolveStrictTwoLineLayout(metrics, maxWidthPx);
-        return {
-          breakAfterTokenIndices: strict.breakAfterWordIndices.map(
-            (wordIndex) => words[wordIndex].breakAfterTokenIndex
-          ),
-          truncateAfterTokenIndex: strict.truncateAfterWordIndex === null ? null : words[strict.truncateAfterWordIndex]?.breakAfterTokenIndex ?? null
-        };
-      };
-      function computeTokenWrapPlan(tokens, measure, maxWidthPx, allowTruncation = true) {
-        if (!tokens.length || maxWidthPx <= 0) {
-          return {
-            breakAfterTokenIndices: [],
-            truncateAfterTokenIndex: null
-          };
-        }
-        const breakAfterTokenIndices = [];
-        let truncateAfterTokenIndex = null;
-        let segmentStart = 0;
-        const hasExplicitLineBreak = hasExplicitLineBreakToken(tokens);
-        for (let index = 0; index <= tokens.length; index += 1) {
-          const isExplicitBreak = index === tokens.length || tokens[index]?.text === "\n";
-          if (!isExplicitBreak) continue;
-          if (segmentStart < index) {
-            const segmentPlan = buildWrapPlanForSegment(
-              tokens.slice(segmentStart, index),
-              measure,
-              maxWidthPx,
-              allowTruncation && !hasExplicitLineBreak
-            );
-            breakAfterTokenIndices.push(
-              ...segmentPlan.breakAfterTokenIndices.map(
-                (tokenIndex) => segmentStart + tokenIndex
-              )
-            );
-            if (truncateAfterTokenIndex === null && segmentPlan.truncateAfterTokenIndex !== null && !hasExplicitLineBreak) {
-              truncateAfterTokenIndex = segmentStart + segmentPlan.truncateAfterTokenIndex;
+        const maxWidth = Math.max(1, maxWidthPx);
+        const charBudget = Math.max(1, maxLength);
+        const segments = [];
+        let segmentStartToken = metrics[0].startToken;
+        let segmentCharLength = 0;
+        let currentLineWidth = 0;
+        let currentLineCount = 1;
+        let lastTokenInSegment = segmentStartToken;
+        for (let index = 0; index < metrics.length; index += 1) {
+          const metric = metrics[index];
+          if (metric.forcesLineBreak) {
+            currentLineCount += 1;
+            currentLineWidth = 0;
+            lastTokenInSegment = metric.endToken;
+            if (currentLineCount > 2) {
+              const splitToken2 = Math.max(metric.startToken, metric.tokenIndex);
+              finalizeSegment(segments, tokens, segmentStartToken, splitToken2);
+              segmentStartToken = splitToken2;
+              segmentCharLength = 0;
+              currentLineWidth = 0;
+              currentLineCount = 1;
+              lastTokenInSegment = segmentStartToken;
             }
-          }
-          segmentStart = index + 1;
-        }
-        return {
-          breakAfterTokenIndices,
-          truncateAfterTokenIndex: hasExplicitLineBreak ? null : truncateAfterTokenIndex
-        };
-      }
-      function findLongestPrefixFittingTwoLines(metrics, maxWidth) {
-        const n2 = metrics.widths.length;
-        if (n2 <= 0 || maxWidth <= 0) return null;
-        let low = 0;
-        let high = n2 - 1;
-        let best = null;
-        while (low <= high) {
-          const middle = low + high >> 1;
-          if (fitsInTwoLines(metrics, 0, middle, maxWidth)) {
-            best = middle;
-            low = middle + 1;
-          } else {
-            high = middle - 1;
-          }
-        }
-        return best;
-      }
-      function resolveStrictTwoLineLayout(metrics, maxWidth) {
-        if (maxWidth <= 0) {
-          return {
-            breakAfterWordIndices: [],
-            truncateAfterWordIndex: null
-          };
-        }
-        const n2 = metrics.widths.length;
-        if (n2 <= 1) {
-          return {
-            breakAfterWordIndices: [],
-            truncateAfterWordIndex: null
-          };
-        }
-        const fullLineFits = getWordRangeWidthUnsafe(metrics, 0, n2 - 1) <= maxWidth;
-        if (fullLineFits) {
-          return {
-            breakAfterWordIndices: [],
-            truncateAfterWordIndex: null
-          };
-        }
-        const balancedBreaks = computeBalancedBreaks(metrics, maxWidth);
-        if (balancedBreaks.length) {
-          return {
-            breakAfterWordIndices: balancedBreaks,
-            truncateAfterWordIndex: null
-          };
-        }
-        const prefixEndWordRaw = findLongestPrefixFittingTwoLines(metrics, maxWidth);
-        const prefixEndWord = prefixEndWordRaw ?? 0;
-        if (prefixEndWord >= n2 - 1) {
-          return {
-            breakAfterWordIndices: [],
-            truncateAfterWordIndex: null
-          };
-        }
-        const prefixBreak = computeBestTwoLineBreak(
-          metrics,
-          0,
-          prefixEndWord,
-          maxWidth
-        );
-        return {
-          breakAfterWordIndices: prefixBreak === null ? [] : [prefixBreak],
-          truncateAfterWordIndex: prefixEndWord
-        };
-      }
-      const getRangeWordCount = (range) => range.endWord - range.startWord + 1;
-      const buildInitialWordRanges = (wordsCount, isRangeAllowed) => {
-        const wordRanges = [];
-        let startWord = 0;
-        while (startWord < wordsCount) {
-          let endWord = startWord;
-          while (endWord + 1 < wordsCount && isRangeAllowed(startWord, endWord + 1)) {
-            endWord += 1;
-          }
-          wordRanges.push({ startWord, endWord });
-          startWord = endWord + 1;
-        }
-        return wordRanges;
-      };
-      const tryBorrowFromPrevious = (wordRanges, index, isRangeAllowed) => {
-        if (index <= 0) return false;
-        const current = wordRanges[index];
-        const previous = wordRanges[index - 1];
-        if (!current || !previous) return false;
-        if (getRangeWordCount(previous) < 3) return false;
-        const movedWord = previous.endWord;
-        const nextPrevious = {
-          startWord: previous.startWord,
-          endWord: movedWord - 1
-        };
-        const nextCurrent = {
-          startWord: movedWord,
-          endWord: current.endWord
-        };
-        if (!isRangeAllowed(nextPrevious.startWord, nextPrevious.endWord) || !isRangeAllowed(nextCurrent.startWord, nextCurrent.endWord)) {
-          return false;
-        }
-        previous.endWord = nextPrevious.endWord;
-        current.startWord = nextCurrent.startWord;
-        return true;
-      };
-      const tryBorrowFromNext = (wordRanges, index, isRangeAllowed) => {
-        if (index >= wordRanges.length - 1) return false;
-        const current = wordRanges[index];
-        const next = wordRanges[index + 1];
-        if (!current || !next) return false;
-        if (getRangeWordCount(next) < 3) return false;
-        const movedWord = next.startWord;
-        const nextCurrent = {
-          startWord: current.startWord,
-          endWord: movedWord
-        };
-        const nextNext = {
-          startWord: movedWord + 1,
-          endWord: next.endWord
-        };
-        if (!isRangeAllowed(nextCurrent.startWord, nextCurrent.endWord) || !isRangeAllowed(nextNext.startWord, nextNext.endWord)) {
-          return false;
-        }
-        current.endWord = nextCurrent.endWord;
-        next.startWord = nextNext.startWord;
-        return true;
-      };
-      const rebalanceSingletonRanges = (wordRanges, isRangeAllowed) => {
-        for (let i2 = wordRanges.length - 1; i2 >= 0; i2 -= 1) {
-          if (getRangeWordCount(wordRanges[i2]) !== 1) continue;
-          if (!tryBorrowFromPrevious(wordRanges, i2, isRangeAllowed)) {
-            tryBorrowFromNext(wordRanges, i2, isRangeAllowed);
-          }
-        }
-      };
-      const getWordPayload = (tokens, words, wordIndex) => {
-        const word = words[wordIndex];
-        if (!word) return "";
-        let text = "";
-        for (let tokenIndex = word.tokenIndex; tokenIndex <= word.breakAfterTokenIndex; tokenIndex += 1) {
-          text += tokens[tokenIndex]?.text ?? "";
-        }
-        return text.trimEnd();
-      };
-      const applySentenceBoundarySplits = (wordRanges, tokens, words, isRangeAllowed) => {
-        for (let i2 = 0; i2 < wordRanges.length - 1; i2 += 1) {
-          const previous = wordRanges[i2];
-          const next = wordRanges[i2 + 1];
-          if (!previous || !next) continue;
-          let sentenceBoundaryWord = -1;
-          const minCandidate = Math.max(previous.startWord, previous.endWord - 2);
-          for (let candidate = previous.endWord - 1; candidate >= minCandidate; candidate -= 1) {
-            if (sentenceEndingWordRegexp.test(getWordPayload(tokens, words, candidate))) {
-              sentenceBoundaryWord = candidate;
-              break;
-            }
-          }
-          if (sentenceBoundaryWord < previous.startWord) continue;
-          const nextPreviousStartWord = previous.startWord;
-          const nextPreviousEndWord = sentenceBoundaryWord;
-          const nextPreviousWordCount = nextPreviousEndWord - nextPreviousStartWord + 1;
-          if (nextPreviousWordCount < 3) continue;
-          const nextStartWord = sentenceBoundaryWord + 1;
-          const nextEndWord = next.endWord;
-          if (!isRangeAllowed(nextPreviousStartWord, nextPreviousEndWord) || !isRangeAllowed(nextStartWord, nextEndWord)) {
             continue;
           }
-          previous.endWord = nextPreviousEndWord;
-          next.startWord = nextStartWord;
-        }
-      };
-      const resolveSegmentStartToken = (tokens, words, startWordIndex) => {
-        const startWord = words[startWordIndex];
-        if (!startWord) return 0;
-        const previousBreakAfterTokenIndex = startWordIndex > 0 ? words[startWordIndex - 1]?.breakAfterTokenIndex ?? startWord.tokenIndex - 1 : -1;
-        let startToken = clamp(
-          previousBreakAfterTokenIndex + 1,
-          0,
-          startWord.tokenIndex
-        );
-        while (startToken < startWord.tokenIndex && !tokens[startToken]?.text.trim()) {
-          startToken += 1;
-        }
-        return startToken;
-      };
-      const mapWordRangesToTimedSegments = (wordRanges, words, tokens) => {
-        const segments = [];
-        for (const range of wordRanges) {
-          const startWord = words[range.startWord];
-          const endWord = words[range.endWord];
-          if (!startWord || !endWord) continue;
-          const startToken = resolveSegmentStartToken(tokens, words, range.startWord);
-          const endToken = endWord.breakAfterTokenIndex + 1;
-          const startMs = tokens[startWord.tokenIndex]?.startMs ?? tokens[startToken]?.startMs ?? 0;
-          const endTokenStartMs = tokens[endWord.tokenIndex]?.startMs ?? startMs;
-          const endTokenDurationMs = tokens[endWord.tokenIndex]?.durationMs ?? 0;
-          const nextWord = words[range.endWord + 1];
-          const nextWordStartMs = nextWord ? tokens[nextWord.tokenIndex]?.startMs : void 0;
-          const endMs = nextWordStartMs ?? endTokenStartMs + endTokenDurationMs;
-          segments.push({
-            startToken,
-            endToken,
-            startMs,
-            endMs
-          });
-        }
-        return segments;
-      };
-      function computeTwoLineSegments(tokens, words, metrics, maxWidthPx, maxChars) {
-        const wordsCount = words.length;
-        if (wordsCount === 0) return [];
-        const charLimit = Number.isFinite(maxChars) && maxChars > 0 ? maxChars : null;
-        const isRangeAllowed = (startWord, endWord) => {
-          if (endWord < startWord) return false;
-          if (charLimit !== null && getWordRangeCharsUnsafe(metrics, startWord, endWord) > charLimit) {
-            return false;
+          const nextCharLength = segmentCharLength + metric.charLength;
+          const fitsCurrentLine = currentLineWidth === 0 || currentLineWidth + metric.width <= maxWidth;
+          if (fitsCurrentLine && nextCharLength <= charBudget) {
+            currentLineWidth += metric.width;
+            segmentCharLength = nextCharLength;
+            lastTokenInSegment = metric.endToken;
+            continue;
           }
-          return fitsInTwoLines(metrics, startWord, endWord, maxWidthPx);
+          if (currentLineCount === 1) {
+            currentLineCount = 2;
+            currentLineWidth = metric.width;
+            segmentCharLength = nextCharLength;
+            lastTokenInSegment = metric.endToken;
+            continue;
+          }
+          const splitToken = Math.max(metric.startToken, metric.tokenIndex);
+          finalizeSegment(segments, tokens, segmentStartToken, splitToken);
+          segmentStartToken = splitToken;
+          segmentCharLength = metric.charLength;
+          currentLineWidth = metric.width;
+          currentLineCount = 1;
+          lastTokenInSegment = metric.endToken;
+        }
+        finalizeSegment(segments, tokens, segmentStartToken, lastTokenInSegment);
+        if (!segments.length) {
+          return [
+            {
+              startToken: 0,
+              endToken: tokens.length,
+              startMs: getRangeStartMs(tokens, 0, tokens.length),
+              endMs: getRangeEndMs(tokens, 0, tokens.length)
+            }
+          ];
+        }
+        for (let index = 0; index < segments.length - 1; index += 1) {
+          const current = segments[index];
+          const next = segments[index + 1];
+          if (next.startMs > current.startMs) {
+            current.endMs = next.startMs;
+          }
+        }
+        const last = segments.at(-1);
+        if (last) {
+          last.endMs = Math.max(
+            last.endMs,
+            getRangeEndMs(tokens, last.startToken, last.endToken)
+          );
+        }
+        return segments.filter((segment) => segment.endToken > segment.startToken);
+      }
+      const measureTokenRange = (tokens, startToken, endToken, measureText) => {
+        if (endToken <= startToken) return 0;
+        return measureText(
+          tokens.slice(startToken, endToken).map((token) => token.text).join("")
+        );
+      };
+      const resolveSafeBreakAfterTokenIndex = (tokens, breakAfterTokenIndex) => {
+        let safeBreakIndex = breakAfterTokenIndex;
+        while (safeBreakIndex + 1 < tokens.length && tokens[safeBreakIndex + 1]?.text !== "\n" && !tokens[safeBreakIndex + 1]?.isWordLike) {
+          safeBreakIndex += 1;
+        }
+        return safeBreakIndex;
+      };
+      const findFallbackBreakAfterTokenIndex = (tokens, measureText, maxWidthPx) => {
+        let bestBreakAfterTokenIndex = null;
+        let bestScore = Number.POSITIVE_INFINITY;
+        for (let index = 0; index < tokens.length - 1; index += 1) {
+          const token = tokens[index];
+          const nextToken = tokens[index + 1];
+          if (!token?.text || !nextToken?.text || nextToken.text === "\n") {
+            continue;
+          }
+          const candidateBreakAfterTokenIndex = resolveSafeBreakAfterTokenIndex(
+            tokens,
+            index
+          );
+          if (candidateBreakAfterTokenIndex >= tokens.length - 1) {
+            continue;
+          }
+          const firstEndToken = candidateBreakAfterTokenIndex + 1;
+          const secondStartToken = firstEndToken;
+          const firstWidth = measureTokenRange(tokens, 0, firstEndToken, measureText);
+          const secondWidth = measureTokenRange(
+            tokens,
+            secondStartToken,
+            tokens.length,
+            measureText
+          );
+          const firstText = tokens.slice(0, firstEndToken).map((currentToken) => currentToken.text).join("");
+          const secondText = tokens.slice(secondStartToken).map((currentToken) => currentToken.text).join("");
+          const score = Math.max(0, firstWidth - maxWidthPx) * 12 + Math.max(0, secondWidth - maxWidthPx) * 12 + Math.abs(secondWidth - firstWidth) * 0.4 + (startsWithDiscouragedLineStart(secondText) ? 260 : 0) + (endsWithDiscouragedLineEnd(firstText) ? 70 : 0);
+          if (score < bestScore) {
+            bestScore = score;
+            bestBreakAfterTokenIndex = candidateBreakAfterTokenIndex;
+          }
+        }
+        return bestBreakAfterTokenIndex;
+      };
+      const scoreBreakCandidate = ({
+        firstWidth,
+        secondWidth,
+        firstText,
+        secondText,
+        firstWordCount,
+        secondWordCount,
+        maxWidthPx,
+        boundary
+      }) => {
+        const overflowPenalty = Math.max(0, firstWidth - maxWidthPx) * 12 + Math.max(0, secondWidth - maxWidthPx) * 12;
+        const balanceTarget = 1.08;
+        const balancePenalty = Math.abs(secondWidth / Math.max(firstWidth, 1) - balanceTarget) * 120;
+        const shortTopPenalty = firstWordCount < 2 ? 80 : 0;
+        const orphanPenalty = secondWordCount < 2 ? 80 : 0;
+        const lineStartPenalty = startsWithDiscouragedLineStart(secondText) ? 260 : 0;
+        const lineEndPenalty = endsWithDiscouragedLineEnd(firstText) ? 70 : 0;
+        const boundaryBonus = boundary === "strong" ? -28 : boundary === "soft" ? -14 : 0;
+        return overflowPenalty + balancePenalty + shortTopPenalty + orphanPenalty + lineStartPenalty + lineEndPenalty + boundaryBonus;
+      };
+      function computeTokenWrapPlan(tokens, measureText, maxWidthPx, allowTruncation) {
+        if (!tokens.length) {
+          return {
+            breakAfterTokenIndices: [],
+            truncateAfterTokenIndex: null
+          };
+        }
+        const explicitBreakCount = tokens.reduce(
+          (count, token) => count + Number(token.text === "\n"),
+          0
+        );
+        if (explicitBreakCount > 0) {
+          return {
+            breakAfterTokenIndices: [],
+            truncateAfterTokenIndex: explicitBreakCount > 1 && allowTruncation ? tokens.length - 1 : null
+          };
+        }
+        const { slices } = buildWordSlices(tokens);
+        const measurableSlices = slices.filter((slice) => !slice.forcesLineBreak);
+        if (!measurableSlices.length) {
+          return {
+            breakAfterTokenIndices: [],
+            truncateAfterTokenIndex: null
+          };
+        }
+        const singleLineWidth = measureTokenRange(
+          tokens,
+          0,
+          tokens.length,
+          measureText
+        );
+        if (singleLineWidth <= maxWidthPx) {
+          return {
+            breakAfterTokenIndices: [],
+            truncateAfterTokenIndex: null
+          };
+        }
+        let bestBreakAfterTokenIndex = null;
+        let bestScore = Number.POSITIVE_INFINITY;
+        for (let index = 0; index < measurableSlices.length - 1; index += 1) {
+          const slice = measurableSlices[index];
+          const nextSlice = measurableSlices[index + 1];
+          const candidateBreakAfterTokenIndex = Math.max(
+            slice.breakAfterTokenIndex,
+            nextSlice.tokenIndex - 1
+          );
+          const firstEndToken = candidateBreakAfterTokenIndex + 1;
+          const secondStartToken = nextSlice.tokenIndex;
+          const firstWidth = measureTokenRange(tokens, 0, firstEndToken, measureText);
+          const secondWidth = measureTokenRange(
+            tokens,
+            secondStartToken,
+            tokens.length,
+            measureText
+          );
+          const firstText = tokens.slice(0, firstEndToken).map((token) => token.text).join("");
+          const secondText = tokens.slice(secondStartToken).map((token) => token.text).join("");
+          const score = scoreBreakCandidate({
+            firstWidth,
+            secondWidth,
+            firstText,
+            secondText,
+            firstWordCount: index + 1,
+            secondWordCount: measurableSlices.length - (index + 1),
+            maxWidthPx,
+            boundary: slice.boundary
+          });
+          if (score < bestScore) {
+            bestScore = score;
+            bestBreakAfterTokenIndex = candidateBreakAfterTokenIndex;
+          }
+        }
+        if (bestBreakAfterTokenIndex !== null) {
+          return {
+            breakAfterTokenIndices: [bestBreakAfterTokenIndex],
+            truncateAfterTokenIndex: allowTruncation && bestScore > maxWidthPx * 0.45 ? tokens.length - 1 : null
+          };
+        }
+        const fallbackBreakAfterTokenIndex = findFallbackBreakAfterTokenIndex(
+          tokens,
+          measureText,
+          maxWidthPx
+        );
+        if (fallbackBreakAfterTokenIndex !== null) {
+          return {
+            breakAfterTokenIndices: [fallbackBreakAfterTokenIndex],
+            truncateAfterTokenIndex: allowTruncation ? tokens.length - 1 : null
+          };
+        }
+        return {
+          breakAfterTokenIndices: [],
+          truncateAfterTokenIndex: allowTruncation ? tokens.length - 1 : null
         };
-        const wordRanges = buildInitialWordRanges(wordsCount, isRangeAllowed);
-        rebalanceSingletonRanges(wordRanges, isRangeAllowed);
-        applySentenceBoundarySplits(wordRanges, tokens, words, isRangeAllowed);
-        return mapWordRangesToTimedSegments(wordRanges, words, tokens);
       }
       const WRAP_WIDTH_GUARD_PX = 8;
       const WRAP_WIDTH_GUARD_RATIO = 0.97;
@@ -15832,12 +15685,7 @@ safeAreaBottomInsetCachedPx = 0;
             return cached.value;
           }
           const { slices, key } = buildWordSlices(tokens);
-          const words = slices.map((slice) => ({
-            tokenIndex: slice.tokenIndex,
-            breakAfterTokenIndex: slice.breakAfterTokenIndex
-          }));
           const value = {
-            words,
             wordSlices: slices,
             normalizedWordsKey: key
           };
@@ -15887,8 +15735,8 @@ safeAreaBottomInsetCachedPx = 0;
           return `${tokens[0]?.startMs ?? 0}:${tokens[0]?.durationMs ?? 0}:${tokens.length}`;
         }
         getLineMeasureMemo(tokens, activeLineKey) {
-          const { words, wordSlices, normalizedWordsKey } = this.buildTokenPrecomputeInput(tokens);
-          if (!words.length) return null;
+          const { wordSlices, normalizedWordsKey } = this.buildTokenPrecomputeInput(tokens);
+          if (!wordSlices.length) return null;
           const ctx = this.getMeasureContext();
           if (!ctx) return null;
           const { fontKey, maxWidthPx } = this.getTokenLayoutInputs(ctx);
@@ -15907,7 +15755,6 @@ safeAreaBottomInsetCachedPx = 0;
           );
           const memo = {
             key,
-            words,
             metrics,
             maxWidthPx
           };
@@ -15924,7 +15771,6 @@ safeAreaBottomInsetCachedPx = 0;
           const safeMaxWidthPx = applyWrapWidthGuard(lineMeasure.maxWidthPx);
           const segmentRanges = computeTwoLineSegments(
             tokens,
-            lineMeasure.words,
             lineMeasure.metrics,
             safeMaxWidthPx,
             this.maxLength
@@ -17636,7 +17482,7 @@ safeAreaBottomInsetCachedPx = 0;
             loaded += value.byteLength;
           }
           if (total > 0) {
-            onProgress(clamp$2(Math.round(loaded / total * 100)));
+            onProgress(clamp(Math.round(loaded / total * 100)));
           }
         }
         if (out) {
@@ -22707,7 +22553,6 @@ set key(newKey) {
         setSubtitlesSmartLayout(checked) {
           this.data.subtitlesSmartLayout = checked;
           void votStorage.set("subtitlesSmartLayout", checked);
-          debug.log("subtitlesSmartLayout value changed. New value:", checked);
           if (this.subtitlesSmartLayoutCheckbox?.checked !== checked) {
             this.suppressSubtitlesSmartLayoutCheckboxChange = true;
             this.subtitlesSmartLayoutCheckbox.checked = checked;
@@ -22752,7 +22597,6 @@ set key(newKey) {
           control.addEventListener(event, async (value) => {
             apply(value);
             await votStorage.set(storageKey, readPersistedValue());
-            debug.log(`${logLabel} value changed. New value:`, value);
             if (afterPersist) {
               await afterPersist(value);
             }
@@ -23435,10 +23279,6 @@ set key(newKey) {
                 "enabledDontTranslateLanguages",
                 this.data.enabledDontTranslateLanguages
               );
-              debug.log(
-                "enabledDontTranslateLanguages value changed. New value:",
-                checked
-              );
             }
           );
           this.dontTranslateLanguagesSelect.addEventListener(
@@ -23449,7 +23289,6 @@ set key(newKey) {
                 "dontTranslateLanguages",
                 this.data.dontTranslateLanguages
               );
-              debug.log("dontTranslateLanguages value changed. New value:", values);
             }
           );
           this.bindPersistedSetting({
@@ -23600,7 +23439,6 @@ set key(newKey) {
               "subtitlesMaxLength",
               this.data.subtitlesMaxLength
             );
-            debug.log("subtitlesMaxLength value changed. New value:", value);
             this.events["input:subtitlesMaxLength"].dispatch(value);
           });
           this.subtitlesFontSizeSlider.addEventListener("input", (value) => {
@@ -23613,7 +23451,6 @@ set key(newKey) {
               "subtitlesFontSize",
               this.data.subtitlesFontSize
             );
-            debug.log("subtitlesFontSize value changed. New value:", value);
             this.events["input:subtitlesFontSize"].dispatch(value);
           });
           this.subtitlesBackgroundOpacitySlider.addEventListener("input", (value) => {
@@ -23623,7 +23460,6 @@ set key(newKey) {
               "subtitlesOpacity",
               this.data.subtitlesOpacity
             );
-            debug.log("subtitlesOpacity value changed. New value:", value);
             this.events["input:subtitlesBackgroundOpacity"].dispatch(value);
           });
           this.bindPersistedSetting({
@@ -23753,7 +23589,6 @@ set key(newKey) {
           this.autoHideButtonDelaySlider.addEventListener("input", (value) => {
             this.autoHideButtonDelaySliderLabel.value = value;
             const newDelay = Math.round(value * 1e3);
-            debug.log("autoHideButtonDelay value changed. New value:", newDelay);
             this.data.autoHideButtonDelay = newDelay;
             this.scheduleStoragePersist(
               "autoHideButtonDelay",
@@ -23949,7 +23784,6 @@ votSettingsView;
               const isPiPActive = this.videoHandler.video === document.pictureInPictureElement;
               await (isPiPActive ? document.exitPictureInPicture() : this.videoHandler.video.requestPictureInPicture());
             } catch (err) {
-              debug.warn("[VOT] Failed to toggle Picture-in-Picture", err);
             }
           }).addEventListener("click:settings", async () => {
             this.videoHandler?.subtitlesWidget?.releaseTooltip();
@@ -24026,7 +23860,7 @@ votSettingsView;
               const currentVolume = overlayView.translationVolumeSlider.value;
               const maxVolume = this.data.audioBooster ? maxAudioVolume : 100;
               overlayView.translationVolumeSlider.max = maxVolume;
-              const nextVolume = clamp$2(currentVolume, 0, maxVolume);
+              const nextVolume = clamp(currentVolume, 0, maxVolume);
               overlayView.translationVolumeSlider.value = nextVolume;
               this.videoHandler?.onTranslationVolumeSliderSynced(nextVolume);
             });
@@ -24251,21 +24085,15 @@ votSettingsView;
             this.votOverlayView.votButton.container.hidden = prevButtonHidden;
             this.votOverlayView.votButton.opacity = prevButtonOpacity;
           } catch (err) {
-            debug.warn(
-              "[VOT] Failed to restore overlay state after menu reload",
-              err
-            );
           }
           try {
             this.videoHandler.rebindOverlayVisibilityTargets();
           } catch (err) {
-            debug.warn("[VOT] Failed to rebind overlay visibility targets", err);
           }
           if (settingsWasOpen) {
             try {
               this.votSettingsView?.open();
             } catch (err) {
-              debug.warn("[VOT] Failed to reopen settings after menu reload", err);
             }
           }
           await this.videoHandler.updateSubtitlesLangSelect();
@@ -24283,9 +24111,7 @@ votSettingsView;
           if (!videoHandler) {
             return this;
           }
-          debug.log("[handleTranslationBtnClick] click translationBtn");
           if (videoHandler.hasActiveSource()) {
-            debug.log("[handleTranslationBtnClick] video has active source");
             await videoHandler.stopTranslation();
             return this;
           }
@@ -24293,9 +24119,6 @@ votSettingsView;
             this.transformBtn("none", localizationProvider.get("translateVideo"));
           }
           if (this.votOverlayView.votButton.status !== "none" || this.votOverlayView.votButton.loading) {
-            debug.log(
-              "[handleTranslationBtnClick] translationBtn isn't in none state"
-            );
             videoHandler.actionsAbortController.abort();
             await videoHandler.stopTranslation();
             return this;
@@ -24394,7 +24217,6 @@ votSettingsView;
         }
         runDetached(task, errorMessage) {
           void task.catch((err) => {
-            debug.warn(`[VOT] ${errorMessage}`, err);
           });
         }
         triggerUrlDownload(url, filename) {
@@ -24431,7 +24253,6 @@ votSettingsView;
             await videoHandler.stopTranslate();
             videoHandler.createPlayer();
           } catch (err) {
-            debug.warn("[VOT] Failed to restart audio player", err);
           }
         }
       }
@@ -24534,7 +24355,6 @@ scheduleHide(event) {
             active = document.activeElement;
           }
           if (active && this.deps.isInteractiveNode(active)) {
-            debug.log("[OverlayVisibility] skip hide (focus inside overlay)");
             return;
           }
           const view = this.getView();
@@ -24820,7 +24640,6 @@ scheduleHide(event) {
             return true;
           }
         } catch (err) {
-          debug.log("[notify] userscript api error", err);
         }
         return false;
       }
@@ -24842,7 +24661,6 @@ scheduleHide(event) {
               debug.log("[notify] unavailable", normalized);
             }
           } catch (err) {
-            debug.log("[notify] send error", err);
           }
         }
         translationCompleted(host) {
@@ -24939,7 +24757,6 @@ tag: `VOTtranslationFailed_${videoId || "unknown"}`,
             try {
               sub(root);
             } catch (error2) {
-              debug.error("attachShadow subscriber failed", error2);
             }
           }
           return root;
@@ -25075,7 +24892,6 @@ tag: `VOTtranslationFailed_${videoId || "unknown"}`,
           if (this.isAdRelated(video)) return false;
           if (this.isInsideAd(video)) return false;
           if (!this.hasAudio(video)) {
-            debug.log("Ignoring video without audio:", video);
             return false;
           }
           return true;
@@ -25651,7 +25467,6 @@ tag: `VOTtranslationFailed_${videoId || "unknown"}`,
               }
             }
           } catch (error2) {
-            debug.log("[VOT] Failed to sync audio track language", error2);
           }
         };
         const player2 = YoutubeHelper.getPlayer();
@@ -25661,7 +25476,6 @@ tag: `VOTtranslationFailed_${videoId || "unknown"}`,
             try {
               player2.addEventListener(eventName, syncAudioTrackLanguage);
             } catch (error2) {
-              debug.log(`[VOT] Failed to bind ${eventName}`, error2);
             }
           }
         }
@@ -25674,7 +25488,6 @@ tag: `VOTtranslationFailed_${videoId || "unknown"}`,
               try {
                 player2.removeEventListener(eventName, syncAudioTrackLanguage);
               } catch (error2) {
-                debug.log(`[VOT] Failed to unbind ${eventName}`, error2);
               }
             }
           },
@@ -25693,9 +25506,6 @@ tag: `VOTtranslationFailed_${videoId || "unknown"}`,
           const isVideo = target ? self.container.contains(target) : false;
           const isSettings = target && settings ? settings.contains(target) : false;
           const isTempDialog = target instanceof Element && target.closest(".vot-dialog-temp") instanceof Element;
-          debug.log(
-            `[document click] ${isButton} ${isMenu} ${isVideo} ${isSettings} ${isTempDialog}`
-          );
           if (isButton || isMenu || isSettings || isTempDialog) return;
           if (!isVideo) overlayView.updateButtonOpacity(0);
           if (menu && !menu.hidden) {
@@ -25708,7 +25518,6 @@ tag: `VOTtranslationFailed_${videoId || "unknown"}`,
         const clearUserPressedKeys = () => userPressedKeys.clear();
         const runHotkeyAction = (action, actionName) => {
           void action().catch((error2) => {
-            debug.log(`[VOT] ${actionName} hotkey action failed`, error2);
           });
         };
         add(document, "keydown", (event) => {
@@ -25726,8 +25535,7 @@ tag: `VOTtranslationFailed_${videoId || "unknown"}`,
           )) {
             clearUserPressedKeys();
             runHotkeyAction(
-              () => self.uiManager.handleTranslationBtnClick(),
-              "Translation"
+              () => self.uiManager.handleTranslationBtnClick()
             );
             return;
           }
@@ -25737,8 +25545,7 @@ tag: `VOTtranslationFailed_${videoId || "unknown"}`,
           )) {
             clearUserPressedKeys();
             runHotkeyAction(
-              () => self.toggleSubtitlesForCurrentLangPair(),
-              "Subtitles"
+              () => self.toggleSubtitlesForCurrentLangPair()
             );
           }
         });
@@ -25790,7 +25597,6 @@ tag: `VOTtranslationFailed_${videoId || "unknown"}`,
           try {
             await self.setCanPlay();
           } catch (err) {
-            debug.log("[VOT] setCanPlay() failed", err);
           }
         };
         let setCanPlayQueued = false;
@@ -25814,12 +25620,10 @@ tag: `VOTtranslationFailed_${videoId || "unknown"}`,
               video: self.video
             });
           } catch (error2) {
-            debug.log("[VOT] Failed to resolve video id on emptied", error2);
           }
           if (self.videoData && videoId && videoId === self.videoData.videoId) {
             return;
           }
-          debug.log("lipsync mode is emptied");
           resetAndHideLifecycle(self, overlayView, {
             clearVideoData: true,
             hideMenu: true
@@ -25827,7 +25631,6 @@ tag: `VOTtranslationFailed_${videoId || "unknown"}`,
         };
         add(self.video, "emptied", () => {
           void handleVideoEmptied().catch((error2) => {
-            debug.log("[VOT] Failed to handle emptied lifecycle event", error2);
           });
         });
         if (!isMuteSyncDisabledHost(self.site.host)) {
@@ -25845,7 +25648,6 @@ tag: `VOTtranslationFailed_${videoId || "unknown"}`,
         }
         if (self.site.host === "youtube" && !self.site.additionalData) {
           add(document, "yt-page-data-updated", () => {
-            debug.log("yt-page-data-updated");
             if (!globalThis.location.pathname.startsWith("/shorts/")) return;
             queueSetCanPlay();
           });
@@ -26002,7 +25804,6 @@ useAudioDownload: isSupportGMXhr,
           this.data.translateProxyEnabled,
           this.data.translateProxyEnabledDefault
         );
-        debug.log("Extension compatibility passed...");
         await this.initVOTClient();
         this.uiManager.initUI();
         this.uiManager.initUIEvents();
@@ -26066,11 +25867,6 @@ useAudioDownload: isSupportGMXhr,
         }
         const subtitlesPath = subtitlesUrl.slice(SUBTITLE_SOURCE_PREFIX.length);
         return `https://${resolveProxyWorkerHost(config2.proxyWorkerHost)}${SUBTITLE_PROXY_PATH_PREFIX}${subtitlesPath}`;
-      }
-      function timeout(ms, message = "Operation timed out") {
-        return new Promise(
-          (_2, reject) => setTimeout(() => reject(new Error(message)), ms)
-        );
       }
       const DEFAULT_CACHE_LOCALE = "und";
       const wordSegmenterCache = new Map();
@@ -26861,7 +26657,9 @@ useAudioDownload: isSupportGMXhr,
             };
             const response = await Promise.race([
               client.getSubtitles(requestPayload),
-              timeout(5e3, "Timeout")
+              new Promise((_2, reject) => {
+                setTimeout(() => reject(new Error("Timeout")), 5e3);
+              })
             ]);
             const res = response;
             debug.log("[VOT] Subtitles response:", res);
@@ -27050,7 +26848,6 @@ useAudioDownload: isSupportGMXhr,
         return handler;
       }
       async function changeSubtitlesLang(subs) {
-        debug.log("[onchange] subtitles", subs);
         const requestVersion = nextSubtitlesSelectionRequestVersion(this);
         const overlayView = this.uiManager.votOverlayView;
         if (!overlayView?.subtitlesSelect || !overlayView.downloadSubtitlesButton) {
@@ -27305,13 +27102,13 @@ useAudioDownload: isSupportGMXhr,
         let nextVolume = currentVideoVolume + (desired - currentVideoVolume) * smoothingAlpha;
         const maxDelta = (desired < currentVideoVolume ? config2.maxDownPerSec : config2.maxUpPerSec) * dtSec;
         if (maxDelta > 0) {
-          nextVolume = clamp$2(
+          nextVolume = clamp(
             nextVolume,
             currentVideoVolume - maxDelta,
             currentVideoVolume + maxDelta
           );
         }
-        return clamp$2(nextVolume, VOLUME_MIN_01, VOLUME_MAX_01);
+        return clamp(nextVolume, VOLUME_MIN_01, VOLUME_MAX_01);
       }
       function buildVolumeDecision(runtime, currentVideoVolume, quantized, applyDeltaThreshold01) {
         if (Math.abs(quantized - currentVideoVolume) < applyDeltaThreshold01) {
@@ -27340,15 +27137,15 @@ useAudioDownload: isSupportGMXhr,
         }
         const now2 = Number.isFinite(input.nowMs) ? input.nowMs : Date.now();
         const prevTickAt = nextRuntime.lastTickAt || now2;
-        const dtMs = clamp$2(now2 - prevTickAt, 0, config2.maxDtMs);
+        const dtMs = clamp(now2 - prevTickAt, 0, config2.maxDtMs);
         const dtSec = dtMs / 1e3;
         nextRuntime.lastTickAt = now2;
         const hasRms = isFiniteNumber(input.rms);
-        const rmsValue = hasRms ? clamp$2(input.rms, VOLUME_MIN_01, VOLUME_MAX_01) : 0;
+        const rmsValue = hasRms ? clamp(input.rms, VOLUME_MIN_01, VOLUME_MAX_01) : 0;
         const prevEnv = nextRuntime.rmsEnvelope;
         const envTauMs = rmsValue > prevEnv ? config2.rmsAttackTauMs : config2.rmsReleaseTauMs;
         const envAlpha = envTauMs > 0 ? -Math.expm1(-dtMs / envTauMs) : 1;
-        nextRuntime.rmsEnvelope = clamp$2(
+        nextRuntime.rmsEnvelope = clamp(
           prevEnv + (rmsValue - prevEnv) * envAlpha,
           VOLUME_MIN_01,
           VOLUME_MAX_01
@@ -27413,7 +27210,7 @@ useAudioDownload: isSupportGMXhr,
       }
       function normalizeVolume01(value) {
         if (!isFiniteNumber(value)) return void 0;
-        return clamp$2(value, VOLUME_MIN_01, VOLUME_MAX_01);
+        return clamp(value, VOLUME_MIN_01, VOLUME_MAX_01);
       }
       function isFiniteNumber(value) {
         return typeof value === "number" && Number.isFinite(value);
@@ -27449,7 +27246,6 @@ useAudioDownload: isSupportGMXhr,
             await ctx.resume();
             return "resumed";
           } catch (err) {
-            debug.log("[updateTranslation] Failed to resume AudioContext", err);
             return "failed";
           }
         })();
@@ -27460,11 +27256,6 @@ useAudioDownload: isSupportGMXhr,
         const result = await Promise.race([resumePromise, timeoutPromise]);
         if (timeoutId !== void 0) {
           clearTimeout(timeoutId);
-        }
-        if (result === "resumed") {
-          debug.log("[updateTranslation] AudioContext resumed");
-        } else if (result === "timeout") {
-          debug.log("[updateTranslation] AudioContext resume timeout");
         }
         return result;
       }
@@ -27484,7 +27275,6 @@ useAudioDownload: isSupportGMXhr,
           player2.src = "";
           debug.log("[updateTranslation] cleared stale partially-applied source");
         } catch (err) {
-          debug.log("[updateTranslation] failed to clear stale source", err);
         }
       }
       function getSmartDuckingAudioContext(handler) {
@@ -27541,7 +27331,6 @@ useAudioDownload: isSupportGMXhr,
           return source;
         } catch (err) {
           state.mediaSourceCreationFailed = true;
-          debug.log("[SmartDucking] failed to create media source", err);
           return void 0;
         }
       }
@@ -27582,7 +27371,6 @@ useAudioDownload: isSupportGMXhr,
             inputNode.connect(analyser);
             state.connectedInputNode = inputNode;
           } catch (err) {
-            debug.log("[SmartDucking] failed to connect analyser", err);
             return void 0;
           }
         }
@@ -27634,7 +27422,6 @@ useAudioDownload: isSupportGMXhr,
           try {
             smartDuckingTick(handler);
           } catch (err) {
-            debug.log("[SmartDucking] tick failed, stopping smart ducking", err);
             stopSmartVolumeDucking(handler);
             return;
           }
@@ -27679,7 +27466,7 @@ useAudioDownload: isSupportGMXhr,
             for (const value of floatData) {
               sum2 += value * value;
             }
-            return clamp$2(Math.sqrt(sum2 / floatData.length), 0, 1);
+            return clamp(Math.sqrt(sum2 / floatData.length), 0, 1);
           }
           let data = state.analyserData;
           if (data?.length !== analyser.fftSize) {
@@ -27692,7 +27479,7 @@ useAudioDownload: isSupportGMXhr,
             const normalizedValue = (rawValue - 128) / 128;
             sum += normalizedValue * normalizedValue;
           }
-          return clamp$2(Math.sqrt(sum / data.length), 0, 1);
+          return clamp(Math.sqrt(sum / data.length), 0, 1);
         } catch {
           return void 0;
         }
@@ -27710,7 +27497,7 @@ useAudioDownload: isSupportGMXhr,
         const currentVideoVolume = handler.getVideoVolume();
         const hostVideo = handler.video;
         const hostVideoActive = !(hostVideo && (hostVideo.paused || hostVideo.ended));
-        const dynamicDuckingTarget = clamp$2(handler.data?.autoVolume ?? defaultAutoVolume, 0, 100) / 100;
+        const dynamicDuckingTarget = clamp(handler.data?.autoVolume ?? defaultAutoVolume, 0, 100) / 100;
         handler.smartVolumeDuckingTarget = dynamicDuckingTarget;
         const rms = audioIsPlaying && media ? getTranslatedAudioRms(handler, media) : 0;
         const decision = computeSmartDuckingStep(
@@ -27784,7 +27571,6 @@ useAudioDownload: isSupportGMXhr,
             if (response.ok) return true;
           } catch (err) {
             if (isProbeCancelled(handler, actionContext, signal)) return false;
-            debug.log("[validateAudioUrl] probe error", { audioUrl, attempt, err });
           }
           if (!await shouldRetryAudioProbe(attempt, handler, actionContext, signal)) {
             return false;
@@ -27819,7 +27605,6 @@ useAudioDownload: isSupportGMXhr,
             actionContext
           );
           if (isDirectUrlValid) {
-            debug.log("[validateAudioUrl] switching to direct audio URL after probe");
             return directUrl;
           }
         }
@@ -27834,7 +27619,6 @@ useAudioDownload: isSupportGMXhr,
         const refreshDelayMs = Math.max(3e4, YANDEX_TTL_MS - 5 * 60 * 1e3);
         this.translationRefreshTimeout = setTimeout(() => {
           this.refreshTranslationAudio().catch((error2) => {
-            debug.log("[scheduleTranslationRefresh] refresh failed", error2);
           });
         }, refreshDelayMs);
       }
@@ -27913,16 +27697,12 @@ useAudioDownload: isSupportGMXhr,
           translateProxyEnabled: this.data?.translateProxyEnabled,
           proxyWorkerHost: this.data?.proxyWorkerHost
         });
-        if (proxiedAudioUrl !== audioUrl) {
-          debug.log(`[VOT] Audio proxied via ${proxiedAudioUrl}`);
-        }
         return proxiedAudioUrl;
       }
       function unproxifyAudio(audioUrl) {
         return unproxifyYandexAudioUrl(audioUrl);
       }
       async function handleProxySettingsChanged(reason = "proxySettingsChanged") {
-        debug.log(`[VOT] ${reason}: clearing translation/subtitles cache`);
         try {
           this.cacheManager.clear();
           this.activeTranslation = null;
@@ -28003,7 +27783,6 @@ useAudioDownload: isSupportGMXhr,
           this.createPlayer();
         }
         if (this.audioPlayer.audioContext?.state === "closed") {
-          debug.log("[updateTranslation] AudioContext is closed, recreating player");
           this.createPlayer();
         }
         const normalizedTargetUrl = normalizeManagedAudioUrl(this, audioUrl);
@@ -28062,9 +27841,6 @@ useAudioDownload: isSupportGMXhr,
       }
       async function retryTranslationWithDirectSource(handler, audioUrl, appliedSourceUrl, actionContext) {
         const directUrl = handler.unproxifyAudio(audioUrl);
-        debug.log(
-          "[updateTranslation] proxied audio init failed, retrying direct URL"
-        );
         try {
           const validatedDirectUrl = await handler.validateAudioUrl(
             directUrl,
@@ -28103,21 +27879,18 @@ useAudioDownload: isSupportGMXhr,
       }
       async function translateFunc(VIDEO_ID, _isStream, requestLang, responseLang, translationHelp) {
         await this.waitForPendingStopTranslate();
-        debug.log("Run videoValidator");
         await this.videoValidator();
         if (this.actionsAbortController?.signal?.aborted) {
           this.resetActionsAbortController("translateFunc");
         }
         const overlayView = this.uiManager.votOverlayView;
         if (!overlayView?.votButton) {
-          debug.log("[translateFunc] Overlay view missing, skipping translation");
           return;
         }
         overlayView.votButton.loading = true;
         this.hadAsyncWait = false;
         this.volumeOnStart = this.getVideoVolume();
         if (!VIDEO_ID) {
-          debug.log("Skip translation - no VIDEO_ID resolved yet");
           await this.updateTranslationErrorMsg(
             new VOTLocalizedError("VOTNoVideoIDFound"),
             this.actionsAbortController.signal
@@ -28141,7 +27914,6 @@ useAudioDownload: isSupportGMXhr,
         );
         const activeKey = `video_${cacheKey}`;
         if (this.activeTranslation?.key === activeKey) {
-          debug.log("[translateFunc] Reusing in-flight translation");
           await this.activeTranslation.promise;
           return;
         }
@@ -28151,7 +27923,6 @@ useAudioDownload: isSupportGMXhr,
         };
         const translationPromise = (async () => {
           if (this.isActionStale(actionContext)) {
-            debug.log("[translateFunc] Stale translation task - skipping");
             return;
           }
           const reqLang = requestLang;
@@ -28167,10 +27938,9 @@ useAudioDownload: isSupportGMXhr,
           if (cachedEntry?.url) {
             const updated = await applyTranslationUrl(cachedEntry.url);
             if (!updated) return;
-            debug.log("[translateFunc] Cached translation was received");
             return;
           }
-          const translateRes = await requestApplyAndCacheTranslation(this, {
+          await requestApplyAndCacheTranslation(this, {
             videoData,
             requestLang: reqLang,
             responseLang: resLang,
@@ -28196,10 +27966,6 @@ useAudioDownload: isSupportGMXhr,
               }
             }
           });
-          debug.log("[translateRes]", translateRes);
-          if (!translateRes) {
-            debug.log("Skip translation");
-          }
         })();
         this.activeTranslation = {
           key: activeKey,
@@ -28223,7 +27989,6 @@ useAudioDownload: isSupportGMXhr,
           }
           const overlayBtn = this.uiManager.votOverlayView?.votButton;
           if (!this.activeTranslation && overlayBtn?.loading && !this.hasActiveSource()) {
-            debug.log("[translateFunc] clearing stale loading state");
             this.transformBtn("none", localizationProvider.get("translateVideo"));
           }
         }
@@ -28242,7 +28007,7 @@ useAudioDownload: isSupportGMXhr,
           });
           return;
         }
-        const targetVolume = clamp$2(this.data.autoVolume ?? defaultAutoVolume, 0, 100) / 100;
+        const targetVolume = clamp(this.data.autoVolume ?? defaultAutoVolume, 0, 100) / 100;
         this.smartVolumeDuckingTarget = targetVolume;
         if (!this.hasActiveSource()) {
           return;
@@ -28411,13 +28176,6 @@ getSubtitlesCacheKey(videoId, detectedLanguage, responseLanguage) {
           this.updateVOTClientRequestSignal();
         }
 constructor(video, container, site) {
-          debug.log(
-            "[VideoHandler] add video:",
-            video,
-            "container:",
-            container,
-            this
-          );
           this.video = video;
           this.container = container;
           this.site = site;
@@ -28646,7 +28404,6 @@ getPreferAudio() {
         }
 createPlayer() {
           const preferAudio = this.getPreferAudio();
-          debug.log("preferAudio:", preferAudio);
           this.audioPlayer = new Chaimu({
             video: this.video,
 debug: Boolean(false),
@@ -28891,7 +28648,6 @@ stopTranslate() {
                 this.audioPlayer.player.src = "";
                 await this.audioPlayer.player.clear();
               } catch (err) {
-                debug.log("[stopTranslate] audioPlayer cleanup error", err);
               }
               debug.log("audioPlayer after stopTranslate", this.audioPlayer);
             }
@@ -28948,7 +28704,6 @@ async updateTranslationErrorMsg(errorMessage, signal) {
           if (this.longWaitingResCount > minLongWaitingCount) {
             errorMessage = new VOTLocalizedError("TranslationDelayed");
           }
-          debug.log("updateTranslationErrorMsg message", errorMessage);
           const resolvedMessage = await this.resolveTranslationErrorDisplayMessage(
             errorMessage,
             translationTake2,
@@ -29103,12 +28858,10 @@ handleSrcChanged() {
           return this.lifecycleController.handleSrcChanged();
         }
 async release() {
-          debug.log("[VideoHandler] release");
           this.initialized = false;
           try {
             await this.stopTranslation();
           } catch (err) {
-            debug.log("[VideoHandler] stopTranslation failed during release", err);
           }
           this.lifecycleController?.teardown();
           this.abortController?.abort();
@@ -29180,17 +28933,11 @@ releaseExtraEvents = releaseExtraEvents;
         return servicesCache;
       }
       function findContainer(site, video) {
-        debug.log("findContainer", site, video);
         if (!site.selector) {
-          debug.log("findContainer without selector, using parentElement");
           return video.parentElement;
         }
         const matched = findConnectedContainerBySelector(video, site.selector);
-        if (site.shadowRoot) {
-          debug.log("findContainer with site.shadowRoot", matched);
-        } else {
-          debug.log("findContainer without shadowRoot", matched);
-        }
+        if (site.shadowRoot) ;
         return matched;
       }
       async function main() {
