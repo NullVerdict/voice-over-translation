@@ -149,6 +149,7 @@
 // @match           *://video.bunnycdn.com/*
 // @match           *://*.weibo.com/*
 // @match           *://*.jove.com/*
+// @match           *://*.preservetube.com/*
 // @match           *://*/*.mp4*
 // @match           *://*/*.webm*
 // @match           *://*.yewtu.be/*
