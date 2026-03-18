@@ -5779,7 +5779,6 @@ string() {
           return video?.src || video?.currentSrc || video?.querySelector("source[src]")?.src || void 0;
         }
         async getVideoData(videoId) {
-          const video = this.video instanceof HTMLVideoElement ? this.video : document.querySelector("video");
           const videoSource = this.getVideoSrc();
           if (!videoSource) {
             return void 0;
@@ -5787,7 +5786,6 @@ string() {
           const data = {
             url: `${this.SITE_ORIGIN}/${videoId}`,
             video_url: videoSource,
-            duration: Number.isFinite(video?.duration ?? Number.NaN) ? video?.duration : void 0,
             translationHelp: [
               {
                 target: "video_file_url",
@@ -7718,7 +7716,7 @@ string() {
         "seeked"
       ];
       function initAudioContext() {
-        const audioContext = window.AudioContext || window.webkitAudioContext;
+        const audioContext = window.AudioContext ?? window.webkitAudioContext;
         return audioContext ? new audioContext() : void 0;
       }
       class BasePlayer {
@@ -7807,10 +7805,11 @@ string() {
             return this;
           }
           this.disconnectAudioNodes();
-          this.gainNode = this.chaimu.audioContext.createGain();
-          this.gainNode.connect(this.chaimu.audioContext.destination);
+          const gainNode = this.chaimu.audioContext.createGain();
+          this.gainNode = gainNode;
+          gainNode.connect(this.chaimu.audioContext.destination);
           this.audioSource = this.chaimu.audioContext.createMediaElementSource(this.audio);
-          this.audioSource.connect(this.gainNode);
+          this.audioSource.connect(gainNode);
           return this;
         }
         disconnectAudioNodes() {
@@ -8017,9 +8016,13 @@ string() {
               audio.webkitPreservesPitch = true;
           }
           this.audioElement = audio;
+          const gainNode = this.gainNode;
+          if (!gainNode) {
+            throw new Error("Audio gain node is missing");
+          }
           this.mediaElementSource = this.chaimu.audioContext.createMediaElementSource(audio);
-          this.mediaElementSource.connect(this.gainNode);
-          this.gainNode.connect(this.chaimu.audioContext.destination);
+          this.mediaElementSource.connect(gainNode);
+          gainNode.connect(this.chaimu.audioContext.destination);
         }
         lipSync(mode = false) {
           debug$1.log("[ChaimuPlayer] lipsync video", this.chaimu.video, this);
@@ -8185,7 +8188,9 @@ string() {
         }
         async init() {
           await this.player.init();
-          if (this.video && !this.video.paused) {
+          if (this.video.paused) {
+            await this.player.pause();
+          } else {
             this.player.lipSync("play");
           }
           this.player.addVideoEvents();
@@ -13635,7 +13640,7 @@ updateMount({
       };
       const toRenderableTextKey = (line) => {
         const text = line.text || createFallbackTokens(line).map((token) => token.text).join("");
-        return text.replace(/\s+/gu, " ").trim();
+        return text.replaceAll(/\s+/gu, " ").trim();
       };
       const linesOverlapInTime = (left, right) => {
         const leftEnd = left.startMs + Math.max(0, left.durationMs);
@@ -13721,8 +13726,7 @@ updateMount({
         const lineIndices = [];
         let earliestStartMs = Number.POSITIVE_INFINITY;
         let latestEndMs = 0;
-        for (let index = 0; index < activeEntries.length; index += 1) {
-          const entry = activeEntries[index];
+        for (const entry of activeEntries) {
           const lineTokens = createFallbackTokens(entry.line);
           if (!lineTokens.length) continue;
           if (tokens.length > 0) {
@@ -14345,9 +14349,9 @@ updateMount({
       }
       const STRONG_BREAK_RE = /[.!?…:;][)"'\]»”]*\s*$/u;
       const SOFT_BREAK_RE = /[,،、][)"'\]»”]*\s*$/u;
-      const DISCOURAGED_LINE_START_RE = /^[\s]*[\p{Pe}\p{Pf},.;:!?%‰…]/u;
-      const DISCOURAGED_LINE_END_RE = /[\s]*[\p{Ps}\p{Pi}¿¡([{«“"'`-]\s*$/u;
-      const normalizeTokenText = (text) => text.replace(/\s+/gu, " ").trim();
+      const DISCOURAGED_LINE_START_RE = /^\s*[\p{Pe}\p{Pf},.;:!?%‰…]/u;
+      const DISCOURAGED_LINE_END_RE = /\s*[\p{Ps}\p{Pi}¿¡([{«“"'`-]\s*$/u;
+      const normalizeTokenText = (text) => text.replaceAll(/\s+/gu, " ").trim();
       const resolveBoundary = (text) => {
         if (STRONG_BREAK_RE.test(text)) return "strong";
         if (SOFT_BREAK_RE.test(text)) return "soft";
@@ -14489,8 +14493,7 @@ updateMount({
         let currentLineWidth = 0;
         let currentLineCount = 1;
         let lastTokenInSegment = segmentStartToken;
-        for (let index = 0; index < metrics.length; index += 1) {
-          const metric = metrics[index];
+        for (const metric of metrics) {
           if (metric.forcesLineBreak) {
             currentLineCount += 1;
             currentLineWidth = 0;
@@ -25600,6 +25603,15 @@ tag: `VOTtranslationFailed_${videoId || "unknown"}`,
           if (self.site.host === "rutube" && self.video.src) return;
           queueSetCanPlay();
         });
+        add(self.video, "play", () => {
+          self.setupAudioSettings();
+        });
+        add(self.video, "pause", () => {
+          self.setupAudioSettings();
+        });
+        add(self.video, "ended", () => {
+          self.setupAudioSettings();
+        });
         const handleVideoEmptied = async () => {
           let videoId;
           try {
@@ -27226,6 +27238,9 @@ useAudioDownload: isSupportGMXhr,
         return handler.data?.enabledSmartDucking ?? true ? "smart" : "classic";
       }
       async function resumePlayerAudioContextIfNeeded(handler) {
+        if (handler.video.paused || handler.video.ended) {
+          return "not-needed";
+        }
         const ctx = handler.audioPlayer?.audioContext;
         if (!ctx || ctx.state !== "suspended") return "not-needed";
         const RESUME_TIMEOUT_MS = 1500;
@@ -27388,10 +27403,7 @@ useAudioDownload: isSupportGMXhr,
       }
       function stopSmartVolumeDucking(handler, options = {}) {
         const { restoreVolume } = options;
-        if (handler.smartVolumeDuckingInterval !== void 0) {
-          clearTimeout(handler.smartVolumeDuckingInterval);
-          handler.smartVolumeDuckingInterval = void 0;
-        }
+        stopSmartVolumeDuckingTimer(handler);
         const baseline = typeof restoreVolume === "number" ? restoreVolume : handler.smartVolumeDuckingBaseline ?? handler.volumeOnStart;
         if (typeof baseline === "number" && (typeof restoreVolume === "number" || handler.smartVolumeIsDucked)) {
           try {
@@ -27416,6 +27428,11 @@ useAudioDownload: isSupportGMXhr,
           if (handler.smartVolumeDuckingInterval === void 0) return;
           scheduleNextSmartDuckingTick(handler);
         }, SMART_DUCKING_TICK_MS);
+      }
+      function stopSmartVolumeDuckingTimer(handler) {
+        if (handler.smartVolumeDuckingInterval === void 0) return;
+        clearTimeout(handler.smartVolumeDuckingInterval);
+        handler.smartVolumeDuckingInterval = void 0;
       }
       function startSmartVolumeDucking(handler) {
         if (typeof globalThis === "undefined") return;
@@ -27485,6 +27502,10 @@ useAudioDownload: isSupportGMXhr,
         const currentVideoVolume = handler.getVideoVolume();
         const hostVideo = handler.video;
         const hostVideoActive = !(hostVideo && (hostVideo.paused || hostVideo.ended));
+        if (!hostVideoActive) {
+          stopSmartVolumeDuckingTimer(handler);
+          return;
+        }
         const dynamicDuckingTarget = clamp(handler.data?.autoVolume ?? defaultAutoVolume, 0, 100) / 100;
         handler.smartVolumeDuckingTarget = dynamicDuckingTarget;
         const rms = audioIsPlaying && media ? getTranslatedAudioRms(handler, media) : 0;
@@ -27995,6 +28016,10 @@ useAudioDownload: isSupportGMXhr,
           });
           return;
         }
+        if (this.video.paused || this.video.ended) {
+          stopSmartVolumeDuckingTimer(this);
+          return;
+        }
         const targetVolume = clamp(this.data.autoVolume ?? defaultAutoVolume, 0, 100) / 100;
         this.smartVolumeDuckingTarget = targetVolume;
         if (!this.hasActiveSource()) {
@@ -28004,10 +28029,7 @@ useAudioDownload: isSupportGMXhr,
           startSmartVolumeDucking(this);
           return;
         }
-        if (this.smartVolumeDuckingInterval !== void 0) {
-          clearTimeout(this.smartVolumeDuckingInterval);
-          this.smartVolumeDuckingInterval = void 0;
-        }
+        stopSmartVolumeDuckingTimer(this);
         if (typeof this.smartVolumeDuckingBaseline !== "number") {
           this.smartVolumeDuckingBaseline = this.getVideoVolume();
         }
