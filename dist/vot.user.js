@@ -7801,9 +7801,8 @@ string() {
           this.updateAudio();
         }
         initAudioBooster() {
-          if (!this.chaimu.audioContext) {
+          if (!this.chaimu.audioContext)
             return this;
-          }
           this.disconnectAudioNodes();
           const gainNode = this.chaimu.audioContext.createGain();
           this.gainNode = gainNode;
@@ -7837,23 +7836,18 @@ string() {
         };
         lipSync(mode = false) {
           debug$1.log("[AudioPlayer] lipsync video", this.chaimu.video);
-          if (!this.chaimu.video) {
+          if (!this.chaimu.video)
             return this;
-          }
           this.audio.currentTime = this.chaimu.video.currentTime;
           this.audio.playbackRate = this.chaimu.video.playbackRate;
-          if (!mode) {
-            debug$1.log("[AudioPlayer] lipsync mode isn't set");
+          if (!mode)
             return this;
-          }
-          debug$1.log(`[AudioPlayer] lipsync mode is ${mode}`);
           switch (mode) {
             case "play":
             case "playing":
             case "seeked": {
-              if (!this.chaimu.video.paused) {
+              if (!this.chaimu.video.paused)
                 this.syncPlay();
-              }
               return this;
             }
             case "pause":
@@ -7861,9 +7855,8 @@ string() {
               void this.pause();
               return this;
             }
-            default: {
+            default:
               return this;
-            }
           }
         }
         async clear() {
@@ -7871,17 +7864,29 @@ string() {
           this.audio.src = "";
           this.audio.removeAttribute("src");
           this.disconnectAudioNodes();
+          if (this.chaimu.audioContext?.state === "running") {
+            await this.chaimu.audioContext.suspend();
+          }
           return this;
         }
         syncPlay() {
           debug$1.log("[AudioPlayer] sync play called");
-          if (this.audio) {
+          if (!this.audio)
+            return this;
+          if (this.chaimu.audioContext?.state === "suspended") {
+            this.chaimu.audioContext.resume().then(() => {
+              this.audio.play().catch(this.audioErrorHandle);
+            });
+          } else {
             this.audio.play().catch(this.audioErrorHandle);
           }
           return this;
         }
         async play() {
           debug$1.log("[AudioPlayer] play called");
+          if (this.chaimu.audioContext?.state === "suspended") {
+            await this.chaimu.audioContext.resume();
+          }
           if (this.audio) {
             await this.audio.play().catch(this.audioErrorHandle);
           }
@@ -7889,8 +7894,10 @@ string() {
         }
         async pause() {
           debug$1.log("[AudioPlayer] pause called");
-          if (this.audio) {
+          if (this.audio)
             this.audio.pause();
+          if (this.chaimu.audioContext?.state === "running") {
+            await this.chaimu.audioContext.suspend();
           }
           return this;
         }
@@ -7939,12 +7946,10 @@ string() {
         isInitializing = false;
         clearingPromise;
         async fetchAudio() {
-          if (!this._src) {
+          if (!this._src)
             throw new Error("No audio source provided");
-          }
-          if (!this.chaimu.audioContext) {
+          if (!this.chaimu.audioContext)
             throw new Error("No audio context available");
-          }
           debug$1.log(`[ChaimuPlayer] Fetching audio from ${this._src}...`);
           let tempBlobUrl;
           try {
@@ -7954,23 +7959,20 @@ string() {
             const blob = new Blob([data]);
             tempBlobUrl = URL.createObjectURL(blob);
             this.audioBuffer = await this.chaimu.audioContext.decodeAudioData(data);
-            if (this.blobUrl) {
+            if (this.blobUrl)
               URL.revokeObjectURL(this.blobUrl);
-            }
             this.blobUrl = tempBlobUrl;
             tempBlobUrl = void 0;
           } catch (err) {
-            if (tempBlobUrl) {
+            if (tempBlobUrl)
               URL.revokeObjectURL(tempBlobUrl);
-            }
             throw new Error(`Failed to fetch audio file, because ${err.message}`);
           }
           return this;
         }
         initAudioBooster() {
-          if (!this.chaimu.audioContext) {
+          if (!this.chaimu.audioContext)
             return this;
-          }
           this.disconnectAudioNodes();
           this.gainNode = this.chaimu.audioContext.createGain();
           return this;
@@ -7986,9 +7988,8 @@ string() {
           }
         }
         async init() {
-          if (this.isInitializing) {
+          if (this.isInitializing)
             throw new Error("Initialization already in progress");
-          }
           this.isInitializing = true;
           try {
             await this.fetchAudio();
@@ -8000,12 +8001,10 @@ string() {
           }
         }
         createAudioElement() {
-          if (!this.chaimu.audioContext) {
+          if (!this.chaimu.audioContext)
             throw new Error("No audio context available");
-          }
-          if (!this.blobUrl) {
+          if (!this.blobUrl)
             throw new Error("No blob URL available.");
-          }
           const audio = new Audio(this.blobUrl);
           audio.crossOrigin = "anonymous";
           if ("preservesPitch" in audio) {
@@ -8017,31 +8016,23 @@ string() {
           }
           this.audioElement = audio;
           const gainNode = this.gainNode;
-          if (!gainNode) {
+          if (!gainNode)
             throw new Error("Audio gain node is missing");
-          }
           this.mediaElementSource = this.chaimu.audioContext.createMediaElementSource(audio);
           this.mediaElementSource.connect(gainNode);
           gainNode.connect(this.chaimu.audioContext.destination);
         }
         lipSync(mode = false) {
           debug$1.log("[ChaimuPlayer] lipsync video", this.chaimu.video, this);
-          if (!this.chaimu.video) {
+          if (!this.chaimu.video || !mode)
             return this;
-          }
-          if (!mode) {
-            debug$1.log("[ChaimuPlayer] lipsync mode isn't set");
-            return this;
-          }
-          debug$1.log(`[ChaimuPlayer] lipsync mode is ${mode}`);
           switch (mode) {
             case "play":
             case "playing":
             case "ratechange":
             case "seeked": {
-              if (!this.chaimu.video.paused) {
+              if (!this.chaimu.video.paused)
                 void this.start();
-              }
               return this;
             }
             case "pause":
@@ -8049,15 +8040,13 @@ string() {
               void this.pause();
               return this;
             }
-            default: {
+            default:
               return this;
-            }
           }
         }
         async reopenCtx() {
-          if (!this.chaimu.audioContext) {
+          if (!this.chaimu.audioContext)
             throw new Error("No audio context available");
-          }
           try {
             if (this.chaimu.audioContext.state !== "closed") {
               await this.chaimu.audioContext.close();
@@ -8069,12 +8058,10 @@ string() {
           return this;
         }
         async clear() {
-          if (this.isClearing && this.clearingPromise) {
+          if (this.isClearing && this.clearingPromise)
             return this.clearingPromise;
-          }
-          if (!this.chaimu.audioContext) {
+          if (!this.chaimu.audioContext)
             throw new Error("No audio context available");
-          }
           debug$1.log("clear audio context");
           this.isClearing = true;
           this.clearingPromise = (async () => {
@@ -8094,6 +8081,7 @@ string() {
               if (this.chaimu.audioContext) {
                 this.initAudioBooster();
                 this.volume = oldVolume;
+                await this.chaimu.audioContext.suspend();
               }
               return this;
             } finally {
@@ -8104,12 +8092,10 @@ string() {
           return this.clearingPromise;
         }
         async start() {
-          if (!this.chaimu.audioContext) {
+          if (!this.chaimu.audioContext)
             throw new Error("No audio context available");
-          }
-          if (!this.audioElement) {
+          if (!this.audioElement)
             throw new Error("Audio element is missing");
-          }
           if (this.isClearing && this.clearingPromise) {
             debug$1.log("The other cleaner is still running, waiting...");
             await this.clearingPromise;
@@ -8124,21 +8110,18 @@ string() {
           return this;
         }
         async pause() {
-          if (!this.chaimu.audioContext) {
+          if (!this.chaimu.audioContext)
             throw new Error("No audio context available");
-          }
-          if (this.audioElement) {
+          if (this.audioElement)
             this.audioElement.pause();
-          }
           if (this.chaimu.audioContext.state === "running") {
             await this.chaimu.audioContext.suspend();
           }
           return this;
         }
         async play() {
-          if (!this.chaimu.audioContext) {
+          if (!this.chaimu.audioContext)
             throw new Error("No audio context available");
-          }
           await this.chaimu.audioContext.resume();
           return this;
         }
@@ -8152,17 +8135,15 @@ string() {
           return this._src;
         }
         set volume(value) {
-          if (this.gainNode) {
+          if (this.gainNode)
             this.gainNode.gain.value = value;
-          }
         }
         get volume() {
           return this.gainNode ? this.gainNode.gain.value : 0;
         }
         set playbackRate(value) {
-          if (this.audioElement) {
+          if (this.audioElement)
             this.audioElement.playbackRate = value;
-          }
         }
         get playbackRate() {
           return this.audioElement ? this.audioElement.playbackRate : this.chaimu.video?.playbackRate ?? 1;
@@ -8292,11 +8273,27 @@ string() {
         "localeLangOverride",
         "account"
       ];
-      const noop = () => {
+      const log = (...text) => {
+        console.log(
+          "%c[VOT DEBUG]",
+          "background: #3700ffff; color: #fff; padding: 5px;",
+          ...text
+        );
       };
-      const log = noop;
-      const warn = noop;
-      const error = noop;
+      const warn = (...text) => {
+        console.warn(
+          "%c[VOT DEBUG]",
+          "background: #e1ff00ff; color: #fff; padding: 5px;",
+          ...text
+        );
+      };
+      const error = (...text) => {
+        console.error(
+          "%c[VOT DEBUG]",
+          "background: #F2452D; color: #fff; padding: 5px;",
+          ...text
+        );
+      };
       const debug = { log, warn, error };
       function getNavigatorLang() {
         return navigator.language?.substring(0, 2).toLowerCase() || "en";
@@ -9294,6 +9291,11 @@ clear() {
         const method = resolveRequestMethod(url, fetchOptions.method);
         const performRequest = async () => {
           if (shouldUseGmXhr(host, urlStr, forceGmXhr)) {
+            debug.log("GM_fetch: routing request via GM_xmlhttpRequest", {
+              host: host ?? "unknown",
+              reason: forceGmXhr ? "forced" : "host-policy",
+              url: urlStr
+            });
             return await gmXhrFetch(urlStr, timeout, fetchOptions);
           }
           const { signal, cleanup } = createTimeoutSignal(
@@ -9927,6 +9929,7 @@ locale;
           return true;
         }
         async checkUpdates(force = false) {
+          debug.log("Check locale updates...");
           try {
             const res = await GM_fetch(this.buildUrl(this.hashesUrl, "", force));
             if (!res.ok) throw res.status;
@@ -9965,6 +9968,7 @@ locale;
             return this;
           }
           const timestamp = getTimestamp();
+          debug.log("Updating locale...");
           try {
             const res = await GM_fetch(
               this.buildUrl(this.localesUrl, `/${this.lang}.json`, force)
@@ -11268,6 +11272,9 @@ locale;
         strategy;
         constructor(strategy = YT_AUDIO_STRATEGY) {
           this.strategy = strategy;
+          debug.log("Audio downloader created", {
+            strategy
+          });
         }
         async runAudioDownload(videoId, translationId, signal) {
           try {
@@ -11498,7 +11505,9 @@ requestedFailAudio = new Set();
           this.audioDownloader.addEventListener("downloadedAudio", this.onDownloadedAudio).addEventListener("downloadedPartialAudio", this.onDownloadedPartialAudio).addEventListener("downloadAudioError", this.onDownloadAudioError);
         }
         onDownloadedAudio = async (translationId, data) => {
+          debug.log("downloadedAudio", data);
           if (!this.downloading) {
+            debug.log("skip downloadedAudio");
             return;
           }
           const { videoId, fileId, audioData } = data;
@@ -11513,6 +11522,7 @@ requestedFailAudio = new Set();
               }
             );
           } catch (error2) {
+            debug.error("Failed to upload downloaded audio", error2);
             this.finishDownloadFailure(
               new Error("Audio downloader failed while uploading full audio")
             );
@@ -11521,7 +11531,9 @@ requestedFailAudio = new Set();
           this.finishDownloadSuccess();
         };
         onDownloadedPartialAudio = async (translationId, data) => {
+          debug.log("downloadedPartialAudio", data);
           if (!this.downloading) {
+            debug.log("skip downloadedPartialAudio");
             return;
           }
           const { audioData, fileId, videoId, amount, version, index } = data;
@@ -11541,6 +11553,7 @@ requestedFailAudio = new Set();
               }
             );
           } catch (error2) {
+            debug.error("Failed to upload downloaded audio chunk", error2);
             this.finishDownloadFailure(
               new Error("Audio downloader failed while uploading chunk")
             );
@@ -11552,8 +11565,10 @@ requestedFailAudio = new Set();
         };
         onDownloadAudioError = async (videoId) => {
           if (!this.downloading) {
+            debug.log("skip downloadAudioError");
             return;
           }
+          debug.log(`Failed to download audio ${videoId}`);
           const videoUrl = this.getCanonicalUrl(videoId);
           const shouldUseFallback = this.videoHandler.site.host === "youtube" && Boolean(this.videoHandler.data?.useAudioDownload);
           if (!shouldUseFallback) {
@@ -11572,6 +11587,7 @@ requestedFailAudio = new Set();
             }
             this.finishDownloadSuccess();
           } catch (error2) {
+            debug.error("fail-audio-js request failed", error2);
             this.finishDownloadFailure(
               new VOTLocalizedError("VOTFailedDownloadAudio")
             );
@@ -11642,6 +11658,10 @@ isLivelyVoiceUnavailableError(value) {
             requestLang,
             responseLang
           );
+          debug.log(
+            videoData,
+            `Translate video (requestLang: ${requestLang}, requestLangForApi: ${requestLangForApi}, responseLang: ${responseLang})`
+          );
           let livelyDisabled = disableLivelyVoice;
           try {
             throwIfAborted(signal);
@@ -11702,6 +11722,7 @@ isLivelyVoiceUnavailableError(value) {
             }
           } catch (err) {
             if (isAbortError(err)) {
+              debug.log("aborted video translation");
               return null;
             }
             const uiError = mapVotClientErrorForUi(err);
@@ -11763,6 +11784,10 @@ isLivelyVoiceUnavailableError(value) {
             if (!useLivelyVoice || !this.isLivelyVoiceUnavailableError(response)) {
               break;
             }
+            debug.log(
+              "[translateVideoImpl] Server responded that lively voices are unavailable. Falling back to standard translation.",
+              response
+            );
             livelyDisabled = true;
             useLivelyVoice = false;
             response = void 0;
@@ -11791,6 +11816,10 @@ isLivelyVoiceUnavailableError(value) {
             });
           } catch (err) {
             if (useLivelyVoice && this.isLivelyVoiceUnavailableError(err)) {
+              debug.log(
+                "[translateVideoImpl] Lively voices are unavailable. Falling back to standard translation.",
+                err
+              );
               return void 0;
             }
             throw err;
@@ -11860,6 +11889,7 @@ isLivelyVoiceUnavailableError(value) {
         }
         setState(next) {
           this.state = next;
+          debug.log("[TranslationOrchestrator] state", next);
         }
         reset() {
           this.setState({ status: "idle" });
@@ -11872,8 +11902,14 @@ isLivelyVoiceUnavailableError(value) {
             return;
           }
           if (this.deps.isMobileYouTubeMuted?.()) {
+            debug.log(
+              "[TranslationOrchestrator] Mobile YouTube video is muted, deferring auto-translate"
+            );
             this.setState({ status: "deferred", reason: "muted" });
             this.deps.setMuteWatcher?.(() => {
+              debug.log(
+                "[TranslationOrchestrator] Video unmuted, running deferred auto-translate"
+              );
               this.setState({ status: "idle" });
               void this.runAutoTranslationIfEligible();
             });
@@ -11951,6 +11987,7 @@ isLivelyVoiceUnavailableError(value) {
           this.lifecycleGeneration += 1;
           const sessionId = this.lifecycleGeneration;
           this.resetActions(`[VideoLifecycle][session:${sessionId}] ${reason}`);
+          debug.log(`[VideoLifecycle][session:${sessionId}] started`, { reason });
           return sessionId;
         }
         shouldAbortHandleSrcChanged(callId, stage) {
@@ -12003,6 +12040,10 @@ isLivelyVoiceUnavailableError(value) {
               this.invalidateActiveSession(
                 "setCanPlay source changed while previous trigger is running"
               );
+            } else {
+              debug.log("[VideoLifecycle] setCanPlay deduplicated for same source", {
+                sourceKey: incomingSourceKey
+              });
             }
             return await this.setCanPlayLoopPromise;
           }
@@ -12024,12 +12065,19 @@ isLivelyVoiceUnavailableError(value) {
         async runSetCanPlayOnce() {
           const sourceKey = this.getCurrentSourceKey();
           if (this.host.videoData?.videoId && sourceKey === this.lastSetCanPlaySourceKey) {
+            debug.log("[VideoLifecycle] setCanPlay deduplicated for same source", {
+              sourceKey
+            });
             return;
           }
           let nextVideoData;
           try {
             nextVideoData = await this.host.getVideoData();
           } catch (err) {
+            debug.log(
+              `[VideoLifecycle] getVideoData failed for source ${sourceKey}`,
+              err
+            );
             this.host.videoData = void 0;
             hideLifecycleOverlay(this.host.uiManager.votOverlayView, {
               hideMenu: true
@@ -12037,11 +12085,18 @@ isLivelyVoiceUnavailableError(value) {
             return;
           }
           if (this.getCurrentSourceKey() !== sourceKey) {
+            debug.log(
+              "[VideoLifecycle] discarded stale getVideoData result after source change",
+              { sourceKey }
+            );
             return;
           }
           this.host.videoData = nextVideoData;
           this.activeSetCanPlaySourceKey = sourceKey;
           const currentId = this.startSession(`setCanPlay (source: ${sourceKey})`);
+          debug.log(`[VideoLifecycle][session:${currentId}] setCanPlay started`, {
+            sourceKey
+          });
           try {
             await this.handleSrcChanged(currentId, sourceKey);
             if (this.isStale(currentId)) {
@@ -12079,6 +12134,10 @@ isLivelyVoiceUnavailableError(value) {
           try {
             await this.host.enableSubtitlesForCurrentLangPair();
           } catch (err) {
+            debug.log(
+              `[VideoLifecycle][session:${sessionId}] auto-subtitles failed`,
+              err
+            );
           }
         }
         async handleSrcChanged(callId, expectedSourceKey) {
@@ -12087,6 +12146,9 @@ isLivelyVoiceUnavailableError(value) {
           if (this.shouldAbortHandleSrcChanged(sessionId, "before start")) {
             return;
           }
+          debug.log(`[VideoLifecycle][session:${sessionId}] src changed`, {
+            sourceKey
+          });
           this.host.translationOrchestrator.reset();
           this.host.firstPlay = true;
           const overlayView = this.host.uiManager.votOverlayView;
@@ -12107,6 +12169,9 @@ isLivelyVoiceUnavailableError(value) {
             return;
           }
           if (!this.host.videoData?.videoId) {
+            debug.log(
+              `[VideoLifecycle][session:${sessionId}] No videoId resolved, hiding overlay`
+            );
             hideLifecycleOverlay(overlayView, { hideMenu: true });
             return;
           }
@@ -12129,6 +12194,7 @@ isLivelyVoiceUnavailableError(value) {
           );
           this.showOverlayButton(overlayView);
           this.lastSetCanPlaySourceKey = sourceKey;
+          debug.log(`[VideoLifecycle][session:${sessionId}] src handling finished`);
         }
       }
       const MAX_TEXT_LENGTH = 450;
@@ -12570,6 +12636,7 @@ String.raw`\b(?:-1|0):[a-f0-9]{64}\b`
             return inFlightDetect;
           }
           const task = (async () => {
+            debug.log(`Detecting language text: ${text}`);
             const language = normalizeToRequestLang(await detect(text));
             return isResolvedLanguage(language) ? language : void 0;
           })();
@@ -13920,6 +13987,10 @@ updateMount({
             }
             options.onLoaded?.();
           } catch (error2) {
+            debug.log("Failed to load Google Font for subtitles", {
+              fontFamily,
+              error: error2
+            });
           } finally {
             pendingSubtitleGoogleFonts.delete(fontFamily);
           }
@@ -13950,6 +14021,7 @@ updateMount({
           );
         })().catch((error2) => {
           googleFontsCatalogPromise = null;
+          debug.log("Failed to load Google Fonts catalog", error2);
           return [];
         });
         return await googleFontsCatalogPromise;
@@ -22544,6 +22616,7 @@ set key(newKey) {
         setSubtitlesSmartLayout(checked) {
           this.data.subtitlesSmartLayout = checked;
           void votStorage.set("subtitlesSmartLayout", checked);
+          debug.log("subtitlesSmartLayout value changed. New value:", checked);
           if (this.subtitlesSmartLayoutCheckbox?.checked !== checked) {
             this.suppressSubtitlesSmartLayoutCheckboxChange = true;
             this.subtitlesSmartLayoutCheckbox.checked = checked;
@@ -22588,6 +22661,7 @@ set key(newKey) {
           control.addEventListener(event, async (value) => {
             apply(value);
             await votStorage.set(storageKey, readPersistedValue());
+            debug.log(`${logLabel} value changed. New value:`, value);
             if (afterPersist) {
               await afterPersist(value);
             }
@@ -23270,6 +23344,10 @@ set key(newKey) {
                 "enabledDontTranslateLanguages",
                 this.data.enabledDontTranslateLanguages
               );
+              debug.log(
+                "enabledDontTranslateLanguages value changed. New value:",
+                checked
+              );
             }
           );
           this.dontTranslateLanguagesSelect.addEventListener(
@@ -23280,6 +23358,7 @@ set key(newKey) {
                 "dontTranslateLanguages",
                 this.data.dontTranslateLanguages
               );
+              debug.log("dontTranslateLanguages value changed. New value:", values);
             }
           );
           this.bindPersistedSetting({
@@ -23430,6 +23509,7 @@ set key(newKey) {
               "subtitlesMaxLength",
               this.data.subtitlesMaxLength
             );
+            debug.log("subtitlesMaxLength value changed. New value:", value);
             this.events["input:subtitlesMaxLength"].dispatch(value);
           });
           this.subtitlesFontSizeSlider.addEventListener("input", (value) => {
@@ -23442,6 +23522,7 @@ set key(newKey) {
               "subtitlesFontSize",
               this.data.subtitlesFontSize
             );
+            debug.log("subtitlesFontSize value changed. New value:", value);
             this.events["input:subtitlesFontSize"].dispatch(value);
           });
           this.subtitlesBackgroundOpacitySlider.addEventListener("input", (value) => {
@@ -23451,6 +23532,7 @@ set key(newKey) {
               "subtitlesOpacity",
               this.data.subtitlesOpacity
             );
+            debug.log("subtitlesOpacity value changed. New value:", value);
             this.events["input:subtitlesBackgroundOpacity"].dispatch(value);
           });
           this.bindPersistedSetting({
@@ -23580,6 +23662,7 @@ set key(newKey) {
           this.autoHideButtonDelaySlider.addEventListener("input", (value) => {
             this.autoHideButtonDelaySliderLabel.value = value;
             const newDelay = Math.round(value * 1e3);
+            debug.log("autoHideButtonDelay value changed. New value:", newDelay);
             this.data.autoHideButtonDelay = newDelay;
             this.scheduleStoragePersist(
               "autoHideButtonDelay",
@@ -23775,6 +23858,7 @@ votSettingsView;
               const isPiPActive = this.videoHandler.video === document.pictureInPictureElement;
               await (isPiPActive ? document.exitPictureInPicture() : this.videoHandler.video.requestPictureInPicture());
             } catch (err) {
+              debug.warn("[VOT] Failed to toggle Picture-in-Picture", err);
             }
           }).addEventListener("click:settings", async () => {
             this.videoHandler?.subtitlesWidget?.releaseTooltip();
@@ -24076,15 +24160,21 @@ votSettingsView;
             this.votOverlayView.votButton.container.hidden = prevButtonHidden;
             this.votOverlayView.votButton.opacity = prevButtonOpacity;
           } catch (err) {
+            debug.warn(
+              "[VOT] Failed to restore overlay state after menu reload",
+              err
+            );
           }
           try {
             this.videoHandler.rebindOverlayVisibilityTargets();
           } catch (err) {
+            debug.warn("[VOT] Failed to rebind overlay visibility targets", err);
           }
           if (settingsWasOpen) {
             try {
               this.votSettingsView?.open();
             } catch (err) {
+              debug.warn("[VOT] Failed to reopen settings after menu reload", err);
             }
           }
           await this.videoHandler.updateSubtitlesLangSelect();
@@ -24102,7 +24192,9 @@ votSettingsView;
           if (!videoHandler) {
             return this;
           }
+          debug.log("[handleTranslationBtnClick] click translationBtn");
           if (videoHandler.hasActiveSource()) {
+            debug.log("[handleTranslationBtnClick] video has active source");
             await videoHandler.stopTranslation();
             return this;
           }
@@ -24110,6 +24202,9 @@ votSettingsView;
             this.transformBtn("none", localizationProvider.get("translateVideo"));
           }
           if (this.votOverlayView.votButton.status !== "none" || this.votOverlayView.votButton.loading) {
+            debug.log(
+              "[handleTranslationBtnClick] translationBtn isn't in none state"
+            );
             videoHandler.actionsAbortController.abort();
             await videoHandler.stopTranslation();
             return this;
@@ -24208,6 +24303,7 @@ votSettingsView;
         }
         runDetached(task, errorMessage) {
           void task.catch((err) => {
+            debug.warn(`[VOT] ${errorMessage}`, err);
           });
         }
         triggerUrlDownload(url, filename) {
@@ -24244,6 +24340,7 @@ votSettingsView;
             await videoHandler.stopTranslate();
             videoHandler.createPlayer();
           } catch (err) {
+            debug.warn("[VOT] Failed to restart audio player", err);
           }
         }
       }
@@ -24346,6 +24443,7 @@ scheduleHide(event) {
             active = document.activeElement;
           }
           if (active && this.deps.isInteractiveNode(active)) {
+            debug.log("[OverlayVisibility] skip hide (focus inside overlay)");
             return;
           }
           const view = this.getView();
@@ -24631,6 +24729,7 @@ scheduleHide(event) {
             return true;
           }
         } catch (err) {
+          debug.log("[notify] userscript api error", err);
         }
         return false;
       }
@@ -24652,6 +24751,7 @@ scheduleHide(event) {
               debug.log("[notify] unavailable", normalized);
             }
           } catch (err) {
+            debug.log("[notify] send error", err);
           }
         }
         translationCompleted(host) {
@@ -24748,6 +24848,7 @@ tag: `VOTtranslationFailed_${videoId || "unknown"}`,
             try {
               sub(root);
             } catch (error2) {
+              debug.error("attachShadow subscriber failed", error2);
             }
           }
           return root;
@@ -24883,6 +24984,7 @@ tag: `VOTtranslationFailed_${videoId || "unknown"}`,
           if (this.isAdRelated(video)) return false;
           if (this.isInsideAd(video)) return false;
           if (!this.hasAudio(video)) {
+            debug.log("Ignoring video without audio:", video);
             return false;
           }
           return true;
@@ -25458,6 +25560,7 @@ tag: `VOTtranslationFailed_${videoId || "unknown"}`,
               }
             }
           } catch (error2) {
+            debug.log("[VOT] Failed to sync audio track language", error2);
           }
         };
         const player2 = YoutubeHelper.getPlayer();
@@ -25467,6 +25570,7 @@ tag: `VOTtranslationFailed_${videoId || "unknown"}`,
             try {
               player2.addEventListener(eventName, syncAudioTrackLanguage);
             } catch (error2) {
+              debug.log(`[VOT] Failed to bind ${eventName}`, error2);
             }
           }
         }
@@ -25479,6 +25583,7 @@ tag: `VOTtranslationFailed_${videoId || "unknown"}`,
               try {
                 player2.removeEventListener(eventName, syncAudioTrackLanguage);
               } catch (error2) {
+                debug.log(`[VOT] Failed to unbind ${eventName}`, error2);
               }
             }
           },
@@ -25497,6 +25602,9 @@ tag: `VOTtranslationFailed_${videoId || "unknown"}`,
           const isVideo = target ? self.container.contains(target) : false;
           const isSettings = target && settings ? settings.contains(target) : false;
           const isTempDialog = target instanceof Element && target.closest(".vot-dialog-temp") instanceof Element;
+          debug.log(
+            `[document click] ${isButton} ${isMenu} ${isVideo} ${isSettings} ${isTempDialog}`
+          );
           if (isButton || isMenu || isSettings || isTempDialog) return;
           if (!isVideo) overlayView.updateButtonOpacity(0);
           if (menu && !menu.hidden) {
@@ -25509,6 +25617,7 @@ tag: `VOTtranslationFailed_${videoId || "unknown"}`,
         const clearUserPressedKeys = () => userPressedKeys.clear();
         const runHotkeyAction = (action, actionName) => {
           void action().catch((error2) => {
+            debug.log(`[VOT] ${actionName} hotkey action failed`, error2);
           });
         };
         add(document, "keydown", (event) => {
@@ -25526,7 +25635,8 @@ tag: `VOTtranslationFailed_${videoId || "unknown"}`,
           )) {
             clearUserPressedKeys();
             runHotkeyAction(
-              () => self.uiManager.handleTranslationBtnClick()
+              () => self.uiManager.handleTranslationBtnClick(),
+              "Translation"
             );
             return;
           }
@@ -25536,7 +25646,8 @@ tag: `VOTtranslationFailed_${videoId || "unknown"}`,
           )) {
             clearUserPressedKeys();
             runHotkeyAction(
-              () => self.toggleSubtitlesForCurrentLangPair()
+              () => self.toggleSubtitlesForCurrentLangPair(),
+              "Subtitles"
             );
           }
         });
@@ -25588,6 +25699,7 @@ tag: `VOTtranslationFailed_${videoId || "unknown"}`,
           try {
             await self.setCanPlay();
           } catch (err) {
+            debug.log("[VOT] setCanPlay() failed", err);
           }
         };
         let setCanPlayQueued = false;
@@ -25603,15 +25715,6 @@ tag: `VOTtranslationFailed_${videoId || "unknown"}`,
           if (self.site.host === "rutube" && self.video.src) return;
           queueSetCanPlay();
         });
-        add(self.video, "play", () => {
-          self.setupAudioSettings();
-        });
-        add(self.video, "pause", () => {
-          self.setupAudioSettings();
-        });
-        add(self.video, "ended", () => {
-          self.setupAudioSettings();
-        });
         const handleVideoEmptied = async () => {
           let videoId;
           try {
@@ -25620,10 +25723,12 @@ tag: `VOTtranslationFailed_${videoId || "unknown"}`,
               video: self.video
             });
           } catch (error2) {
+            debug.log("[VOT] Failed to resolve video id on emptied", error2);
           }
           if (self.videoData && videoId && videoId === self.videoData.videoId) {
             return;
           }
+          debug.log("lipsync mode is emptied");
           resetAndHideLifecycle(self, overlayView, {
             clearVideoData: true,
             hideMenu: true
@@ -25631,6 +25736,7 @@ tag: `VOTtranslationFailed_${videoId || "unknown"}`,
         };
         add(self.video, "emptied", () => {
           void handleVideoEmptied().catch((error2) => {
+            debug.log("[VOT] Failed to handle emptied lifecycle event", error2);
           });
         });
         if (!isMuteSyncDisabledHost(self.site.host)) {
@@ -25648,6 +25754,7 @@ tag: `VOTtranslationFailed_${videoId || "unknown"}`,
         }
         if (self.site.host === "youtube" && !self.site.additionalData) {
           add(document, "yt-page-data-updated", () => {
+            debug.log("yt-page-data-updated");
             if (!globalThis.location.pathname.startsWith("/shorts/")) return;
             queueSetCanPlay();
           });
@@ -25804,6 +25911,7 @@ useAudioDownload: isSupportGMXhr,
           this.data.translateProxyEnabled,
           this.data.translateProxyEnabledDefault
         );
+        debug.log("Extension compatibility passed...");
         await this.initVOTClient();
         this.uiManager.initUI();
         this.uiManager.initUIEvents();
@@ -26848,6 +26956,7 @@ useAudioDownload: isSupportGMXhr,
         return handler;
       }
       async function changeSubtitlesLang(subs) {
+        debug.log("[onchange] subtitles", subs);
         const requestVersion = nextSubtitlesSelectionRequestVersion(this);
         const overlayView = this.uiManager.votOverlayView;
         if (!overlayView?.subtitlesSelect || !overlayView.downloadSubtitlesButton) {
@@ -27238,9 +27347,6 @@ useAudioDownload: isSupportGMXhr,
         return handler.data?.enabledSmartDucking ?? true ? "smart" : "classic";
       }
       async function resumePlayerAudioContextIfNeeded(handler) {
-        if (handler.video.paused || handler.video.ended) {
-          return "not-needed";
-        }
         const ctx = handler.audioPlayer?.audioContext;
         if (!ctx || ctx.state !== "suspended") return "not-needed";
         const RESUME_TIMEOUT_MS = 1500;
@@ -27249,6 +27355,7 @@ useAudioDownload: isSupportGMXhr,
             await ctx.resume();
             return "resumed";
           } catch (err) {
+            debug.log("[updateTranslation] Failed to resume AudioContext", err);
             return "failed";
           }
         })();
@@ -27259,6 +27366,11 @@ useAudioDownload: isSupportGMXhr,
         const result = await Promise.race([resumePromise, timeoutPromise]);
         if (timeoutId !== void 0) {
           clearTimeout(timeoutId);
+        }
+        if (result === "resumed") {
+          debug.log("[updateTranslation] AudioContext resumed");
+        } else if (result === "timeout") {
+          debug.log("[updateTranslation] AudioContext resume timeout");
         }
         return result;
       }
@@ -27278,6 +27390,7 @@ useAudioDownload: isSupportGMXhr,
           player2.src = "";
           debug.log("[updateTranslation] cleared stale partially-applied source");
         } catch (err) {
+          debug.log("[updateTranslation] failed to clear stale source", err);
         }
       }
       function getSmartDuckingAudioContext(handler) {
@@ -27334,6 +27447,7 @@ useAudioDownload: isSupportGMXhr,
           return source;
         } catch (err) {
           state.mediaSourceCreationFailed = true;
+          debug.log("[SmartDucking] failed to create media source", err);
           return void 0;
         }
       }
@@ -27374,6 +27488,7 @@ useAudioDownload: isSupportGMXhr,
             inputNode.connect(analyser);
             state.connectedInputNode = inputNode;
           } catch (err) {
+            debug.log("[SmartDucking] failed to connect analyser", err);
             return void 0;
           }
         }
@@ -27403,7 +27518,10 @@ useAudioDownload: isSupportGMXhr,
       }
       function stopSmartVolumeDucking(handler, options = {}) {
         const { restoreVolume } = options;
-        stopSmartVolumeDuckingTimer(handler);
+        if (handler.smartVolumeDuckingInterval !== void 0) {
+          clearTimeout(handler.smartVolumeDuckingInterval);
+          handler.smartVolumeDuckingInterval = void 0;
+        }
         const baseline = typeof restoreVolume === "number" ? restoreVolume : handler.smartVolumeDuckingBaseline ?? handler.volumeOnStart;
         if (typeof baseline === "number" && (typeof restoreVolume === "number" || handler.smartVolumeIsDucked)) {
           try {
@@ -27422,17 +27540,13 @@ useAudioDownload: isSupportGMXhr,
           try {
             smartDuckingTick(handler);
           } catch (err) {
+            debug.log("[SmartDucking] tick failed, stopping smart ducking", err);
             stopSmartVolumeDucking(handler);
             return;
           }
           if (handler.smartVolumeDuckingInterval === void 0) return;
           scheduleNextSmartDuckingTick(handler);
         }, SMART_DUCKING_TICK_MS);
-      }
-      function stopSmartVolumeDuckingTimer(handler) {
-        if (handler.smartVolumeDuckingInterval === void 0) return;
-        clearTimeout(handler.smartVolumeDuckingInterval);
-        handler.smartVolumeDuckingInterval = void 0;
       }
       function startSmartVolumeDucking(handler) {
         if (typeof globalThis === "undefined") return;
@@ -27502,10 +27616,6 @@ useAudioDownload: isSupportGMXhr,
         const currentVideoVolume = handler.getVideoVolume();
         const hostVideo = handler.video;
         const hostVideoActive = !(hostVideo && (hostVideo.paused || hostVideo.ended));
-        if (!hostVideoActive) {
-          stopSmartVolumeDuckingTimer(handler);
-          return;
-        }
         const dynamicDuckingTarget = clamp(handler.data?.autoVolume ?? defaultAutoVolume, 0, 100) / 100;
         handler.smartVolumeDuckingTarget = dynamicDuckingTarget;
         const rms = audioIsPlaying && media ? getTranslatedAudioRms(handler, media) : 0;
@@ -27580,6 +27690,7 @@ useAudioDownload: isSupportGMXhr,
             if (response.ok) return true;
           } catch (err) {
             if (isProbeCancelled(handler, actionContext, signal)) return false;
+            debug.log("[validateAudioUrl] probe error", { audioUrl, attempt, err });
           }
           if (!await shouldRetryAudioProbe(attempt, handler, actionContext, signal)) {
             return false;
@@ -27614,6 +27725,7 @@ useAudioDownload: isSupportGMXhr,
             actionContext
           );
           if (isDirectUrlValid) {
+            debug.log("[validateAudioUrl] switching to direct audio URL after probe");
             return directUrl;
           }
         }
@@ -27628,6 +27740,7 @@ useAudioDownload: isSupportGMXhr,
         const refreshDelayMs = Math.max(3e4, YANDEX_TTL_MS - 5 * 60 * 1e3);
         this.translationRefreshTimeout = setTimeout(() => {
           this.refreshTranslationAudio().catch((error2) => {
+            debug.log("[scheduleTranslationRefresh] refresh failed", error2);
           });
         }, refreshDelayMs);
       }
@@ -27706,12 +27819,16 @@ useAudioDownload: isSupportGMXhr,
           translateProxyEnabled: this.data?.translateProxyEnabled,
           proxyWorkerHost: this.data?.proxyWorkerHost
         });
+        if (proxiedAudioUrl !== audioUrl) {
+          debug.log(`[VOT] Audio proxied via ${proxiedAudioUrl}`);
+        }
         return proxiedAudioUrl;
       }
       function unproxifyAudio(audioUrl) {
         return unproxifyYandexAudioUrl(audioUrl);
       }
       async function handleProxySettingsChanged(reason = "proxySettingsChanged") {
+        debug.log(`[VOT] ${reason}: clearing translation/subtitles cache`);
         try {
           this.cacheManager.clear();
           this.activeTranslation = null;
@@ -27792,6 +27909,7 @@ useAudioDownload: isSupportGMXhr,
           this.createPlayer();
         }
         if (this.audioPlayer.audioContext?.state === "closed") {
+          debug.log("[updateTranslation] AudioContext is closed, recreating player");
           this.createPlayer();
         }
         const normalizedTargetUrl = normalizeManagedAudioUrl(this, audioUrl);
@@ -27850,6 +27968,9 @@ useAudioDownload: isSupportGMXhr,
       }
       async function retryTranslationWithDirectSource(handler, audioUrl, appliedSourceUrl, actionContext) {
         const directUrl = handler.unproxifyAudio(audioUrl);
+        debug.log(
+          "[updateTranslation] proxied audio init failed, retrying direct URL"
+        );
         try {
           const validatedDirectUrl = await handler.validateAudioUrl(
             directUrl,
@@ -27888,18 +28009,21 @@ useAudioDownload: isSupportGMXhr,
       }
       async function translateFunc(VIDEO_ID, _isStream, requestLang, responseLang, translationHelp) {
         await this.waitForPendingStopTranslate();
+        debug.log("Run videoValidator");
         await this.videoValidator();
         if (this.actionsAbortController?.signal?.aborted) {
           this.resetActionsAbortController("translateFunc");
         }
         const overlayView = this.uiManager.votOverlayView;
         if (!overlayView?.votButton) {
+          debug.log("[translateFunc] Overlay view missing, skipping translation");
           return;
         }
         overlayView.votButton.loading = true;
         this.hadAsyncWait = false;
         this.volumeOnStart = this.getVideoVolume();
         if (!VIDEO_ID) {
+          debug.log("Skip translation - no VIDEO_ID resolved yet");
           await this.updateTranslationErrorMsg(
             new VOTLocalizedError("VOTNoVideoIDFound"),
             this.actionsAbortController.signal
@@ -27923,6 +28047,7 @@ useAudioDownload: isSupportGMXhr,
         );
         const activeKey = `video_${cacheKey}`;
         if (this.activeTranslation?.key === activeKey) {
+          debug.log("[translateFunc] Reusing in-flight translation");
           await this.activeTranslation.promise;
           return;
         }
@@ -27932,6 +28057,7 @@ useAudioDownload: isSupportGMXhr,
         };
         const translationPromise = (async () => {
           if (this.isActionStale(actionContext)) {
+            debug.log("[translateFunc] Stale translation task - skipping");
             return;
           }
           const reqLang = requestLang;
@@ -27947,9 +28073,10 @@ useAudioDownload: isSupportGMXhr,
           if (cachedEntry?.url) {
             const updated = await applyTranslationUrl(cachedEntry.url);
             if (!updated) return;
+            debug.log("[translateFunc] Cached translation was received");
             return;
           }
-          await requestApplyAndCacheTranslation(this, {
+          const translateRes = await requestApplyAndCacheTranslation(this, {
             videoData,
             requestLang: reqLang,
             responseLang: resLang,
@@ -27975,6 +28102,10 @@ useAudioDownload: isSupportGMXhr,
               }
             }
           });
+          debug.log("[translateRes]", translateRes);
+          if (!translateRes) {
+            debug.log("Skip translation");
+          }
         })();
         this.activeTranslation = {
           key: activeKey,
@@ -27998,6 +28129,7 @@ useAudioDownload: isSupportGMXhr,
           }
           const overlayBtn = this.uiManager.votOverlayView?.votButton;
           if (!this.activeTranslation && overlayBtn?.loading && !this.hasActiveSource()) {
+            debug.log("[translateFunc] clearing stale loading state");
             this.transformBtn("none", localizationProvider.get("translateVideo"));
           }
         }
@@ -28016,10 +28148,6 @@ useAudioDownload: isSupportGMXhr,
           });
           return;
         }
-        if (this.video.paused || this.video.ended) {
-          stopSmartVolumeDuckingTimer(this);
-          return;
-        }
         const targetVolume = clamp(this.data.autoVolume ?? defaultAutoVolume, 0, 100) / 100;
         this.smartVolumeDuckingTarget = targetVolume;
         if (!this.hasActiveSource()) {
@@ -28029,7 +28157,10 @@ useAudioDownload: isSupportGMXhr,
           startSmartVolumeDucking(this);
           return;
         }
-        stopSmartVolumeDuckingTimer(this);
+        if (this.smartVolumeDuckingInterval !== void 0) {
+          clearTimeout(this.smartVolumeDuckingInterval);
+          this.smartVolumeDuckingInterval = void 0;
+        }
         if (typeof this.smartVolumeDuckingBaseline !== "number") {
           this.smartVolumeDuckingBaseline = this.getVideoVolume();
         }
@@ -28186,6 +28317,13 @@ getSubtitlesCacheKey(videoId, detectedLanguage, responseLanguage) {
           this.updateVOTClientRequestSignal();
         }
 constructor(video, container, site) {
+          debug.log(
+            "[VideoHandler] add video:",
+            video,
+            "container:",
+            container,
+            this
+          );
           this.video = video;
           this.container = container;
           this.site = site;
@@ -28414,6 +28552,7 @@ getPreferAudio() {
         }
 createPlayer() {
           const preferAudio = this.getPreferAudio();
+          debug.log("preferAudio:", preferAudio);
           this.audioPlayer = new Chaimu({
             video: this.video,
 debug: Boolean(false),
@@ -28658,6 +28797,7 @@ stopTranslate() {
                 this.audioPlayer.player.src = "";
                 await this.audioPlayer.player.clear();
               } catch (err) {
+                debug.log("[stopTranslate] audioPlayer cleanup error", err);
               }
               debug.log("audioPlayer after stopTranslate", this.audioPlayer);
             }
@@ -28714,6 +28854,7 @@ async updateTranslationErrorMsg(errorMessage, signal) {
           if (this.longWaitingResCount > minLongWaitingCount) {
             errorMessage = new VOTLocalizedError("TranslationDelayed");
           }
+          debug.log("updateTranslationErrorMsg message", errorMessage);
           const resolvedMessage = await this.resolveTranslationErrorDisplayMessage(
             errorMessage,
             translationTake2,
@@ -28868,10 +29009,12 @@ handleSrcChanged() {
           return this.lifecycleController.handleSrcChanged();
         }
 async release() {
+          debug.log("[VideoHandler] release");
           this.initialized = false;
           try {
             await this.stopTranslation();
           } catch (err) {
+            debug.log("[VideoHandler] stopTranslation failed during release", err);
           }
           this.lifecycleController?.teardown();
           this.abortController?.abort();
@@ -28943,11 +29086,17 @@ releaseExtraEvents = releaseExtraEvents;
         return servicesCache;
       }
       function findContainer(site, video) {
+        debug.log("findContainer", site, video);
         if (!site.selector) {
+          debug.log("findContainer without selector, using parentElement");
           return video.parentElement;
         }
         const matched = findConnectedContainerBySelector(video, site.selector);
-        if (site.shadowRoot) ;
+        if (site.shadowRoot) {
+          debug.log("findContainer with site.shadowRoot", matched);
+        } else {
+          debug.log("findContainer without shadowRoot", matched);
+        }
         return matched;
       }
       async function main() {
