@@ -4705,7 +4705,7 @@ string() {
         {
           host: ExtVideoService.mediafile,
           url: "https://mediafile.cc/",
-          match: /^mediafile\.cc$/,
+          match: /^(www\.)?mediafile\.cc$/,
           selector: "div#playerContainer",
           needExtraData: true
         },
@@ -5772,26 +5772,33 @@ string() {
         }
       }
       class MediafileHelper extends BaseHelper {
+        DEFAULT_SITE_ORIGIN = "https://mediafile.cc";
+        SITE_ORIGIN = this.service?.url?.slice(0, -1) ?? this.DEFAULT_SITE_ORIGIN;
         getVideoSrc() {
-          const video = this.video?.src || this.video?.currentSrc || this.video?.querySelector("video[src], video")?.src || document.querySelector("div#playerContainer video[src], div#playerContainer video")?.src;
-          return video || void 0;
+          const video = this.video instanceof HTMLVideoElement ? this.video : document.querySelector("video");
+          return video?.src || video?.currentSrc || video?.querySelector("source[src]")?.src || void 0;
         }
         async getVideoData(videoId) {
-          try {
-            const url = videoId || this.getVideoSrc();
-            if (!url) {
-              throw new VideoHelperError("Failed to find video URL");
-            }
-            return {
-              url
-            };
-          } catch (err) {
-            Logger.error(`Failed to get Mediafile data by videoId: ${videoId}`, err.message);
+          const video = this.video instanceof HTMLVideoElement ? this.video : document.querySelector("video");
+          const videoSource = this.getVideoSrc();
+          if (!videoSource) {
             return void 0;
           }
+          const data = {
+            url: `${this.SITE_ORIGIN}/${videoId}`,
+            video_url: videoSource,
+            duration: Number.isFinite(video?.duration ?? Number.NaN) ? video?.duration : void 0,
+            translationHelp: [
+              {
+                target: "video_file_url",
+                targetUrl: videoSource
+              }
+            ]
+          };
+          return data;
         }
-        async getVideoId(_url) {
-          return this.getVideoSrc();
+        async getVideoId(url) {
+          return url.pathname.replace(/^\/+/, "") || void 0;
         }
       }
       class NetacadHelper extends VideoJSHelper {
