@@ -151,6 +151,7 @@
 // @match          *://*.jove.com/*
 // @match          *://*.preservetube.com/*
 // @match          *://*.mediafile.cc/*
+// @match          *://projector.datacamp.com/*
 // @match          *://*/*.mp4*
 // @match          *://*/*.webm*
 // @match          *://*.yewtu.be/*
@@ -2581,7 +2582,7 @@ var vot = (function(exports) {
 	function canLog(level) {
 		return config_default$1.loggerLevel <= level;
 	}
-	function log(...messages) {
+	function log$1(...messages) {
 		if (!canLog(LoggerLevel.DEBUG)) return;
 		console.log(prefix, ...messages);
 	}
@@ -2589,20 +2590,20 @@ var vot = (function(exports) {
 		if (!canLog(LoggerLevel.INFO)) return;
 		console.info(prefix, ...messages);
 	}
-	function warn(...messages) {
+	function warn$1(...messages) {
 		if (!canLog(LoggerLevel.WARN)) return;
 		console.warn(prefix, ...messages);
 	}
-	function error(...messages) {
+	function error$1(...messages) {
 		if (!canLog(LoggerLevel.ERROR)) return;
 		console.error(prefix, ...messages);
 	}
 	var Logger = {
 		canLog,
-		log,
+		log: log$1,
 		info,
-		warn,
-		error
+		warn: warn$1,
+		error: error$1
 	};
 	//#endregion
 	//#region __vite-browser-external
@@ -3621,6 +3622,7 @@ var vot = (function(exports) {
 		ExtVideoService["douyin"] = "douyin";
 		ExtVideoService["artstation"] = "artstation";
 		ExtVideoService["kickstarter"] = "kickstarter";
+		ExtVideoService["datacamp"] = "datacamp";
 		ExtVideoService["oraclelearn"] = "oraclelearn";
 		ExtVideoService["deeplearningai"] = "deeplearningai";
 		ExtVideoService["netacad"] = "netacad";
@@ -4059,7 +4061,7 @@ var vot = (function(exports) {
 			host: VideoService$1.coursehunterLike,
 			url: "stub",
 			match: sitesCoursehunterLike,
-			selector: "#oframeplayer > pjsdiv:has(video)",
+			selector: null,
 			needExtraData: true
 		},
 		{
@@ -4076,6 +4078,13 @@ var vot = (function(exports) {
 			url: "https://www.udemy.com/",
 			match: /udemy.com$/,
 			selector: "div[data-purpose=\"curriculum-item-viewer-content\"] > section > div > div > div > div:nth-of-type(2)",
+			needExtraData: true
+		},
+		{
+			host: ExtVideoService.datacamp,
+			url: "https://www.datacamp.com/courses/",
+			match: (url) => /^(?:campus\.|projector\.)?datacamp\.com$/.test(url.hostname),
+			selector: sharedSelectors.videoJsUniversal,
 			needExtraData: true
 		},
 		{
@@ -4704,6 +4713,39 @@ var vot = (function(exports) {
 		async getVideoId(url) {
 			if (window.self !== window.top) return await this.resolveVideoIdViaPostMessage();
 			else return this.getVideoIdFromUrl(url);
+		}
+	};
+	//#endregion
+	//#region node_modules/@vot.js/ext/dist/helpers/datacamp.js
+	var DataCampHelper = class extends VideoJSHelper {
+		SUBTITLE_SOURCE = "datacamp";
+		getVideoDataFromInput() {
+			try {
+				const input = document.getElementById("videoData");
+				if (!input || !(input instanceof HTMLInputElement) && !(input instanceof HTMLTextAreaElement) || !input.value) return null;
+				return JSON.parse(input.value);
+			} catch (err) {
+				Logger.error("Failed to parse DataCamp videoData input", err instanceof Error ? err.message : String(err));
+				return null;
+			}
+		}
+		async getVideoData(videoId) {
+			const data = this.getVideoDataByPlayer(videoId);
+			if (!data) return;
+			const meta = this.getVideoDataFromInput();
+			const videoUrl = meta?.video_url ?? meta?.plain_video_mp4_link ?? meta?.plain_video_hls_link ?? meta?.video_mp4_link ?? meta?.video_hls_link ?? data.url;
+			if (!videoUrl) return;
+			return {
+				url: videoId,
+				video_url: videoUrl,
+				translationHelp: [{
+					target: "video_file_url",
+					targetUrl: videoUrl
+				}]
+			};
+		}
+		async getVideoId(url) {
+			return url.href;
 		}
 	};
 	//#endregion
@@ -6680,6 +6722,7 @@ var vot = (function(exports) {
 		[ExtVideoService.douyin]: DouyinHelper,
 		[ExtVideoService.artstation]: ArtstationHelper,
 		[ExtVideoService.kickstarter]: KickstarterHelper,
+		[ExtVideoService.datacamp]: DataCampHelper,
 		[ExtVideoService.oraclelearn]: OracleLearnHelper,
 		[ExtVideoService.deeplearningai]: DeeplearningAIHelper,
 		[ExtVideoService.netacad]: NetacadHelper,
@@ -7419,11 +7462,19 @@ var vot = (function(exports) {
 	];
 	//#endregion
 	//#region src/utils/debug.ts
-	var noop = () => {};
+	var log = (...text) => {
+		console.log("%c[VOT DEBUG]", "background: #3700ffff; color: #fff; padding: 5px;", ...text);
+	};
+	var warn = (...text) => {
+		console.warn("%c[VOT DEBUG]", "background: #e1ff00ff; color: #fff; padding: 5px;", ...text);
+	};
+	var error = (...text) => {
+		console.error("%c[VOT DEBUG]", "background: #F2452D; color: #fff; padding: 5px;", ...text);
+	};
 	var debug = {
-		log: noop,
-		warn: noop,
-		error: noop
+		log,
+		warn,
+		error
 	};
 	//#endregion
 	//#region src/utils/localization.ts
