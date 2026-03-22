@@ -7413,6 +7413,7 @@ var vot = (function(exports) {
 	var actualCompatVersion = "2025-05-09";
 	//#endregion
 	//#region src/types/storage.ts
+	var subtitleResponseLanguageModes = ["auto", "original"];
 	var storageKeys = [
 		"autoTranslate",
 		"autoSubtitles",
@@ -7434,6 +7435,7 @@ var vot = (function(exports) {
 		"subtitlesOpacity",
 		"subtitlesDownloadFormat",
 		"responseLanguage",
+		"responseLanguageSubtitles",
 		"defaultVolume",
 		"onlyBypassMediaCSP",
 		"newAudioPlayer",
@@ -8602,6 +8604,8 @@ var vot = (function(exports) {
 		VOTNoVideoIDFound: "No video ID found",
 		VOTSubtitles: "Subtitles",
 		VOTSubtitlesDisabled: "Disabled",
+		VOTDefaultSubtitlesLanguage: "Default subtitle language",
+		VOTOriginalVideoLanguage: "Original video language",
 		VOTSubtitlesMaxLength: "Subtitles max length",
 		VOTHighlightWords: "Highlight words",
 		VOTTranslatedFrom: "translated from",
@@ -10737,7 +10741,8 @@ var vot = (function(exports) {
 				hideLifecycleOverlay(overlayView, { hideMenu: true });
 				return;
 			}
-			const cacheKey = this.host.getSubtitlesCacheKey(this.host.videoData.videoId, this.host.videoData.detectedLanguage, this.host.videoData.responseLanguage);
+			const subtitleLanguage = this.host.getPreferredSubtitlesLanguage(this.host.videoData.detectedLanguage, this.host.videoData.responseLanguage);
+			const cacheKey = this.host.getSubtitlesCacheKey(this.host.videoData.videoId, this.host.videoData.detectedLanguage, subtitleLanguage);
 			const cachedSubtitles = this.host.cacheManager.getSubtitles(cacheKey);
 			this.host.subtitles = cachedSubtitles ?? [];
 			this.host.subtitlesCacheKey = cachedSubtitles !== void 0 ? cacheKey : null;
@@ -12079,14 +12084,13 @@ var vot = (function(exports) {
 			const [entry] = activeEntries;
 			return {
 				line: entry.line,
-				lineKey: `${entry.index}`,
-				lineIndices: [entry.index]
+				lineKey: `${entry.index}`
 			};
 		}
 		const tokens = [];
 		const textParts = [];
 		const rawTextParts = [];
-		const lineIndices = [];
+		const lineKeyParts = [];
 		let earliestStartMs = Number.POSITIVE_INFINITY;
 		let latestEndMs = 0;
 		for (const entry of activeEntries) {
@@ -12104,11 +12108,11 @@ var vot = (function(exports) {
 			tokens.push(...lineTokens);
 			textParts.push(entry.line.text || lineTokens.map((token) => token.text).join(""));
 			rawTextParts.push(entry.line.metadata?.rawText ?? entry.line.text);
-			lineIndices.push(entry.index);
+			lineKeyParts.push(`${entry.index}`);
 			earliestStartMs = Math.min(earliestStartMs, entry.line.startMs);
 			latestEndMs = Math.max(latestEndMs, entry.line.startMs + Math.max(0, entry.line.durationMs));
 		}
-		if (!tokens.length || !lineIndices.length) return null;
+		if (!tokens.length || !lineKeyParts.length) return null;
 		return {
 			line: {
 				text: textParts.join("\n"),
@@ -12118,8 +12122,7 @@ var vot = (function(exports) {
 				tokens,
 				metadata: rawTextParts.length ? { rawText: rawTextParts.join("\n") } : void 0
 			},
-			lineKey: lineIndices.join(","),
-			lineIndices
+			lineKey: lineKeyParts.join(",")
 		};
 	};
 	//#endregion
@@ -12402,6 +12405,39 @@ var vot = (function(exports) {
 		const dy = nextClientY - startClientY;
 		return dx * dx + dy * dy >= thresholdPx * thresholdPx;
 	}
+	function getVerticalAnchorBounds({ elementHeight, boxHeight, bottomInset }) {
+		const minAnchorY = Math.max(0, elementHeight || 0);
+		const baselineAnchorY = Math.max(minAnchorY, boxHeight - bottomInset);
+		return {
+			minAnchorY,
+			baselineAnchorY,
+			travelPx: Math.max(0, baselineAnchorY - minAnchorY)
+		};
+	}
+	function captureCustomVerticalAnchorState({ anchorY, elementHeight, boxHeight, bottomInset }) {
+		const { minAnchorY, baselineAnchorY, travelPx } = getVerticalAnchorBounds({
+			elementHeight,
+			boxHeight,
+			bottomInset
+		});
+		return {
+			offsetFromBaselinePx: clampToRange(anchorY, minAnchorY, baselineAnchorY) - baselineAnchorY,
+			travelPx
+		};
+	}
+	function resolveCustomVerticalAnchor({ state, elementHeight, boxHeight, bottomInset }) {
+		const { minAnchorY, baselineAnchorY, travelPx } = getVerticalAnchorBounds({
+			elementHeight,
+			boxHeight,
+			bottomInset
+		});
+		if (!state || travelPx <= 0) return baselineAnchorY;
+		const storedTravelPx = Math.max(0, state.travelPx || 0);
+		const storedLiftPx = Math.max(0, -(state.offsetFromBaselinePx || 0));
+		if (storedTravelPx <= 0 || storedLiftPx <= 0) return baselineAnchorY;
+		const ratioLiftPx = storedLiftPx / storedTravelPx * travelPx;
+		return clampToRange(baselineAnchorY - (travelPx >= storedTravelPx ? Math.min(storedLiftPx, ratioLiftPx) : Math.min(travelPx, ratioLiftPx)), minAnchorY, baselineAnchorY);
+	}
 	function clampAnchorWithinBox({ anchorX, anchorY, elementWidth, elementHeight, boxWidth, boxHeight, bottomInset }) {
 		let nextAnchorX = anchorX;
 		let nextAnchorY = anchorY;
@@ -12441,7 +12477,6 @@ var vot = (function(exports) {
 	}
 	//#endregion
 	//#region src/subtitles/renderPlan.ts
-	var stylesEqual = subtitleInlineStylesEqual;
 	var pushTextPart = (plan, text, style, withBreak = false) => {
 		plan.push({
 			kind: "text",
@@ -12471,7 +12506,7 @@ var vot = (function(exports) {
 		let shouldBreakAfterSuffix = Boolean(breakAfterTokenIndexSet?.has(startIndex));
 		while (endIndex + 1 <= renderEndTokenIndex) {
 			const next = tokens[endIndex + 1];
-			if (!next || next.isWordLike || next.text === "\n" || !stylesEqual(next.style, style)) break;
+			if (!next || next.isWordLike || next.text === "\n" || !subtitleInlineStylesEqual(next.style, style)) break;
 			text += next.text;
 			endIndex += 1;
 			if (breakAfterTokenIndexSet?.has(endIndex)) shouldBreakAfterSuffix = true;
@@ -12497,7 +12532,7 @@ var vot = (function(exports) {
 			pendingPrefix.style = void 0;
 			return;
 		}
-		if (pendingPrefix.text && !stylesEqual(pendingPrefix.style, token.style)) flushPendingPrefix(plan, pendingPrefix);
+		if (pendingPrefix.text && !subtitleInlineStylesEqual(pendingPrefix.style, token.style)) flushPendingPrefix(plan, pendingPrefix);
 		pendingPrefix.text += tokenText;
 		pendingPrefix.style = token.style;
 	};
@@ -12928,6 +12963,7 @@ var vot = (function(exports) {
 		updateMinIntervalHighlightMs = 33;
 		useVideoFrameCallbacks;
 		videoFrameRequestId = null;
+		lastPlaybackTimeMs = null;
 		dragDocListenersAttached = false;
 		lastPositionRefreshTs = 0;
 		positionRefreshIntervalMs = 250;
@@ -12949,6 +12985,7 @@ var vot = (function(exports) {
 			left: 50,
 			top: 100
 		};
+		customVerticalAnchorState = null;
 		positionPreset = "bottom-center";
 		dragging = {
 			pointerId: null,
@@ -13004,7 +13041,6 @@ var vot = (function(exports) {
 		onPointerDownBound;
 		onPointerUpBound;
 		onPointerMoveBound;
-		onTimeUpdateBound;
 		onPlaybackStateChangeBound;
 		onVisualViewportChangeBound;
 		constructor(video, container, intervalIdleChecker, tooltipLayoutRoot = void 0) {
@@ -13020,7 +13056,6 @@ var vot = (function(exports) {
 			this.onPointerDownBound = (event) => this.onPointerDown(event);
 			this.onPointerUpBound = (event) => this.onPointerUp(event);
 			this.onPointerMoveBound = (event) => this.onPointerMove(event);
-			this.onTimeUpdateBound = () => this.requestUpdate();
 			this.onPlaybackStateChangeBound = () => this.handlePlaybackStateChange();
 			this.onVisualViewportChangeBound = () => this.scheduleReposition();
 			this.checkerUnsubscribe = this.intervalIdleChecker.subscribe(() => {
@@ -13258,14 +13293,20 @@ var vot = (function(exports) {
 		getUpdateMinIntervalMs() {
 			return this.highlightWords ? this.updateMinIntervalHighlightMs : this.updateMinIntervalMs;
 		}
-		requestUpdate(now = performance.now()) {
+		requestUpdate(playbackTimeMs, now = performance.now()) {
 			if (this.abortController.signal.aborted) return;
 			if (!this.subtitles) return;
+			if (typeof playbackTimeMs === "number" && Number.isFinite(playbackTimeMs)) this.lastPlaybackTimeMs = Math.max(0, playbackTimeMs);
+			else if (this.video) this.lastPlaybackTimeMs = Math.max(0, this.video.currentTime * 1e3);
 			const minInterval = this.getUpdateMinIntervalMs();
 			if (now - this.lastUpdateRequestTs < minInterval) return;
 			this.lastUpdateRequestTs = now;
 			this.updatePending = true;
 			this.intervalIdleChecker.requestImmediateTick();
+		}
+		resolvePlaybackTimeMs() {
+			if (typeof this.lastPlaybackTimeMs === "number" && Number.isFinite(this.lastPlaybackTimeMs)) return this.lastPlaybackTimeMs;
+			return this.video ? Math.max(0, this.video.currentTime * 1e3) : 0;
 		}
 		handlePlaybackStateChange() {
 			if (!this.subtitles) {
@@ -13273,7 +13314,7 @@ var vot = (function(exports) {
 				return;
 			}
 			this.scheduleReposition();
-			this.requestUpdate();
+			this.requestUpdate(this.video ? Math.max(0, this.video.currentTime * 1e3) : 0);
 			this.syncVideoFrameLoop();
 		}
 		syncVideoFrameLoop() {
@@ -13303,13 +13344,14 @@ var vot = (function(exports) {
 			} catch {}
 			this.videoFrameRequestId = null;
 		}
-		onVideoFrame = (now, _metadata) => {
+		onVideoFrame = (now, metadata) => {
 			this.videoFrameRequestId = null;
 			if (this.abortController.signal.aborted) return;
 			const video = this.video;
 			if (!video || video.paused || video.ended) return;
 			if (!this.subtitles) return;
-			this.requestUpdate(now);
+			const playbackTimeMs = typeof metadata.mediaTime === "number" && Number.isFinite(metadata.mediaTime) ? metadata.mediaTime * 1e3 : void 0;
+			this.requestUpdate(playbackTimeMs, now);
 			this.startVideoFrameLoop();
 		};
 		onCheckerTick() {
@@ -13524,6 +13566,12 @@ var vot = (function(exports) {
 				bottomInset
 			}));
 			this.positionPreset = "custom";
+			this.customVerticalAnchorState = captureCustomVerticalAnchorState({
+				anchorY,
+				elementHeight: elH,
+				boxHeight: anchorBox.h,
+				bottomInset
+			});
 			this.position.left = anchorX / anchorBox.w * 100;
 			this.position.top = anchorY / anchorBox.h * 100;
 			this.updateSnapGuides(anchorBox, {
@@ -13586,10 +13634,18 @@ var vot = (function(exports) {
 		resolveCurrentAnchorPosition(anchorBox, elementWidth, elementHeight, bottomInset) {
 			let anchorX = this.position.left / 100 * anchorBox.w;
 			let anchorY = this.position.top / 100 * anchorBox.h;
-			if (this.positionPreset === "custom") return {
-				anchorX,
-				anchorY
-			};
+			if (this.positionPreset === "custom") {
+				anchorY = resolveCustomVerticalAnchor({
+					state: this.customVerticalAnchorState,
+					elementHeight,
+					boxHeight: anchorBox.h,
+					bottomInset
+				});
+				return {
+					anchorX,
+					anchorY
+				};
+			}
 			const presetPosition = this.resolvePresetAnchorPosition({
 				preset: this.positionPreset,
 				anchorBox,
@@ -13978,33 +14034,23 @@ var vot = (function(exports) {
 			return flags;
 		}
 		renderTokens(tokens) {
-			const breakAfter = this.breakAfterTokenIndexSet;
-			const out = [];
-			const plan = buildSubtitleRenderPlan(tokens, tokens.length - 1, breakAfter);
-			for (const part of plan) out.push(this.renderPlanPart(part));
-			return out;
+			return buildSubtitleRenderPlan(tokens, tokens.length - 1, this.breakAfterTokenIndexSet).map((part) => this.renderPlanPart(part));
+		}
+		renderStyledSpan(text, style, isWordToken = false) {
+			if (!style && !isWordToken) return text;
+			return b`<span
+      data-vot-token=${isWordToken ? "1" : A}
+      data-vot-style-italic=${style?.italic ? "1" : "0"}
+      data-vot-style-bold=${style?.bold ? "1" : "0"}
+      data-vot-style-underline=${style?.underline ? "1" : "0"}
+      data-vot-style-color=${style?.color ? "1" : "0"}
+      style=${buildSubtitleInlineStyleCssText(style)}
+      >${text}</span
+    >`;
 		}
 		renderPlanPart(part) {
 			if (part.kind === "break") return b`<br class="vot-subtitles-br" />`;
-			const inlineStyle = buildSubtitleInlineStyleCssText(part.style);
-			if (part.kind === "word") return b`<span
-        data-vot-token="1"
-        data-vot-style-italic=${part.style?.italic ? "1" : "0"}
-        data-vot-style-bold=${part.style?.bold ? "1" : "0"}
-        data-vot-style-underline=${part.style?.underline ? "1" : "0"}
-        data-vot-style-color=${part.style?.color ? "1" : "0"}
-        style=${inlineStyle}
-        >${part.text}</span
-      >`;
-			if (part.style) return b`<span
-        data-vot-style-italic=${part.style.italic ? "1" : "0"}
-        data-vot-style-bold=${part.style.bold ? "1" : "0"}
-        data-vot-style-underline=${part.style.underline ? "1" : "0"}
-        data-vot-style-color=${part.style.color ? "1" : "0"}
-        style=${inlineStyle}
-        >${part.text}</span
-      >`;
-			return part.text;
+			return this.renderStyledSpan(part.text, part.style, part.kind === "word");
 		}
 		updatePassedClasses(passedFlags) {
 			const tokenEls = this.renderedTokenEls;
@@ -14078,8 +14124,8 @@ var vot = (function(exports) {
 				this.clearRenderedContent();
 				this.subtitles = null;
 				this.maxActiveCueLookbackMs = 0;
+				this.lastPlaybackTimeMs = null;
 				this.clearPendingSchedulerState();
-				this.video?.removeEventListener("timeupdate", this.onTimeUpdateBound);
 				this.stopVideoFrameLoop();
 				this.detachDragDocumentListeners();
 				return;
@@ -14087,8 +14133,8 @@ var vot = (function(exports) {
 			this.createSubtitlesContainer();
 			this.subtitles = subtitles;
 			this.maxActiveCueLookbackMs = subtitles.subtitles.reduce((maxDurationMs, line) => Math.max(maxDurationMs, Math.max(0, line.durationMs)), 0);
+			this.lastPlaybackTimeMs = Math.max(0, this.video.currentTime * 1e3);
 			this.lastActiveLineKey = null;
-			if (!this.useVideoFrameCallbacks) this.video.addEventListener("timeupdate", this.onTimeUpdateBound, { signal: this.abortController.signal });
 			this.syncVideoFrameLoop();
 			this.updateContainerRect();
 			this.update();
@@ -14207,7 +14253,7 @@ var vot = (function(exports) {
 		}
 		update() {
 			if (!this.video || !this.subtitles) return;
-			const time = this.video.currentTime * 1e3;
+			const time = this.resolvePlaybackTimeMs();
 			const subtitlesList = this.subtitles.subtitles;
 			const activeLine = this.resolveActiveLine(time, subtitlesList);
 			if (!activeLine) {
@@ -16841,7 +16887,7 @@ var vot = (function(exports) {
 			});
 			this.subtitlesSelect.addEventListener("beforeOpen", async (dialog) => {
 				if (!this.videoHandler?.videoData) return;
-				const cacheKey = this.videoHandler.getSubtitlesCacheKey(this.videoHandler.videoData.videoId, this.videoHandler.videoData.detectedLanguage, this.videoHandler.videoData.responseLanguage);
+				const cacheKey = this.videoHandler.getSubtitlesCacheKey(this.videoHandler.videoData.videoId, this.videoHandler.videoData.detectedLanguage, this.videoHandler.getPreferredSubtitlesLanguage(this.videoHandler.videoData.detectedLanguage, this.videoHandler.videoData.responseLanguage));
 				if (this.videoHandler.subtitlesCacheKey === cacheKey) return;
 				if (this.videoHandler.cacheManager.getSubtitles(cacheKey) !== void 0) {
 					await this.videoHandler.ensureSubtitlesForCurrentLangPair();
@@ -19176,6 +19222,7 @@ var vot = (function(exports) {
 		"change:useLivelyVoice",
 		"change:subtitlesHighlightWords",
 		"change:subtitlesSmartLayout",
+		"select:responseLanguageSubtitles",
 		"select:subtitlesFontFamily",
 		"change:proxyWorkerHost",
 		"change:useNewAudioPlayer",
@@ -19196,6 +19243,7 @@ var vot = (function(exports) {
 		return events;
 	}
 	var GOOGLE_FONTS_SEARCH_LIMIT = 30;
+	var [AUTO_SUBTITLE_LANGUAGE_VALUE$1, ORIGINAL_SUBTITLE_LANGUAGE_VALUE$1] = subtitleResponseLanguageModes;
 	var subtitleFontFamilyLabels = {
 		"default-sans": "Default Sans",
 		arial: "Arial",
@@ -19211,6 +19259,32 @@ var vot = (function(exports) {
 	function getSubtitleFontFamilyLabel(fontFamily) {
 		if (isBuiltInSubtitleFontFamily(fontFamily)) return subtitleFontFamilyLabels[fontFamily];
 		return getGoogleSubtitleFontFamilyName(fontFamily) ?? "Default Sans";
+	}
+	function getAvailableSubtitleLanguages() {
+		return Object.keys(localizationProvider.defaultLocale).filter((key) => key.startsWith("langs.") && key !== "langs.auto").map((key) => key.slice(6)).sort((left, right) => localizationProvider.getLangLabel(left).localeCompare(localizationProvider.getLangLabel(right)));
+	}
+	function getSubtitleLanguageSettingLabel(value) {
+		if (value === ORIGINAL_SUBTITLE_LANGUAGE_VALUE$1) return localizationProvider.get("VOTOriginalVideoLanguage");
+		return localizationProvider.getLangLabel(value);
+	}
+	function buildSubtitleLanguageSettingItems(selectedValue) {
+		return [
+			{
+				label: getSubtitleLanguageSettingLabel(AUTO_SUBTITLE_LANGUAGE_VALUE$1),
+				value: AUTO_SUBTITLE_LANGUAGE_VALUE$1,
+				selected: selectedValue === AUTO_SUBTITLE_LANGUAGE_VALUE$1
+			},
+			{
+				label: getSubtitleLanguageSettingLabel(ORIGINAL_SUBTITLE_LANGUAGE_VALUE$1),
+				value: ORIGINAL_SUBTITLE_LANGUAGE_VALUE$1,
+				selected: selectedValue === ORIGINAL_SUBTITLE_LANGUAGE_VALUE$1
+			},
+			...getAvailableSubtitleLanguages().map((language) => ({
+				label: getSubtitleLanguageSettingLabel(language),
+				value: language,
+				selected: selectedValue === language
+			}))
+		];
 	}
 	var SettingsView = class SettingsView {
 		static PERSIST_DELAY_MS = 250;
@@ -19244,6 +19318,8 @@ var vot = (function(exports) {
 		useAudioDownloadCheckbox;
 		useAudioDownloadCheckboxLabel;
 		useAudioDownloadCheckboxTooltip;
+		responseLanguageSubtitlesSelectLabel;
+		responseLanguageSubtitlesSelect;
 		subtitlesDownloadFormatSelectLabel;
 		subtitlesDownloadFormatSelect;
 		subtitlesHighlightWordsCheckbox;
@@ -19569,6 +19645,15 @@ var vot = (function(exports) {
 					selected: format === this.data.subtitlesDownloadFormat
 				}))
 			});
+			const responseLanguageSubtitles = this.data.responseLanguageSubtitles ?? AUTO_SUBTITLE_LANGUAGE_VALUE$1;
+			this.responseLanguageSubtitlesSelectLabel = new Label({ labelText: localizationProvider.get("VOTDefaultSubtitlesLanguage") });
+			this.responseLanguageSubtitlesSelect = new Select({
+				selectTitle: getSubtitleLanguageSettingLabel(responseLanguageSubtitles),
+				dialogTitle: localizationProvider.get("VOTDefaultSubtitlesLanguage"),
+				dialogParent: this.globalPortal,
+				labelElement: this.responseLanguageSubtitlesSelectLabel.container,
+				items: buildSubtitleLanguageSettingItems(responseLanguageSubtitles)
+			});
 			this.subtitlesHighlightWordsCheckbox = new Checkbox({
 				labelHtml: localizationProvider.get("VOTHighlightWords"),
 				checked: this.data.highlightWords
@@ -19633,7 +19718,7 @@ var vot = (function(exports) {
 				min: 0,
 				max: 100
 			});
-			subtitlesSection.content.append(this.subtitlesDownloadFormatSelect.container, this.subtitlesFontFamilySelect.container, this.subtitlesHighlightWordsCheckbox.container, this.subtitlesSmartLayoutCheckbox.container, this.subtitlesMaxLengthSlider.container, this.subtitlesFontSizeSlider.container, this.subtitlesBackgroundOpacitySlider.container);
+			subtitlesSection.content.append(this.responseLanguageSubtitlesSelect.container, this.subtitlesDownloadFormatSelect.container, this.subtitlesFontFamilySelect.container, this.subtitlesHighlightWordsCheckbox.container, this.subtitlesSmartLayoutCheckbox.container, this.subtitlesMaxLengthSlider.container, this.subtitlesFontSizeSlider.container, this.subtitlesBackgroundOpacitySlider.container);
 			this.translateHotkeyButton = new HotkeyButton({
 				labelHtml: localizationProvider.get("translateVideo"),
 				key: this.data.translationHotkey
@@ -20007,6 +20092,19 @@ var vot = (function(exports) {
 				logLabel: "useAudioDownload"
 			});
 			this.bindPersistedSetting({
+				control: this.responseLanguageSubtitlesSelect,
+				event: "selectItem",
+				apply: (item) => {
+					this.data.responseLanguageSubtitles = item;
+					this.responseLanguageSubtitlesSelect?.updateItems(buildSubtitleLanguageSettingItems(item));
+					if (this.responseLanguageSubtitlesSelect) this.responseLanguageSubtitlesSelect.selectTitle = getSubtitleLanguageSettingLabel(item);
+				},
+				storageKey: "responseLanguageSubtitles",
+				readPersistedValue: () => this.data.responseLanguageSubtitles,
+				logLabel: "responseLanguageSubtitles",
+				dispatch: (item) => this.events["select:responseLanguageSubtitles"].dispatch(item)
+			});
+			this.bindPersistedSetting({
 				control: this.subtitlesDownloadFormatSelect,
 				event: "selectItem",
 				apply: (item) => {
@@ -20378,6 +20476,9 @@ var vot = (function(exports) {
 				if (checked && videoHandler && !videoHandler.hasActiveSource()) await this.handleTranslationBtnClick();
 			}).addEventListener("change:autoSubtitles", async (checked) => {
 				if (!checked || !this.videoHandler?.videoData?.videoId) return;
+				await this.videoHandler.enableSubtitlesForCurrentLangPair();
+			}).addEventListener("select:responseLanguageSubtitles", async () => {
+				if (!this.videoHandler?.data.autoSubtitles || !this.videoHandler.videoData) return;
 				await this.videoHandler.enableSubtitlesForCurrentLangPair();
 			}).addEventListener("change:showVideoVolume", () => {
 				this.withInitializedOverlayView((overlayView) => {
@@ -21949,6 +22050,7 @@ var vot = (function(exports) {
 			subtitlesOpacity: 20,
 			subtitlesDownloadFormat: "srt",
 			responseLanguage: calculatedResLang,
+			responseLanguageSubtitles: "auto",
 			defaultVolume: 100,
 			onlyBypassMediaCSP: audioContextSupported,
 			newAudioPlayer: audioContextSupported,
@@ -22691,6 +22793,7 @@ var vot = (function(exports) {
 	//#region src/videoHandler/modules/subtitlesShared.ts
 	var DISABLED_SUBTITLES_VALUE = "disabled";
 	var SUBTITLES_INDEX_OPTION_PATTERN = /^\d+$/u;
+	var [AUTO_SUBTITLE_LANGUAGE_VALUE, ORIGINAL_SUBTITLE_LANGUAGE_VALUE] = subtitleResponseLanguageModes;
 	function getIndexedSubtitleDescriptors(subtitles) {
 		const descriptors = [];
 		for (let index = 0; index < subtitles.length; index += 1) {
@@ -22750,6 +22853,11 @@ var vot = (function(exports) {
 		const want = normalizeLang(desired);
 		return cand === want || baseLang(cand) === baseLang(want);
 	}
+	function resolveSubtitlesLanguage(preference, detectedLanguage, responseLanguage) {
+		if (preference === ORIGINAL_SUBTITLE_LANGUAGE_VALUE) return normalizeLang(detectedLanguage) || normalizeLang(responseLanguage);
+		if (typeof preference === "string" && preference && preference !== AUTO_SUBTITLE_LANGUAGE_VALUE) return normalizeLang(preference);
+		return normalizeLang(responseLanguage) || normalizeLang(detectedLanguage);
+	}
 	function pickBestSubtitlesIndex(subtitles, fromLang, toLang) {
 		if (!subtitles.length) return null;
 		const from = normalizeLang(fromLang);
@@ -22775,8 +22883,6 @@ var vot = (function(exports) {
 			if (otherTargetManual != null) return otherTargetManual;
 			return find((descriptor) => !isYandex(descriptor) && langMatches(descriptor.language, to) && isAutoGenerated(descriptor));
 		};
-		const yandexPair = find((descriptor) => isYandex(descriptor) && matchesPair(descriptor, from, to));
-		if (yandexPair != null) return yandexPair;
 		if (!fromIsAuto && fromBase && toBase && fromBase === toBase) {
 			const nativeManual = find((descriptor) => isSameLangOriginal(descriptor, to) && !isAutoGenerated(descriptor));
 			if (nativeManual != null) return nativeManual;
@@ -22787,6 +22893,8 @@ var vot = (function(exports) {
 			const yandexTargetSameLang = find((descriptor) => isYandex(descriptor) && langMatches(descriptor.language, to));
 			if (yandexTargetSameLang != null) return yandexTargetSameLang;
 		}
+		const yandexPair = find((descriptor) => isYandex(descriptor) && matchesPair(descriptor, from, to));
+		if (yandexPair != null) return yandexPair;
 		const yandexTarget = find((descriptor) => isYandex(descriptor) && langMatches(descriptor.language, to));
 		if (yandexTarget != null) return yandexTarget;
 		const otherPair = find((descriptor) => !isYandex(descriptor) && matchesPair(descriptor, from, to));
@@ -22798,10 +22906,48 @@ var vot = (function(exports) {
 	//#endregion
 	//#region src/videoHandler/modules/subtitles.ts
 	var subtitlesSelectionRequestVersion = /* @__PURE__ */ new WeakMap();
+	function getPreferredSubtitlesLanguage(handler) {
+		const videoData = handler.videoData;
+		return handler.getPreferredSubtitlesLanguage(videoData?.detectedLanguage, videoData?.responseLanguage);
+	}
 	function getCurrentSubtitlesCacheKey(handler) {
 		const videoData = handler.videoData;
 		if (!videoData?.videoId) return null;
-		return handler.getSubtitlesCacheKey(videoData.videoId, videoData.detectedLanguage, videoData.responseLanguage);
+		const subtitleLanguage = getPreferredSubtitlesLanguage(handler);
+		if (!subtitleLanguage) return null;
+		return handler.getSubtitlesCacheKey(videoData.videoId, videoData.detectedLanguage, subtitleLanguage);
+	}
+	function buildSubtitleDescriptorKey(descriptor) {
+		return [
+			descriptor.source,
+			descriptor.format,
+			descriptor.language,
+			descriptor.translatedFromLanguage ?? "",
+			descriptor.isAutoGenerated ? "1" : "0",
+			descriptor.url
+		].join("|");
+	}
+	function dedupeSubtitles(subtitles) {
+		const seen = /* @__PURE__ */ new Set();
+		const result = [];
+		for (const descriptor of subtitles) {
+			const key = buildSubtitleDescriptorKey(descriptor);
+			if (seen.has(key)) continue;
+			seen.add(key);
+			result.push(descriptor);
+		}
+		return result;
+	}
+	function enrichYoutubeSubtitlesForPreference(handler, subtitleLanguage) {
+		const videoData = handler.videoData;
+		if (!videoData) throw new Error("Video data is required to load subtitles");
+		if (handler.site.host !== "youtube" || !subtitleLanguage) return videoData;
+		const preferredYoutubeSubtitles = YoutubeHelper.getSubtitles(subtitleLanguage);
+		if (!preferredYoutubeSubtitles.length) return videoData;
+		return {
+			...videoData,
+			subtitles: dedupeSubtitles([...Array.isArray(videoData.subtitles) ? videoData.subtitles : [], ...preferredYoutubeSubtitles])
+		};
 	}
 	function nextSubtitlesSelectionRequestVersion(handler) {
 		const nextVersion = (subtitlesSelectionRequestVersion.get(handler) ?? 0) + 1;
@@ -22894,7 +23040,7 @@ var vot = (function(exports) {
 			return this;
 		}
 		const fromLang = this.videoData?.detectedLanguage ?? this.translateFromLang;
-		const toLang = this.videoData?.responseLanguage ?? this.translateToLang;
+		const toLang = getPreferredSubtitlesLanguage(this);
 		const bestIdx = pickBestSubtitlesIndex(getIndexedSubtitleDescriptors(this.subtitles), fromLang, toLang);
 		if (bestIdx == null) return this;
 		if (getSelectedSubtitlesValue(overlayView.subtitlesSelect.selectedValues) === String(bestIdx)) return this;
@@ -22926,13 +23072,21 @@ var vot = (function(exports) {
 			this.subtitlesCacheKey = null;
 			return;
 		}
-		const cacheKey = this.getSubtitlesCacheKey(this.videoData.videoId, this.videoData.detectedLanguage, this.videoData.responseLanguage);
+		const subtitleLanguage = getPreferredSubtitlesLanguage(this);
+		if (!subtitleLanguage) {
+			this.subtitles = [];
+			this.subtitlesCacheKey = null;
+			await this.updateSubtitlesLangSelect();
+			return;
+		}
+		const cacheKey = this.getSubtitlesCacheKey(this.videoData.videoId, this.videoData.detectedLanguage, subtitleLanguage);
 		try {
 			let cachedSubs = this.cacheManager.getSubtitles(cacheKey);
 			if (!cachedSubs) {
 				let inflight = this.subtitlesLoadPromises.get(cacheKey);
 				if (inflight === void 0) {
-					inflight = SubtitlesProcessor.getSubtitles(this.votClient, this.videoData);
+					const videoDataForSubtitles = enrichYoutubeSubtitlesForPreference(this, subtitleLanguage);
+					inflight = SubtitlesProcessor.getSubtitles(this.votClient, videoDataForSubtitles);
 					this.subtitlesLoadPromises.set(cacheKey, inflight);
 				}
 				try {
@@ -23759,8 +23913,10 @@ var vot = (function(exports) {
 				cacheRequestLang: requestLang,
 				cacheResponseLang: responseLang,
 				onBeforeCache: async () => {
-					const subsCacheKey = this.videoData ? this.getSubtitlesCacheKey(VIDEO_ID, this.videoData.detectedLanguage, this.videoData.responseLanguage) : null;
-					if (!(subsCacheKey ? this.cacheManager.getSubtitles(subsCacheKey) : null)?.some((item) => item.source === "yandex" && item.translatedFromLanguage === videoData.detectedLanguage && item.language === videoData.responseLanguage)) {
+					const preferredSubtitleLanguage = this.getPreferredSubtitlesLanguage(videoData.detectedLanguage, videoData.responseLanguage);
+					const subsCacheKey = this.videoData ? this.getSubtitlesCacheKey(VIDEO_ID, this.videoData.detectedLanguage, preferredSubtitleLanguage) : null;
+					const cachedSubs = subsCacheKey ? this.cacheManager.getSubtitles(subsCacheKey) : null;
+					if (!(Array.isArray(cachedSubs) && pickBestSubtitlesIndex(getIndexedSubtitleDescriptors(cachedSubs), videoData.detectedLanguage, preferredSubtitleLanguage) != null)) {
 						if (subsCacheKey) this.cacheManager.deleteSubtitles(subsCacheKey);
 						this.subtitles = [];
 						this.subtitlesCacheKey = null;
@@ -23994,10 +24150,13 @@ var vot = (function(exports) {
 		* Bugfix: subtitles cache key must match the key used by loadSubtitles().
 		* @param {string} videoId
 		* @param {string} detectedLanguage
-		* @param {string} responseLanguage
+		* @param {string} subtitleLanguage
 		*/
-		getSubtitlesCacheKey(videoId, detectedLanguage, responseLanguage) {
-			return `${videoId}_${detectedLanguage}_${responseLanguage}_${Boolean(this.data?.useLivelyVoice)}`;
+		getSubtitlesCacheKey(videoId, detectedLanguage, subtitleLanguage) {
+			return `${videoId}_${detectedLanguage}_${subtitleLanguage}_${Boolean(this.data?.useLivelyVoice)}`;
+		}
+		getPreferredSubtitlesLanguage(detectedLanguage = this.videoData?.detectedLanguage ?? "auto", responseLanguage = this.videoData?.responseLanguage ?? this.translateToLang, preference = this.data?.responseLanguageSubtitles) {
+			return resolveSubtitlesLanguage(preference, detectedLanguage, responseLanguage);
 		}
 		isActionStale(actionContext) {
 			if (!actionContext) return false;
@@ -24100,7 +24259,8 @@ var vot = (function(exports) {
 				},
 				getVideoData: () => this.getVideoData(),
 				cacheManager: { getSubtitles: (key) => self().cacheManager.getSubtitles(key) },
-				getSubtitlesCacheKey: (videoId, detectedLanguage, responseLanguage) => this.getSubtitlesCacheKey(videoId, detectedLanguage, responseLanguage),
+				getSubtitlesCacheKey: (videoId, detectedLanguage, subtitleLanguage) => this.getSubtitlesCacheKey(videoId, detectedLanguage, subtitleLanguage),
+				getPreferredSubtitlesLanguage: (detectedLanguage, responseLanguage) => this.getPreferredSubtitlesLanguage(detectedLanguage, responseLanguage),
 				updateSubtitlesLangSelect: () => this.updateSubtitlesLangSelect(),
 				enableSubtitlesForCurrentLangPair: () => this.enableSubtitlesForCurrentLangPair(),
 				setSelectMenuValues: (from, to) => this.setSelectMenuValues(from, to),
