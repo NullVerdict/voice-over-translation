@@ -287,7 +287,7 @@ var vot = (function(exports) {
 		"hostVOT": "vot.toil.cc/v1",
 		"hostWorker": "vot-worker.toil.cc",
 		"mediaProxy": "media-proxy.toil.cc",
-		"userAgent": " Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 YaBrowser/26.3.0.2179 Yowser/2.5 Safari/537.36",
+		"userAgent": " Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 YaBrowser/26.3.1.981 Yowser/2.5 Safari/537.36",
 		"componentVersion": "26.3.1.981",
 		"hmac": "bt8xH3VOlb4mqf0nqAibnDOoiPlXsisf",
 		"defaultDuration": 310,
@@ -2592,7 +2592,7 @@ var vot = (function(exports) {
 	function canLog(level) {
 		return config_default$1.loggerLevel <= level;
 	}
-	function log$1(...messages) {
+	function log(...messages) {
 		if (!canLog(LoggerLevel.DEBUG)) return;
 		console.log(prefix, ...messages);
 	}
@@ -2600,20 +2600,20 @@ var vot = (function(exports) {
 		if (!canLog(LoggerLevel.INFO)) return;
 		console.info(prefix, ...messages);
 	}
-	function warn$1(...messages) {
+	function warn(...messages) {
 		if (!canLog(LoggerLevel.WARN)) return;
 		console.warn(prefix, ...messages);
 	}
-	function error$1(...messages) {
+	function error(...messages) {
 		if (!canLog(LoggerLevel.ERROR)) return;
 		console.error(prefix, ...messages);
 	}
 	var Logger = {
 		canLog,
-		log: log$1,
+		log,
 		info,
-		warn: warn$1,
-		error: error$1
+		warn,
+		error
 	};
 	//#endregion
 	//#region src/shims/nodeCrypto.ts
@@ -7485,19 +7485,11 @@ var vot = (function(exports) {
 	];
 	//#endregion
 	//#region src/utils/debug.ts
-	var log = (...text) => {
-		console.log("%c[VOT DEBUG]", "background: #3700ffff; color: #fff; padding: 5px;", ...text);
-	};
-	var warn = (...text) => {
-		console.warn("%c[VOT DEBUG]", "background: #e1ff00ff; color: #fff; padding: 5px;", ...text);
-	};
-	var error = (...text) => {
-		console.error("%c[VOT DEBUG]", "background: #F2452D; color: #fff; padding: 5px;", ...text);
-	};
+	var noop = () => {};
 	var debug = {
-		log,
-		warn,
-		error
+		log: noop,
+		warn: noop,
+		error: noop
 	};
 	//#endregion
 	//#region src/utils/localization.ts
@@ -8078,7 +8070,7 @@ var vot = (function(exports) {
 	function getErrorMessage(error) {
 		return toErrorMessage(error, "");
 	}
-	function isAbortError(err) {
+	function isAbortError$1(err) {
 		const anyErr = err;
 		return typeof DOMException !== "undefined" && anyErr instanceof DOMException && anyErr.name === "AbortError" || anyErr instanceof Error && anyErr.name === "AbortError" || anyErr?.message === "AbortError";
 	}
@@ -8113,7 +8105,7 @@ var vot = (function(exports) {
 			maybeThrow.call(signal);
 			return;
 		} catch (e) {
-			if (signal.aborted || isAbortError(e)) throw makeAbortError();
+			if (signal.aborted || isAbortError$1(e)) throw makeAbortError();
 			throw e instanceof Error ? e : new Error(String(e));
 		}
 		if (signal.aborted) throw makeAbortError();
@@ -8177,7 +8169,7 @@ var vot = (function(exports) {
 		return !!(getCallbackGmXhr() || getPromiseGmXhr());
 	}
 	var isProxyOnlyExtension = !(typeof IS_EXTENSION !== "undefined" && IS_EXTENSION) && !!scriptHandler && !hasSupportedGmXhr();
-	var isSupportGM4 = typeof GM !== "undefined" || typeof globalThis.GM !== "undefined";
+	var isSupportGM4 = GM !== void 0 || globalThis.GM !== void 0;
 	var isSupportGMXhr = hasSupportedGmXhr();
 	function getRequestHost(url) {
 		const normalizedUrl = url.trim();
@@ -8337,7 +8329,7 @@ var vot = (function(exports) {
 					signal
 				});
 			} catch (err) {
-				if (signal.aborted || isAbortError(err)) throw err;
+				if (signal.aborted || isAbortError$1(err)) throw err;
 				debug.log("GM_fetch preventing CORS by GM_xmlhttpRequest", getErrorMessage(err) || "Unknown error");
 				return await gmXhrFetch(urlStr, timeout, fetchOptions);
 			} finally {
@@ -10266,11 +10258,10 @@ var vot = (function(exports) {
 			useLivelyVoice: options.usedLivelyVoice
 		};
 	}
-	async function updateTranslationAndSchedule(options) {
+	async function updateTranslationIfFresh(options) {
 		if (options.isActionStale(options.actionContext)) return false;
 		await options.updateTranslation(options.url, options.actionContext);
 		if (options.isActionStale(options.actionContext)) return false;
-		options.scheduleTranslationRefresh();
 		return true;
 	}
 	async function requestAndApplyTranslation(options) {
@@ -10283,12 +10274,11 @@ var vot = (function(exports) {
 			signal: options.request.signal
 		});
 		if (!translateRes) return null;
-		if (!await updateTranslationAndSchedule({
+		if (!await updateTranslationIfFresh({
 			url: translateRes.url,
 			actionContext: options.actionContext,
 			isActionStale: options.isActionStale,
-			updateTranslation: options.updateTranslation,
-			scheduleTranslationRefresh: options.scheduleTranslationRefresh
+			updateTranslation: options.updateTranslation
 		}) || options.isActionStale(options.actionContext)) return null;
 		return translateRes;
 	}
@@ -10525,7 +10515,7 @@ var vot = (function(exports) {
 					});
 				}
 			} catch (err) {
-				if (isAbortError(err)) {
+				if (isAbortError$1(err)) {
 					debug.log("aborted video translation");
 					return null;
 				}
@@ -10890,6 +10880,81 @@ var vot = (function(exports) {
 			debug.log(`[VideoLifecycle][session:${sessionId}] src handling finished`);
 		}
 	};
+	//#endregion
+	//#region src/core/videoLifecycleHost.ts
+	function createVideoLifecycleHost(handler, resolveOverlayMount) {
+		const self = () => handler;
+		return {
+			get video() {
+				return self().video;
+			},
+			get site() {
+				return self().site;
+			},
+			get container() {
+				return self().container;
+			},
+			set container(value) {
+				if (self().container === value) return;
+				self().container = value;
+				self().uiManager.updateMount(resolveOverlayMount(value));
+			},
+			get firstPlay() {
+				return self().firstPlay;
+			},
+			set firstPlay(value) {
+				self().firstPlay = value;
+			},
+			stopTranslation: () => handler.stopTranslation(),
+			get uiManager() {
+				return self().uiManager;
+			},
+			getVideoData: () => handler.getVideoData(),
+			cacheManager: { getSubtitles: (key) => self().cacheManager.getSubtitles(key) },
+			getSubtitlesCacheKey: (videoId, detectedLanguage, subtitleLanguage) => handler.getSubtitlesCacheKey(videoId, detectedLanguage, subtitleLanguage),
+			getPreferredSubtitlesLanguage: (detectedLanguage, responseLanguage) => handler.getPreferredSubtitlesLanguage(detectedLanguage, responseLanguage),
+			updateSubtitlesLangSelect: () => handler.updateSubtitlesLangSelect(),
+			enableSubtitlesForCurrentLangPair: () => handler.enableSubtitlesForCurrentLangPair(),
+			setSelectMenuValues: (from, to) => handler.setSelectMenuValues(from, to),
+			get translateToLang() {
+				return self().translateToLang;
+			},
+			set translateToLang(value) {
+				self().translateToLang = value;
+			},
+			get data() {
+				return self().data ?? {};
+			},
+			get subtitles() {
+				return self().subtitles;
+			},
+			set subtitles(value) {
+				self().subtitles = value;
+			},
+			get subtitlesCacheKey() {
+				return self().subtitlesCacheKey;
+			},
+			set subtitlesCacheKey(value) {
+				self().subtitlesCacheKey = value;
+			},
+			get videoData() {
+				return self().videoData;
+			},
+			set videoData(value) {
+				self().videoData = value;
+			},
+			get actionsAbortController() {
+				return self().actionsAbortController;
+			},
+			set actionsAbortController(value) {
+				self().actionsAbortController = value;
+			},
+			resetActionsAbortController: (reason) => handler.resetActionsAbortController(reason),
+			translationOrchestrator: handler.translationOrchestrator,
+			resetSubtitlesWidget: () => handler.resetSubtitlesWidget(),
+			queueOverlayAutoHide: () => handler.overlayVisibility?.queueAutoHide()
+		};
+	}
 	//#endregion
 	//#region src/utils/text.ts
 	var MAX_TEXT_LENGTH = 450;
@@ -12640,7 +12705,10 @@ var vot = (function(exports) {
 	};
 	var consumeWordToken = (plan, tokens, startIndex, renderEndTokenIndex, breakAfterTokenIndexSet, pendingPrefix) => {
 		const token = tokens[startIndex];
-		let text = pendingPrefix.text + token.text;
+		const hasPendingPrefix = pendingPrefix.text.length > 0;
+		const body = hasPendingPrefix ? token.text : token.text.trimStart();
+		if (!hasPendingPrefix && body.length !== token.text.length) pushTextPart(plan, token.text.slice(0, token.text.length - body.length), token.style);
+		let text = pendingPrefix.text + body;
 		const style = pendingPrefix.text ? pendingPrefix.style : token.style;
 		pendingPrefix.text = "";
 		pendingPrefix.style = void 0;
@@ -15460,6 +15528,56 @@ var vot = (function(exports) {
 	*/
 	function didTooltipMountContextChange(previous, next) {
 		return previous.root !== next.root || previous.tooltipLayoutRoot !== next.tooltipLayoutRoot;
+	}
+	//#endregion
+	//#region src/ui/translationCommands.ts
+	function isAbortError(error) {
+		return error instanceof Error && error.name === "AbortError";
+	}
+	async function getVideoDataForTranslation(videoHandler) {
+		if (!videoHandler.videoData?.videoId) throw new VOTLocalizedError("VOTNoVideoIDFound");
+		if (shouldRefreshVideoDataBeforeTranslation(videoHandler)) videoHandler.videoData = await videoHandler.getVideoData();
+		if (!videoHandler.videoData?.videoId) throw new VOTLocalizedError("VOTNoVideoIDFound");
+		return videoHandler.videoData;
+	}
+	function shouldRefreshVideoDataBeforeTranslation(videoHandler) {
+		return videoHandler.site.host === "vk" && videoHandler.site.additionalData === "clips" || videoHandler.site.host === "douyin";
+	}
+	async function handleTranslationButtonCommand(deps) {
+		const videoHandler = deps.videoHandler;
+		if (!videoHandler) return;
+		debug.log("[handleTranslationBtnClick] click translationBtn");
+		if (videoHandler.hasActiveSource()) {
+			debug.log("[handleTranslationBtnClick] video has active source");
+			await videoHandler.stopTranslation();
+			return;
+		}
+		if (deps.currentStatus === "error" && !deps.currentLoading) deps.transformBtn("none", localizationProvider.get("translateVideo"));
+		if (deps.currentStatus !== "none" || deps.currentLoading) {
+			debug.log("[handleTranslationBtnClick] translationBtn isn't in none state");
+			videoHandler.actionsAbortController.abort();
+			await videoHandler.stopTranslation();
+			return;
+		}
+		try {
+			debug.log("[handleTranslationBtnClick] trying execute translation");
+			const videoData = await getVideoDataForTranslation(videoHandler);
+			await videoHandler.videoManager.ensureDetectedLanguageForTranslation(videoData);
+			debug.log("[handleTranslationBtnClick] Run translateFunc", videoData.videoId);
+			await videoHandler.translateFunc(videoData.videoId, videoData.isStream, videoData.detectedLanguage, videoData.responseLanguage, videoData.translationHelp);
+		} catch (err) {
+			if (isAbortError(err)) {
+				deps.transformBtn("none", localizationProvider.get("translateVideo"));
+				return;
+			}
+			console.error("[VOT]", err);
+			if (!(err instanceof Error)) {
+				deps.transformBtn("error", String(err));
+				return;
+			}
+			const message = err.name === "VOTLocalizedError" ? err.localizedMessage : err.message;
+			deps.transformBtn("error", message);
+		}
 	}
 	//#endregion
 	//#region src/ui/icons.ts
@@ -18937,6 +19055,9 @@ var vot = (function(exports) {
 	var joinParts = (...parts) => {
 		return parts.filter(Boolean).join(" ").trim() || UNKNOWN_VALUE;
 	};
+	function isDocumentHidden() {
+		return typeof document !== "undefined" && document.hidden;
+	}
 	function getEnvironmentInfo() {
 		return {
 			os: joinParts(browserInfo.os?.name, browserInfo.os?.version),
@@ -20814,53 +20935,15 @@ var vot = (function(exports) {
 		}
 		async handleTranslationBtnClick() {
 			if (!this.votOverlayView?.isInitialized()) throw new Error("[VOT] OverlayView isn't initialized");
-			const videoHandler = this.videoHandler;
-			if (!videoHandler) return this;
-			debug.log("[handleTranslationBtnClick] click translationBtn");
-			if (videoHandler.hasActiveSource()) {
-				debug.log("[handleTranslationBtnClick] video has active source");
-				await videoHandler.stopTranslation();
-				return this;
-			}
-			if (this.votOverlayView.votButton.status === "error" && !this.votOverlayView.votButton.loading) this.transformBtn("none", localizationProvider.get("translateVideo"));
-			if (this.votOverlayView.votButton.status !== "none" || this.votOverlayView.votButton.loading) {
-				debug.log("[handleTranslationBtnClick] translationBtn isn't in none state");
-				videoHandler.actionsAbortController.abort();
-				await videoHandler.stopTranslation();
-				return this;
-			}
-			try {
-				debug.log("[handleTranslationBtnClick] trying execute translation");
-				const videoData = await this.getVideoDataForTranslation(videoHandler);
-				await videoHandler.videoManager.ensureDetectedLanguageForTranslation(videoData);
-				debug.log("[handleTranslationBtnClick] Run translateFunc", videoData.videoId);
-				await videoHandler.translateFunc(videoData.videoId, videoData.isStream, videoData.detectedLanguage, videoData.responseLanguage, videoData.translationHelp);
-			} catch (err) {
-				if (this.isAbortError(err)) {
-					this.transformBtn("none", localizationProvider.get("translateVideo"));
-					return this;
+			await handleTranslationButtonCommand({
+				videoHandler: this.videoHandler,
+				currentStatus: this.votOverlayView.votButton.status,
+				currentLoading: this.votOverlayView.votButton.loading,
+				transformBtn: (status, text) => {
+					this.transformBtn(status, text);
 				}
-				console.error("[VOT]", err);
-				if (!(err instanceof Error)) {
-					this.transformBtn("error", String(err));
-					return this;
-				}
-				const message = err.name === "VOTLocalizedError" ? err.localizedMessage : err.message;
-				this.transformBtn("error", message);
-			}
+			});
 			return this;
-		}
-		async getVideoDataForTranslation(videoHandler) {
-			if (!videoHandler.videoData?.videoId) throw new VOTLocalizedError("VOTNoVideoIDFound");
-			if (this.shouldRefreshVideoDataBeforeTranslation(videoHandler)) videoHandler.videoData = await videoHandler.getVideoData();
-			if (!videoHandler.videoData?.videoId) throw new VOTLocalizedError("VOTNoVideoIDFound");
-			return videoHandler.videoData;
-		}
-		shouldRefreshVideoDataBeforeTranslation(videoHandler) {
-			return videoHandler.site.host === "vk" && videoHandler.site.additionalData === "clips" || videoHandler.site.host === "douyin";
-		}
-		isAbortError(error) {
-			return error instanceof Error && error.name === "AbortError";
 		}
 		isLoadingText(text) {
 			const delayed = localizationProvider.get("TranslationDelayed");
@@ -21089,7 +21172,6 @@ var vot = (function(exports) {
 				}
 				Promise.resolve().then(fn);
 			},
-			isDocumentHidden: () => typeof document !== "undefined" && typeof document.hidden === "boolean" ? document.hidden : false,
 			onVisibilityChange: (listener) => {
 				if (typeof document === "undefined" || typeof document.addEventListener !== "function") return () => void 0;
 				document.addEventListener("visibilitychange", listener);
@@ -21112,7 +21194,7 @@ var vot = (function(exports) {
 		lastActivityAt;
 		onVisibilityChangeHandler = () => {
 			if (this.destroyed || !this.running) return;
-			if (this.runtime.isDocumentHidden()) this.clearIntervalTimer();
+			if (isDocumentHidden()) this.clearIntervalTimer();
 			else this.armInterval();
 			this.requestImmediateTick();
 		};
@@ -21169,7 +21251,7 @@ var vot = (function(exports) {
 			});
 		}
 		resolveMode(nowMs) {
-			if (this.runtime.isDocumentHidden()) return "hidden";
+			if (isDocumentHidden()) return "hidden";
 			return nowMs - this.lastActivityAt >= this.profile.idleAfterMs ? "idle" : "active";
 		}
 		clearIntervalTimer() {
@@ -21330,7 +21412,7 @@ var vot = (function(exports) {
 		}
 		translationFailed(params) {
 			const { videoId, message } = params;
-			if (isAbortError(message)) return;
+			if (isAbortError$1(message)) return;
 			const msg = resolveLocalizedErrorMessage(message);
 			const title = getScriptTitle();
 			this.send({
@@ -21821,6 +21903,1046 @@ var vot = (function(exports) {
 		};
 	}
 	//#endregion
+	//#region src/videoHandler/modules/ducking.ts
+	var VOLUME_MIN_01 = 0;
+	var VOLUME_MAX_01 = 1;
+	var SMART_DUCKING_DEFAULT_CONFIG = Object.freeze({
+		tickMs: 50,
+		thresholdOnRms: .012,
+		thresholdOffRms: .009,
+		rmsAttackTauMs: 60,
+		rmsReleaseTauMs: 240,
+		holdMs: 520,
+		attackTauMs: 110,
+		releaseTauMs: 600,
+		maxDownPerSec: 3.5,
+		maxUpPerSec: .9,
+		rmsMissingGraceMs: 200,
+		maxDtMs: 250,
+		externalBaselineDelta01: .02,
+		unduckTolerance01: .01,
+		volumeStep01: VIDEO_VOLUME_STEP_01,
+		applyDeltaThreshold01: VIDEO_VOLUME_STEP_01 / 2
+	});
+	function initSmartDuckingRuntime(baseline) {
+		return {
+			isDucked: false,
+			speechGateOpen: false,
+			rmsEnvelope: 0,
+			baseline: normalizeVolume01(baseline),
+			lastApplied: void 0,
+			lastTickAt: 0,
+			lastSoundAt: 0,
+			rmsMissingSinceAt: null
+		};
+	}
+	function resetSmartDuckingRuntime() {
+		return initSmartDuckingRuntime();
+	}
+	function updateSpeechGate(input, runtime, config, now, hasRms) {
+		const gateOpen = runtime.speechGateOpen;
+		if (!input.smartEnabled) {
+			runtime.lastSoundAt = now;
+			runtime.rmsMissingSinceAt = null;
+			return true;
+		}
+		if (input.audioIsPlaying && !hasRms) {
+			runtime.rmsMissingSinceAt ??= now;
+			if (gateOpen) runtime.lastSoundAt = now;
+			if (runtime.rmsMissingSinceAt !== null && now - runtime.rmsMissingSinceAt >= config.rmsMissingGraceMs) {
+				runtime.lastSoundAt = now;
+				return true;
+			}
+			return gateOpen;
+		}
+		runtime.rmsMissingSinceAt = null;
+		if (!input.audioIsPlaying) return gateOpen && now - runtime.lastSoundAt <= config.holdMs;
+		if (!gateOpen && runtime.rmsEnvelope >= config.thresholdOnRms) {
+			runtime.lastSoundAt = now;
+			return true;
+		}
+		if (gateOpen && runtime.rmsEnvelope >= config.thresholdOffRms) {
+			runtime.lastSoundAt = now;
+			return true;
+		}
+		return gateOpen && now - runtime.lastSoundAt <= config.holdMs;
+	}
+	function resolveBaseline(runtime, currentVideoVolume, volumeOnStart, config) {
+		if (runtime.isDucked && isFiniteNumber(runtime.lastApplied) && Math.abs(currentVideoVolume - runtime.lastApplied) > config.externalBaselineDelta01) runtime.baseline = currentVideoVolume;
+		if (!runtime.isDucked) runtime.baseline = currentVideoVolume;
+		const baseline = runtime.baseline ?? volumeOnStart ?? currentVideoVolume;
+		runtime.baseline = baseline;
+		return baseline;
+	}
+	function resolveDesiredVolume(runtime, gateOpen, currentVideoVolume, baseline, duckingTarget01, config) {
+		const duckedTarget = Math.min(baseline, duckingTarget01);
+		if (gateOpen) {
+			runtime.isDucked = true;
+			return duckedTarget;
+		}
+		if (runtime.isDucked && Math.abs(baseline - currentVideoVolume) < config.unduckTolerance01) runtime.isDucked = false;
+		return baseline;
+	}
+	function smoothVolumeChange(desired, currentVideoVolume, dtMs, dtSec, config) {
+		const smoothingTauMs = desired < currentVideoVolume ? config.attackTauMs : config.releaseTauMs;
+		const smoothingAlpha = smoothingTauMs > 0 ? -Math.expm1(-dtMs / smoothingTauMs) : 1;
+		let nextVolume = currentVideoVolume + (desired - currentVideoVolume) * smoothingAlpha;
+		const maxDelta = (desired < currentVideoVolume ? config.maxDownPerSec : config.maxUpPerSec) * dtSec;
+		if (maxDelta > 0) nextVolume = clamp(nextVolume, currentVideoVolume - maxDelta, currentVideoVolume + maxDelta);
+		return clamp(nextVolume, VOLUME_MIN_01, VOLUME_MAX_01);
+	}
+	function buildVolumeDecision(runtime, currentVideoVolume, quantized, applyDeltaThreshold01) {
+		if (Math.abs(quantized - currentVideoVolume) < applyDeltaThreshold01) {
+			runtime.lastApplied = quantized;
+			return {
+				kind: "noop",
+				runtime
+			};
+		}
+		if (!isFiniteNumber(runtime.lastApplied) || Math.abs(quantized - runtime.lastApplied) >= applyDeltaThreshold01) {
+			runtime.lastApplied = quantized;
+			return {
+				kind: "apply",
+				runtime,
+				volume01: quantized
+			};
+		}
+		return {
+			kind: "noop",
+			runtime
+		};
+	}
+	function computeSmartDuckingStep(input, runtime, config = SMART_DUCKING_DEFAULT_CONFIG) {
+		const nextRuntime = normalizeRuntime(runtime);
+		const volumeOnStart = normalizeVolume01(input.volumeOnStart);
+		if (!input.translationActive || !input.enabledAutoVolume) return {
+			kind: "stop",
+			runtime: nextRuntime,
+			restoreVolume: nextRuntime.baseline ?? volumeOnStart
+		};
+		const now = Number.isFinite(input.nowMs) ? input.nowMs : Date.now();
+		const dtMs = clamp(now - (nextRuntime.lastTickAt || now), 0, config.maxDtMs);
+		const dtSec = dtMs / 1e3;
+		nextRuntime.lastTickAt = now;
+		const hasRms = isFiniteNumber(input.rms);
+		const rmsValue = hasRms ? clamp(input.rms, VOLUME_MIN_01, VOLUME_MAX_01) : 0;
+		const prevEnv = nextRuntime.rmsEnvelope;
+		const envTauMs = rmsValue > prevEnv ? config.rmsAttackTauMs : config.rmsReleaseTauMs;
+		const envAlpha = envTauMs > 0 ? -Math.expm1(-dtMs / envTauMs) : 1;
+		nextRuntime.rmsEnvelope = clamp(prevEnv + (rmsValue - prevEnv) * envAlpha, VOLUME_MIN_01, VOLUME_MAX_01);
+		const gateOpen = updateSpeechGate(input, nextRuntime, config, now, hasRms);
+		nextRuntime.speechGateOpen = gateOpen;
+		const currentVideoVolume = normalizeVolume01(input.currentVideoVolume);
+		if (!isFiniteNumber(currentVideoVolume)) return {
+			kind: "noop",
+			runtime: nextRuntime
+		};
+		const baseline = resolveBaseline(nextRuntime, currentVideoVolume, volumeOnStart, config);
+		if (!input.hostVideoActive) {
+			nextRuntime.lastApplied = currentVideoVolume;
+			return {
+				kind: "noop",
+				runtime: nextRuntime
+			};
+		}
+		const desired = resolveDesiredVolume(nextRuntime, gateOpen, currentVideoVolume, baseline, normalizeVolume01(input.duckingTarget01) ?? baseline, config);
+		const quantized = snapVolume01Towards(smoothVolumeChange(desired, currentVideoVolume, dtMs, dtSec, config), currentVideoVolume, desired, config.volumeStep01);
+		const applyDeltaThreshold01 = config.applyDeltaThreshold01;
+		return buildVolumeDecision(nextRuntime, currentVideoVolume, quantized, applyDeltaThreshold01);
+	}
+	function normalizeRuntime(runtime) {
+		return {
+			isDucked: Boolean(runtime.isDucked),
+			speechGateOpen: Boolean(runtime.speechGateOpen),
+			rmsEnvelope: normalizeVolume01(runtime.rmsEnvelope) ?? 0,
+			baseline: normalizeVolume01(runtime.baseline),
+			lastApplied: normalizeVolume01(runtime.lastApplied),
+			lastTickAt: isFiniteNumber(runtime.lastTickAt) ? runtime.lastTickAt : 0,
+			lastSoundAt: isFiniteNumber(runtime.lastSoundAt) ? runtime.lastSoundAt : 0,
+			rmsMissingSinceAt: isFiniteNumber(runtime.rmsMissingSinceAt) ? runtime.rmsMissingSinceAt : null
+		};
+	}
+	function normalizeVolume01(value) {
+		if (!isFiniteNumber(value)) return void 0;
+		return clamp(value, VOLUME_MIN_01, VOLUME_MAX_01);
+	}
+	function isFiniteNumber(value) {
+		return typeof value === "number" && Number.isFinite(value);
+	}
+	//#endregion
+	//#region src/videoHandler/modules/smartDuckingRuntime.ts
+	var SMART_DUCKING_TICK_MS = SMART_DUCKING_DEFAULT_CONFIG.tickMs;
+	var smartDuckingAnalyserState = /* @__PURE__ */ new WeakMap();
+	function isAudioNode(node) {
+		if (!node || typeof node !== "object") return false;
+		const candidate = node;
+		return typeof candidate.connect === "function" && typeof candidate.disconnect === "function";
+	}
+	function getPlayerMediaElement(player) {
+		return player?.audio ?? player?.audioElement;
+	}
+	function getNowMs() {
+		return typeof performance !== "undefined" && typeof performance.now === "function" ? performance.now() : Date.now();
+	}
+	function getAutoVolumeMode(handler) {
+		if (!handler.data?.enabledAutoVolume) return "off";
+		if (handler.data?.syncVolume) return "classic";
+		return handler.data?.enabledSmartDucking ?? true ? "smart" : "classic";
+	}
+	function getSmartDuckingAudioContext(handler) {
+		return handler.audioPlayer?.audioContext ?? handler.audioContext;
+	}
+	function disconnectSmartDuckingAnalyser(state) {
+		if (state.connectedInputNode && state.analyser) try {
+			state.connectedInputNode.disconnect(state.analyser);
+		} catch {}
+		state.connectedInputNode = void 0;
+		if (state.createdMediaSource) try {
+			state.createdMediaSource.disconnect();
+		} catch {}
+		state.createdMediaSource = void 0;
+		if (state.analyser) try {
+			state.analyser.disconnect();
+		} catch {}
+		state.analyser = void 0;
+		state.analyserFloatData = void 0;
+		state.analyserData = void 0;
+		state.mediaElement = void 0;
+		state.audioContext = void 0;
+		state.mediaSourceCreationFailed = false;
+	}
+	function releaseSmartDuckingAnalyser(handler) {
+		const state = smartDuckingAnalyserState.get(handler);
+		if (!state) return;
+		disconnectSmartDuckingAnalyser(state);
+		smartDuckingAnalyserState.delete(handler);
+	}
+	function resolveSmartDuckingInputNode(player, media, audioContext, state) {
+		if (isAudioNode(player?.gainNode)) return player.gainNode;
+		if (isAudioNode(player?.audioSource)) return player.audioSource;
+		if (isAudioNode(player?.mediaElementSource)) return player.mediaElementSource;
+		if (state.mediaSourceCreationFailed && state.mediaElement === media && state.audioContext === audioContext) return;
+		if (state.createdMediaSource && state.mediaElement === media && state.audioContext === audioContext) return state.createdMediaSource;
+		try {
+			const source = audioContext.createMediaElementSource(media);
+			state.createdMediaSource = source;
+			state.mediaSourceCreationFailed = false;
+			return source;
+		} catch (err) {
+			state.mediaSourceCreationFailed = true;
+			debug.log("[SmartDucking] failed to create media source", err);
+			return;
+		}
+	}
+	function ensureSmartDuckingAnalyser(handler, player, media) {
+		const audioContext = getSmartDuckingAudioContext(handler);
+		if (!audioContext) return void 0;
+		let state = smartDuckingAnalyserState.get(handler);
+		if (!state) {
+			state = {};
+			smartDuckingAnalyserState.set(handler, state);
+		}
+		if (state.mediaElement && state.mediaElement !== media || state.audioContext && state.audioContext !== audioContext) disconnectSmartDuckingAnalyser(state);
+		state.mediaElement = media;
+		state.audioContext = audioContext;
+		if (!state.analyser) {
+			const analyser = audioContext.createAnalyser();
+			analyser.fftSize = 512;
+			state.analyser = analyser;
+		}
+		const inputNode = resolveSmartDuckingInputNode(player, media, audioContext, state);
+		const analyser = state.analyser;
+		if (!inputNode || !analyser) return void 0;
+		if (state.connectedInputNode !== inputNode) {
+			if (state.connectedInputNode) try {
+				state.connectedInputNode.disconnect(analyser);
+			} catch {}
+			try {
+				inputNode.connect(analyser);
+				state.connectedInputNode = inputNode;
+			} catch (err) {
+				debug.log("[SmartDucking] failed to connect analyser", err);
+				return;
+			}
+		}
+		return {
+			analyser,
+			state
+		};
+	}
+	function readSmartDuckingRuntime(handler) {
+		return {
+			isDucked: handler.smartVolumeIsDucked,
+			speechGateOpen: handler.smartVolumeSpeechGateOpen,
+			rmsEnvelope: handler.smartVolumeRmsEnvelope,
+			baseline: handler.smartVolumeDuckingBaseline,
+			lastApplied: handler.smartVolumeLastApplied,
+			lastTickAt: handler.smartVolumeLastTickAt,
+			lastSoundAt: handler.smartVolumeLastSoundAt,
+			rmsMissingSinceAt: handler.smartVolumeRmsMissingSinceAt
+		};
+	}
+	function writeSmartDuckingRuntime(handler, runtime) {
+		handler.smartVolumeIsDucked = runtime.isDucked;
+		handler.smartVolumeSpeechGateOpen = runtime.speechGateOpen;
+		handler.smartVolumeRmsEnvelope = runtime.rmsEnvelope;
+		handler.smartVolumeDuckingBaseline = runtime.baseline;
+		handler.smartVolumeLastApplied = runtime.lastApplied;
+		handler.smartVolumeLastTickAt = runtime.lastTickAt;
+		handler.smartVolumeLastSoundAt = runtime.lastSoundAt;
+		handler.smartVolumeRmsMissingSinceAt = runtime.rmsMissingSinceAt;
+	}
+	function stopSmartVolumeDucking(handler, options = {}) {
+		const { restoreVolume } = options;
+		if (handler.smartVolumeDuckingInterval !== void 0) {
+			clearTimeout(handler.smartVolumeDuckingInterval);
+			handler.smartVolumeDuckingInterval = void 0;
+		}
+		const baseline = typeof restoreVolume === "number" ? restoreVolume : handler.smartVolumeDuckingBaseline ?? handler.volumeOnStart;
+		if (typeof baseline === "number" && (typeof restoreVolume === "number" || handler.smartVolumeIsDucked)) try {
+			handler.setVideoVolume(baseline);
+		} catch {}
+		releaseSmartDuckingAnalyser(handler);
+		writeSmartDuckingRuntime(handler, resetSmartDuckingRuntime());
+	}
+	function scheduleNextSmartDuckingTick(handler) {
+		if (typeof globalThis === "undefined") return;
+		if (handler.smartVolumeDuckingInterval === void 0) return;
+		handler.smartVolumeDuckingInterval = globalThis.setTimeout(() => {
+			if (handler.smartVolumeDuckingInterval === void 0) return;
+			try {
+				smartDuckingTick(handler);
+			} catch (err) {
+				debug.log("[SmartDucking] tick failed, stopping smart ducking", err);
+				stopSmartVolumeDucking(handler);
+				return;
+			}
+			if (handler.smartVolumeDuckingInterval === void 0) return;
+			scheduleNextSmartDuckingTick(handler);
+		}, SMART_DUCKING_TICK_MS);
+	}
+	function startSmartVolumeDucking(handler) {
+		if (typeof globalThis === "undefined") return;
+		if (handler.smartVolumeDuckingInterval !== void 0) return;
+		if (getAutoVolumeMode(handler) !== "smart") return;
+		const currentVideoVolume = handler.getVideoVolume();
+		const baseline = typeof handler.smartVolumeDuckingBaseline === "number" ? handler.smartVolumeDuckingBaseline : currentVideoVolume;
+		const runtime = initSmartDuckingRuntime(baseline);
+		if (Number.isFinite(currentVideoVolume) && Number.isFinite(baseline) && currentVideoVolume < baseline - SMART_DUCKING_DEFAULT_CONFIG.externalBaselineDelta01) {
+			const now = getNowMs();
+			runtime.isDucked = true;
+			runtime.speechGateOpen = true;
+			runtime.lastApplied = currentVideoVolume;
+			runtime.lastSoundAt = now;
+		}
+		writeSmartDuckingRuntime(handler, runtime);
+		handler.smartVolumeDuckingInterval = globalThis.setTimeout(() => {}, 0);
+		clearTimeout(handler.smartVolumeDuckingInterval);
+		scheduleNextSmartDuckingTick(handler);
+	}
+	function getTranslatedAudioRms(handler, media) {
+		const player = handler.audioPlayer?.player;
+		const analyserBundle = ensureSmartDuckingAnalyser(handler, player, media);
+		if (!analyserBundle) return void 0;
+		const { analyser, state } = analyserBundle;
+		try {
+			if (typeof analyser.getFloatTimeDomainData === "function") {
+				let floatData = state.analyserFloatData;
+				if (floatData?.length !== analyser.fftSize) {
+					floatData = new Float32Array(analyser.fftSize);
+					state.analyserFloatData = floatData;
+				}
+				analyser.getFloatTimeDomainData(floatData);
+				let sum = 0;
+				for (const value of floatData) sum += value * value;
+				return clamp(Math.sqrt(sum / floatData.length), 0, 1);
+			}
+			let data = state.analyserData;
+			if (data?.length !== analyser.fftSize) {
+				data = new Uint8Array(analyser.fftSize);
+				state.analyserData = data;
+			}
+			analyser.getByteTimeDomainData(data);
+			let sum = 0;
+			for (const rawValue of data) {
+				const normalizedValue = (rawValue - 128) / 128;
+				sum += normalizedValue * normalizedValue;
+			}
+			return clamp(Math.sqrt(sum / data.length), 0, 1);
+		} catch {
+			return;
+		}
+	}
+	function smartDuckingTick(handler) {
+		if (getAutoVolumeMode(handler) !== "smart") {
+			setupAudioSettings.call(handler);
+			return;
+		}
+		const player = handler.audioPlayer?.player;
+		const media = getPlayerMediaElement(player);
+		const audioIsPlaying = !!media && !media.paused && !media.muted && (media.volume ?? 1) > .001;
+		const now = getNowMs();
+		const currentVideoVolume = handler.getVideoVolume();
+		const hostVideo = handler.video;
+		const hostVideoActive = !(hostVideo && (hostVideo.paused || hostVideo.ended));
+		const dynamicDuckingTarget = clamp(handler.data?.autoVolume ?? 15, 0, 100) / 100;
+		handler.smartVolumeDuckingTarget = dynamicDuckingTarget;
+		const rms = audioIsPlaying && media ? getTranslatedAudioRms(handler, media) : 0;
+		const decision = computeSmartDuckingStep({
+			nowMs: now,
+			translationActive: handler.hasActiveSource(),
+			enabledAutoVolume: true,
+			smartEnabled: true,
+			audioIsPlaying,
+			rms,
+			currentVideoVolume,
+			hostVideoActive,
+			duckingTarget01: dynamicDuckingTarget,
+			volumeOnStart: handler.volumeOnStart
+		}, readSmartDuckingRuntime(handler), SMART_DUCKING_DEFAULT_CONFIG);
+		switch (decision.kind) {
+			case "stop":
+				stopSmartVolumeDucking(handler, { restoreVolume: decision.restoreVolume });
+				return;
+			case "apply":
+				handler.setVideoVolume(decision.volume01);
+				writeSmartDuckingRuntime(handler, decision.runtime);
+				return;
+			case "noop":
+				writeSmartDuckingRuntime(handler, decision.runtime);
+				return;
+			default: throw new TypeError("Unhandled smart ducking decision");
+		}
+	}
+	function setupAudioSettings() {
+		if (typeof this.data?.defaultVolume === "number") this.audioPlayer.player.volume = this.data.defaultVolume / 100;
+		const autoVolumeMode = getAutoVolumeMode(this);
+		if (autoVolumeMode === "off") {
+			stopSmartVolumeDucking(this, { restoreVolume: this.smartVolumeDuckingBaseline ?? this.volumeOnStart });
+			return;
+		}
+		const targetVolume = clamp(this.data.autoVolume ?? 15, 0, 100) / 100;
+		this.smartVolumeDuckingTarget = targetVolume;
+		if (!this.hasActiveSource()) return;
+		if (autoVolumeMode === "smart") {
+			startSmartVolumeDucking(this);
+			return;
+		}
+		if (this.smartVolumeDuckingInterval !== void 0) {
+			clearTimeout(this.smartVolumeDuckingInterval);
+			this.smartVolumeDuckingInterval = void 0;
+		}
+		if (typeof this.smartVolumeDuckingBaseline !== "number") this.smartVolumeDuckingBaseline = this.getVideoVolume();
+		const baseline = this.smartVolumeDuckingBaseline ?? this.getVideoVolume();
+		this.setVideoVolume(Math.min(baseline, targetVolume));
+		writeSmartDuckingRuntime(this, initSmartDuckingRuntime(this.smartVolumeDuckingBaseline));
+		this.smartVolumeIsDucked = true;
+	}
+	function applyManualVideoVolumeOverride(volume01) {
+		if (!this.data?.enabledAutoVolume || !this.hasActiveSource()) return;
+		const nextVolume = snapVolume01(volume01);
+		this.smartVolumeDuckingTarget = nextVolume;
+		this.smartVolumeDuckingBaseline = nextVolume;
+		this.smartVolumeLastApplied = nextVolume;
+	}
+	//#endregion
+	//#region src/videoHandler/modules/proxyShared.ts
+	var AUDIO_SOURCE_PREFIX = "https://vtrans.s3-private.mds.yandex.net/tts/prod/";
+	var AUDIO_PROXY_PATH_PREFIX = "/video-translation/audio-proxy/";
+	var SUBTITLE_SOURCE_PREFIX = "https://brosubs.s3-private.mds.yandex.net/vtrans/";
+	var SUBTITLE_PROXY_PATH_PREFIX = "/video-subtitles/subtitles-proxy/";
+	function resolveProxyWorkerHost(host) {
+		return host ?? "vot-worker.kload.workers.dev";
+	}
+	function isProxyClientEnabled(config) {
+		return Boolean(config.translateProxyEnabled);
+	}
+	function isProxyRoutingEnabled(config) {
+		return config.translateProxyEnabled === 2;
+	}
+	function shouldForceProxyClientGmXhr(config) {
+		return Boolean(config.gmXhrSupported && isProxyClientEnabled(config));
+	}
+	function proxifyYandexAudioUrl(audioUrl, config) {
+		if (!isProxyRoutingEnabled(config) || !audioUrl.startsWith(AUDIO_SOURCE_PREFIX)) return audioUrl;
+		return audioUrl.replace(AUDIO_SOURCE_PREFIX, `https://${resolveProxyWorkerHost(config.proxyWorkerHost)}${AUDIO_PROXY_PATH_PREFIX}`);
+	}
+	function unproxifyYandexAudioUrl(audioUrl) {
+		const str = String(audioUrl || "");
+		if (!str) return str;
+		try {
+			const url = new URL(str);
+			if (!url.pathname.startsWith(AUDIO_PROXY_PATH_PREFIX)) return str;
+			url.host = "vtrans.s3-private.mds.yandex.net";
+			url.pathname = `/tts/prod/${url.pathname.slice(31).replace(/^\/+/, "")}`;
+			url.protocol = "https:";
+			return url.toString();
+		} catch {
+			return str;
+		}
+	}
+	function isYandexAudioUrlOrProxy(url, config) {
+		return url.startsWith(AUDIO_SOURCE_PREFIX) || url.startsWith(`https://${resolveProxyWorkerHost(config.proxyWorkerHost)}${AUDIO_PROXY_PATH_PREFIX}`);
+	}
+	function proxifyYandexSubtitlesUrl(subtitlesUrl, config) {
+		if (!isProxyRoutingEnabled(config) || !subtitlesUrl.startsWith(SUBTITLE_SOURCE_PREFIX)) return subtitlesUrl;
+		const subtitlesPath = subtitlesUrl.slice(49);
+		return `https://${resolveProxyWorkerHost(config.proxyWorkerHost)}${SUBTITLE_PROXY_PATH_PREFIX}${subtitlesPath}`;
+	}
+	//#endregion
+	//#region src/videoHandler/modules/subtitlesShared.ts
+	var DISABLED_SUBTITLES_VALUE = "disabled";
+	var SUBTITLES_INDEX_OPTION_PATTERN = /^\d+$/u;
+	var [AUTO_SUBTITLE_LANGUAGE_VALUE, ORIGINAL_SUBTITLE_LANGUAGE_VALUE] = subtitleResponseLanguageModes;
+	function getIndexedSubtitleDescriptors(subtitles) {
+		const descriptors = [];
+		for (let index = 0; index < subtitles.length; index += 1) {
+			const descriptor = parseSubtitleDescriptor(subtitles[index]);
+			if (!descriptor) continue;
+			descriptors.push({
+				descriptor,
+				index
+			});
+		}
+		return descriptors;
+	}
+	function parseSubtitlesOptionIndex(value) {
+		if (!SUBTITLES_INDEX_OPTION_PATTERN.test(value)) return null;
+		const parsed = Number(value);
+		if (!Number.isSafeInteger(parsed)) return null;
+		return parsed;
+	}
+	function getSubtitleDescriptorAtIndex(subtitles, index) {
+		if (!Number.isInteger(index) || index < 0 || index >= subtitles.length) return null;
+		return parseSubtitleDescriptor(subtitles[index]);
+	}
+	function createDisabledSubtitlesOption() {
+		return {
+			label: localizationProvider.get("VOTSubtitlesDisabled"),
+			value: DISABLED_SUBTITLES_VALUE,
+			selected: true,
+			disabled: false
+		};
+	}
+	function buildSubtitleLabel(subtitle) {
+		return `${localizationProvider.getLangLabel(subtitle.language)}${subtitle.translatedFromLanguage ? ` ${localizationProvider.get("VOTTranslatedFrom")} ${localizationProvider.getLangLabel(subtitle.translatedFromLanguage)}` : ""}${subtitle.source === "yandex" ? "" : `, ${globalThis.location.hostname}`}${subtitle.isAutoGenerated ? ` (${localizationProvider.get("VOTAutogenerated")})` : ""}`;
+	}
+	function buildSubtitlesSelectOptions(subtitleDescriptors) {
+		const options = [createDisabledSubtitlesOption()];
+		for (const { descriptor, index } of subtitleDescriptors) options.push({
+			label: buildSubtitleLabel(descriptor),
+			value: String(index),
+			selected: false,
+			disabled: false
+		});
+		return options;
+	}
+	function getSelectedSubtitlesValue(selectedValues) {
+		const first = selectedValues[Symbol.iterator]().next();
+		return first.done ? void 0 : first.value;
+	}
+	function normalizeLang(lang) {
+		return (lang ?? "").toLowerCase();
+	}
+	function baseLang(lang) {
+		return normalizeLang(lang).split(/[-_]/)[0];
+	}
+	function langMatches(candidate, desired) {
+		if (!candidate || !desired) return false;
+		const cand = normalizeLang(candidate);
+		const want = normalizeLang(desired);
+		return cand === want || baseLang(cand) === baseLang(want);
+	}
+	function resolveSubtitlesLanguage(preference, detectedLanguage, responseLanguage) {
+		if (preference === ORIGINAL_SUBTITLE_LANGUAGE_VALUE) {
+			const originalLanguage = normalizeLang(detectedLanguage);
+			return originalLanguage && originalLanguage !== AUTO_SUBTITLE_LANGUAGE_VALUE ? originalLanguage : void 0;
+		}
+		if (typeof preference === "string" && preference && preference !== AUTO_SUBTITLE_LANGUAGE_VALUE) return normalizeLang(preference);
+		return normalizeLang(responseLanguage) || normalizeLang(detectedLanguage);
+	}
+	function pickBestSubtitlesIndex(subtitles, fromLang, toLang) {
+		if (!subtitles.length) return null;
+		const from = normalizeLang(fromLang);
+		const to = normalizeLang(toLang);
+		const fromIsAuto = from === "auto" || from === "";
+		const fromBase = baseLang(from);
+		const toBase = baseLang(to);
+		const isYandex = (descriptor) => descriptor.source === "yandex";
+		const isAutoGenerated = (descriptor) => Boolean(descriptor.isAutoGenerated);
+		const matchesPair = (descriptor, wantFrom, wantTo) => {
+			if (!langMatches(descriptor.language, wantTo)) return false;
+			if (fromIsAuto) return true;
+			return langMatches(descriptor.translatedFromLanguage, wantFrom);
+		};
+		const isSameLangOriginal = (descriptor, lang) => {
+			if (!langMatches(descriptor.language, lang)) return false;
+			if (!descriptor.translatedFromLanguage) return true;
+			return langMatches(descriptor.translatedFromLanguage, lang);
+		};
+		const find = (predicate) => subtitles.find(({ descriptor }) => predicate(descriptor))?.index ?? null;
+		const findOtherTarget = () => {
+			const otherTargetManual = find((descriptor) => !isYandex(descriptor) && langMatches(descriptor.language, to) && !isAutoGenerated(descriptor));
+			if (otherTargetManual != null) return otherTargetManual;
+			return find((descriptor) => !isYandex(descriptor) && langMatches(descriptor.language, to) && isAutoGenerated(descriptor));
+		};
+		if (!fromIsAuto && fromBase && toBase && fromBase === toBase) {
+			const nativeManual = find((descriptor) => isSameLangOriginal(descriptor, to) && !isAutoGenerated(descriptor));
+			if (nativeManual != null) return nativeManual;
+			const nativeAuto = find((descriptor) => isSameLangOriginal(descriptor, to) && isAutoGenerated(descriptor));
+			if (nativeAuto != null) return nativeAuto;
+			const otherTarget = findOtherTarget();
+			if (otherTarget != null) return otherTarget;
+			const yandexTargetSameLang = find((descriptor) => isYandex(descriptor) && langMatches(descriptor.language, to));
+			if (yandexTargetSameLang != null) return yandexTargetSameLang;
+		}
+		const yandexPair = find((descriptor) => isYandex(descriptor) && matchesPair(descriptor, from, to));
+		if (yandexPair != null) return yandexPair;
+		const yandexTarget = find((descriptor) => isYandex(descriptor) && langMatches(descriptor.language, to));
+		if (yandexTarget != null) return yandexTarget;
+		const otherPair = find((descriptor) => !isYandex(descriptor) && matchesPair(descriptor, from, to));
+		if (otherPair != null) return otherPair;
+		const otherTarget = findOtherTarget();
+		if (otherTarget != null) return otherTarget;
+		return null;
+	}
+	//#endregion
+	//#region src/videoHandler/modules/translationPlayback.ts
+	var AUDIO_PROBE_TIMEOUT_MS = 5e3;
+	var AUDIO_PROBE_RETRY_DELAY_MS = 150;
+	var AUDIO_PROBE_MAX_ATTEMPTS = 2;
+	async function resumePlayerAudioContextIfNeeded(handler) {
+		const ctx = handler.audioPlayer?.audioContext;
+		if (!ctx || ctx.state !== "suspended") return "not-needed";
+		const RESUME_TIMEOUT_MS = 1500;
+		const resumePromise = (async () => {
+			try {
+				await ctx.resume();
+				return "resumed";
+			} catch (err) {
+				debug.log("[updateTranslation] Failed to resume AudioContext", err);
+				return "failed";
+			}
+		})();
+		let timeoutId;
+		const timeoutPromise = new Promise((resolve) => {
+			timeoutId = setTimeout(() => resolve("timeout"), RESUME_TIMEOUT_MS);
+		});
+		const result = await Promise.race([resumePromise, timeoutPromise]);
+		if (timeoutId !== void 0) clearTimeout(timeoutId);
+		if (result === "resumed") debug.log("[updateTranslation] AudioContext resumed");
+		else if (result === "timeout") debug.log("[updateTranslation] AudioContext resume timeout");
+		return result;
+	}
+	async function rollbackStaleAppliedSourceIfStillCurrent(handler, appliedSourceUrl) {
+		if (!appliedSourceUrl || !handler.audioPlayer) return;
+		const player = handler.audioPlayer.player;
+		const currentSource = String(player.currentSrc || player.src || "");
+		if (handler.proxifyAudio(handler.unproxifyAudio(currentSource)) !== handler.proxifyAudio(handler.unproxifyAudio(appliedSourceUrl))) return;
+		try {
+			await player.clear();
+			player.src = "";
+			debug.log("[updateTranslation] cleared stale partially-applied source");
+		} catch (err) {
+			debug.log("[updateTranslation] failed to clear stale source", err);
+		}
+	}
+	function waitForProbeRetry(delayMs, signal) {
+		if (delayMs <= 0 || signal.aborted) return Promise.resolve();
+		return new Promise((resolve) => {
+			const timeoutId = setTimeout(() => {
+				signal.removeEventListener("abort", onAbort);
+				resolve();
+			}, delayMs);
+			const onAbort = () => {
+				clearTimeout(timeoutId);
+				signal.removeEventListener("abort", onAbort);
+				resolve();
+			};
+			signal.addEventListener("abort", onAbort, { once: true });
+		});
+	}
+	async function probeAudioUrl(handler, audioUrl, actionContext) {
+		const signal = handler.actionsAbortController.signal;
+		const fetchOpts = {
+			headers: { range: "bytes=0-0" },
+			signal,
+			timeout: AUDIO_PROBE_TIMEOUT_MS
+		};
+		for (let attempt = 1; attempt <= AUDIO_PROBE_MAX_ATTEMPTS; attempt++) {
+			if (isProbeCancelled(handler, actionContext, signal)) return false;
+			try {
+				const response = await GM_fetch(audioUrl, fetchOpts);
+				if (isProbeCancelled(handler, actionContext, signal)) return false;
+				debug.log("[validateAudioUrl] probe response", {
+					audioUrl,
+					attempt,
+					ok: response.ok,
+					status: response.status
+				});
+				if (response.ok) return true;
+			} catch (err) {
+				if (isProbeCancelled(handler, actionContext, signal)) return false;
+				debug.log("[validateAudioUrl] probe error", {
+					audioUrl,
+					attempt,
+					err
+				});
+			}
+			if (!await shouldRetryAudioProbe(attempt, handler, actionContext, signal)) return false;
+		}
+		return false;
+	}
+	function isProbeCancelled(handler, actionContext, signal) {
+		return handler.isActionStale(actionContext) || signal.aborted;
+	}
+	async function shouldRetryAudioProbe(attempt, handler, actionContext, signal) {
+		if (attempt >= AUDIO_PROBE_MAX_ATTEMPTS) return true;
+		if (isProbeCancelled(handler, actionContext, signal)) return false;
+		await waitForProbeRetry(AUDIO_PROBE_RETRY_DELAY_MS, signal);
+		return !isProbeCancelled(handler, actionContext, signal);
+	}
+	async function validateAudioUrl(audioUrl, actionContext) {
+		if (this.isActionStale(actionContext)) return audioUrl;
+		if (await probeAudioUrl(this, audioUrl, actionContext)) return audioUrl;
+		const directUrl = this.unproxifyAudio(audioUrl);
+		if (directUrl !== audioUrl) {
+			if (await probeAudioUrl(this, directUrl, actionContext)) {
+				debug.log("[validateAudioUrl] switching to direct audio URL after probe");
+				return directUrl;
+			}
+		}
+		return audioUrl;
+	}
+	function scheduleTranslationRefresh() {
+		if (!this.videoData || this.videoData.isStream) return;
+		if (!this.hasActiveSource()) return;
+		this.refreshTranslationAudio().catch((error) => {
+			debug.log("[scheduleTranslationRefresh] refresh failed", error);
+		});
+	}
+	async function handlePlaybackResumedTranslationRefresh() {
+		if (!this.videoData || this.videoData.isStream) return;
+		if (!this.hasActiveSource()) return;
+		const videoId = this.videoData.videoId;
+		if (!videoId) return;
+		const normalizedTranslationHelp = normalizeTranslationHelp(this.videoData.translationHelp);
+		const cacheKey = this.getTranslationCacheKey(videoId, this.translateFromLang, this.translateToLang, normalizedTranslationHelp);
+		if (!this.cacheManager.getTranslation(cacheKey)?.url) {
+			debug.log("[scheduleTranslationRefresh] translation cache expired after resume, refreshing now");
+			await this.refreshTranslationAudio();
+		}
+	}
+	async function requestApplyAndCacheTranslation(self, options) {
+		const translateRes = await requestAndApplyTranslation({
+			requester: self.translationHandler,
+			request: {
+				videoData: options.videoData,
+				requestLang: options.requestLang,
+				responseLang: options.responseLang,
+				translationHelp: options.translationHelp,
+				useAudioDownload: Boolean(self.data?.useAudioDownload),
+				signal: self.actionsAbortController.signal
+			},
+			actionContext: options.actionContext,
+			isActionStale: (ctx) => self.isActionStale(ctx),
+			updateTranslation: (url, ctx) => self.updateTranslation(url, ctx)
+		});
+		if (!translateRes) return null;
+		if (options.onBeforeCache) await options.onBeforeCache(translateRes);
+		setTranslationCacheValue({
+			cacheKey: options.cacheKey,
+			setTranslation: (key, value) => self.cacheManager.setTranslation(key, value),
+			videoId: options.cacheVideoId,
+			requestLang: options.cacheRequestLang,
+			responseLang: options.cacheResponseLang,
+			fallbackUrl: translateRes.url,
+			downloadTranslationUrl: self.downloadTranslationUrl,
+			usedLivelyVoice: translateRes.usedLivelyVoice
+		});
+		return translateRes;
+	}
+	async function refreshTranslationAudio() {
+		if (!this.videoData || this.videoData.isStream) return;
+		if (!this.hasActiveSource()) return;
+		if (this.isRefreshingTranslation) return;
+		const videoId = this.videoData.videoId;
+		if (!videoId) return;
+		if (this.actionsAbortController?.signal?.aborted) this.resetActionsAbortController("refreshTranslationAudio");
+		this.isRefreshingTranslation = true;
+		const actionContext = {
+			gen: this.actionsGeneration,
+			videoId
+		};
+		const normalizedTranslationHelp = normalizeTranslationHelp(this.videoData.translationHelp);
+		try {
+			if (!await requestApplyAndCacheTranslation(this, {
+				videoData: this.videoData,
+				requestLang: this.translateFromLang,
+				responseLang: this.translateToLang,
+				translationHelp: normalizedTranslationHelp,
+				actionContext,
+				cacheKey: this.getTranslationCacheKey(videoId, this.translateFromLang, this.translateToLang, normalizedTranslationHelp),
+				cacheVideoId: videoId,
+				cacheRequestLang: this.translateFromLang,
+				cacheResponseLang: this.translateToLang
+			})) return;
+		} finally {
+			this.isRefreshingTranslation = false;
+		}
+	}
+	function proxifyAudio(audioUrl) {
+		const proxiedAudioUrl = proxifyYandexAudioUrl(audioUrl, {
+			translateProxyEnabled: this.data?.translateProxyEnabled,
+			proxyWorkerHost: this.data?.proxyWorkerHost
+		});
+		if (proxiedAudioUrl !== audioUrl) debug.log(`[VOT] Audio proxied via ${proxiedAudioUrl}`);
+		return proxiedAudioUrl;
+	}
+	function unproxifyAudio(audioUrl) {
+		return unproxifyYandexAudioUrl(audioUrl);
+	}
+	async function handleProxySettingsChanged(reason = "proxySettingsChanged") {
+		debug.log(`[VOT] ${reason}: clearing translation/subtitles cache`);
+		try {
+			this.cacheManager.clear();
+			this.activeTranslation = null;
+		} catch {}
+		try {
+			await this.stopTranslation();
+		} catch {}
+		await this.initVOTClient();
+	}
+	function isMultiMethodS3(url) {
+		return isYandexAudioUrlOrProxy(url, { proxyWorkerHost: this.data?.proxyWorkerHost });
+	}
+	function normalizeManagedAudioUrl(handler, url) {
+		return handler.proxifyAudio(handler.unproxifyAudio(url));
+	}
+	async function applyTranslationSource(handler, sourceUrl, actionContext) {
+		const didSetSource = handler.audioPlayer.player.src !== sourceUrl;
+		let appliedSourceUrl = null;
+		if (didSetSource) {
+			handler.audioPlayer.player.src = sourceUrl;
+			appliedSourceUrl = sourceUrl;
+		}
+		try {
+			if (didSetSource) await handler.audioPlayer.init();
+			if (handler.isActionStale(actionContext)) {
+				await rollbackStaleAppliedSourceIfStillCurrent(handler, appliedSourceUrl);
+				return {
+					status: "stale",
+					didSetSource,
+					appliedSourceUrl
+				};
+			}
+			const resumeResult = await resumePlayerAudioContextIfNeeded(handler);
+			if (resumeResult === "timeout") debug.log("[updateTranslation] continuing after AudioContext resume timeout");
+			else if (resumeResult === "failed") debug.log("[updateTranslation] AudioContext resume failed, continue without deferred resume");
+			if (handler.isActionStale(actionContext)) {
+				await rollbackStaleAppliedSourceIfStillCurrent(handler, appliedSourceUrl);
+				return {
+					status: "stale",
+					didSetSource,
+					appliedSourceUrl
+				};
+			}
+			if (!handler.video.paused && handler.audioPlayer.player.src) handler.audioPlayer.player.lipSync("play");
+			return {
+				status: "success",
+				didSetSource,
+				appliedSourceUrl
+			};
+		} catch (error) {
+			return {
+				status: "error",
+				didSetSource,
+				appliedSourceUrl,
+				error
+			};
+		}
+	}
+	async function updateTranslation(audioUrl, actionContext) {
+		await this.waitForPendingStopTranslate();
+		if (this.isActionStale(actionContext)) return;
+		if (!this.audioPlayer) this.createPlayer();
+		if (this.audioPlayer.audioContext?.state === "closed") {
+			debug.log("[updateTranslation] AudioContext is closed, recreating player");
+			this.createPlayer();
+		}
+		const normalizedTargetUrl = normalizeManagedAudioUrl(this, audioUrl);
+		const currentSource = this.audioPlayer.player.currentSrc || this.audioPlayer.player.src || "";
+		const nextAudioUrl = normalizedTargetUrl !== normalizeManagedAudioUrl(this, currentSource) ? await this.validateAudioUrl(normalizedTargetUrl, actionContext) : normalizedTargetUrl;
+		if (this.isActionStale(actionContext)) return;
+		const resolvedSource = await applyTranslationWithDirectFallback(this, nextAudioUrl, actionContext);
+		const resolvedAudioUrl = resolvedSource.nextAudioUrl;
+		const applyResult = resolvedSource.applyResult;
+		const appliedSourceUrl = applyResult.appliedSourceUrl;
+		if (applyResult.status === "stale") return;
+		if (applyResult.status === "error") {
+			debug.log("this.audioPlayer.init() error", applyResult.error);
+			await rollbackStaleAppliedSourceIfStillCurrent(this, appliedSourceUrl);
+			const msg = toErrorMessage(applyResult.error);
+			this.transformBtn("error", msg);
+			return;
+		}
+		this.clearVolumeLinkState();
+		this.setupAudioSettings();
+		this.transformBtn("success", localizationProvider.get("disableTranslate"));
+		this.afterUpdateTranslation(resolvedAudioUrl);
+	}
+	async function applyTranslationWithDirectFallback(handler, audioUrl, actionContext) {
+		const nextAudioUrl = audioUrl;
+		const applyResult = await applyTranslationSource(handler, nextAudioUrl, actionContext);
+		if (!shouldRetryTranslationSource(handler, applyResult, actionContext, nextAudioUrl)) return {
+			nextAudioUrl,
+			applyResult
+		};
+		const retried = await retryTranslationWithDirectSource(handler, nextAudioUrl, applyResult.appliedSourceUrl, actionContext);
+		if (retried) return retried;
+		return {
+			nextAudioUrl,
+			applyResult
+		};
+	}
+	function shouldRetryTranslationSource(handler, applyResult, actionContext, audioUrl) {
+		return applyResult.status === "error" && applyResult.didSetSource && !handler.isActionStale(actionContext) && handler.unproxifyAudio(audioUrl) !== audioUrl;
+	}
+	async function retryTranslationWithDirectSource(handler, audioUrl, appliedSourceUrl, actionContext) {
+		const directUrl = handler.unproxifyAudio(audioUrl);
+		debug.log("[updateTranslation] proxied audio init failed, retrying direct URL");
+		try {
+			const validatedDirectUrl = await handler.validateAudioUrl(directUrl, actionContext);
+			if (handler.isActionStale(actionContext)) {
+				await rollbackStaleAppliedSourceIfStillCurrent(handler, appliedSourceUrl);
+				return {
+					nextAudioUrl: validatedDirectUrl,
+					applyResult: {
+						status: "stale",
+						didSetSource: true,
+						appliedSourceUrl
+					}
+				};
+			}
+			return {
+				nextAudioUrl: validatedDirectUrl,
+				applyResult: await applyTranslationSource(handler, validatedDirectUrl, actionContext)
+			};
+		} catch (fallbackErr) {
+			return {
+				nextAudioUrl: audioUrl,
+				applyResult: {
+					status: "error",
+					didSetSource: true,
+					appliedSourceUrl,
+					error: fallbackErr
+				}
+			};
+		}
+	}
+	async function translateFunc(VIDEO_ID, _isStream, requestLang, responseLang, translationHelp) {
+		await this.waitForPendingStopTranslate();
+		debug.log("Run videoValidator");
+		await this.videoValidator();
+		if (this.actionsAbortController?.signal?.aborted) this.resetActionsAbortController("translateFunc");
+		const overlayView = this.uiManager.votOverlayView;
+		if (!overlayView?.votButton) {
+			debug.log("[translateFunc] Overlay view missing, skipping translation");
+			return;
+		}
+		overlayView.votButton.loading = true;
+		this.hadAsyncWait = false;
+		this.volumeOnStart = this.getVideoVolume();
+		if (!VIDEO_ID) {
+			debug.log("Skip translation - no VIDEO_ID resolved yet");
+			await this.updateTranslationErrorMsg(new VOTLocalizedError("VOTNoVideoIDFound"), this.actionsAbortController.signal);
+			return;
+		}
+		const videoData = this.videoData;
+		if (!videoData) {
+			await this.updateTranslationErrorMsg(new VOTLocalizedError("VOTNoVideoIDFound"), this.actionsAbortController.signal);
+			return;
+		}
+		const normalizedTranslationHelp = normalizeTranslationHelp(translationHelp);
+		const cacheKey = this.getTranslationCacheKey(VIDEO_ID, requestLang, responseLang, normalizedTranslationHelp);
+		const activeKey = `video_${cacheKey}`;
+		if (this.activeTranslation?.key === activeKey) {
+			debug.log("[translateFunc] Reusing in-flight translation");
+			await this.activeTranslation.promise;
+			return;
+		}
+		const actionContext = {
+			gen: this.actionsGeneration,
+			videoId: VIDEO_ID
+		};
+		const translationPromise = (async () => {
+			if (this.isActionStale(actionContext)) {
+				debug.log("[translateFunc] Stale translation task - skipping");
+				return;
+			}
+			const reqLang = requestLang;
+			const resLang = responseLang;
+			const applyTranslationUrl = async (url) => await this.updateTranslation(url, actionContext);
+			const cachedEntry = this.cacheManager.getTranslation(cacheKey);
+			if (cachedEntry?.url) {
+				await applyTranslationUrl(cachedEntry.url);
+				debug.log("[translateFunc] Cached translation was received");
+				return;
+			}
+			const translateRes = await requestApplyAndCacheTranslation(this, {
+				videoData,
+				requestLang: reqLang,
+				responseLang: resLang,
+				translationHelp: normalizedTranslationHelp,
+				actionContext,
+				cacheKey,
+				cacheVideoId: VIDEO_ID,
+				cacheRequestLang: requestLang,
+				cacheResponseLang: responseLang,
+				onBeforeCache: async () => {
+					const preferredSubtitleLanguage = this.getPreferredSubtitlesLanguage(videoData.detectedLanguage, videoData.responseLanguage);
+					if (!preferredSubtitleLanguage) return;
+					const subsCacheKey = this.videoData ? this.getSubtitlesCacheKey(VIDEO_ID, this.videoData.detectedLanguage, preferredSubtitleLanguage) : null;
+					const cachedSubs = subsCacheKey ? this.cacheManager.getSubtitles(subsCacheKey) : null;
+					if (!(Array.isArray(cachedSubs) && pickBestSubtitlesIndex(getIndexedSubtitleDescriptors(cachedSubs), videoData.detectedLanguage, preferredSubtitleLanguage) != null)) {
+						if (subsCacheKey) this.cacheManager.deleteSubtitles(subsCacheKey);
+						this.subtitles = [];
+						this.subtitlesCacheKey = null;
+					}
+				}
+			});
+			debug.log("[translateRes]", translateRes);
+			if (!translateRes) debug.log("Skip translation");
+		})();
+		this.activeTranslation = {
+			key: activeKey,
+			promise: translationPromise
+		};
+		try {
+			return await translationPromise;
+		} catch (err) {
+			this.hadAsyncWait = notifyTranslationFailureIfNeeded({
+				aborted: this.actionsAbortController.signal.aborted,
+				translateApiErrorsEnabled: Boolean(this.data?.translateAPIErrors),
+				hadAsyncWait: this.hadAsyncWait,
+				videoId: VIDEO_ID,
+				error: err,
+				notify: (params) => this.notifier.translationFailed(params)
+			});
+			throw err;
+		} finally {
+			if (this.activeTranslation?.promise === translationPromise) this.activeTranslation = null;
+			const overlayBtn = this.uiManager.votOverlayView?.votButton;
+			if (!this.activeTranslation && overlayBtn?.loading && !this.hasActiveSource()) {
+				debug.log("[translateFunc] clearing stale loading state");
+				this.transformBtn("none", localizationProvider.get("translateVideo"));
+			}
+		}
+	}
+	function isYouTubeHosts() {
+		return isTranslationDownloadHost(this.site.host);
+	}
+	//#endregion
 	//#region src/videoHandler/modules/events.ts
 	function mergeListenerSignals(primary, secondary) {
 		if (!secondary || secondary === primary) return primary;
@@ -22067,6 +23189,25 @@ var vot = (function(exports) {
 		if (platformConfig.allowTouchMoveHandler) add(document, "touchmove", (event) => self.overlayVisibility.handleHostInteraction(event), { passive: true });
 		if (platformConfig.disableContainerDrag) self.container.draggable = false;
 	}
+	function bindPlaybackRefreshOnResume(ctx) {
+		const { self, add } = ctx;
+		let wasPausedSinceLastPlay = false;
+		const resetPauseState = () => {
+			wasPausedSinceLastPlay = false;
+		};
+		add(self.video, "pause", () => {
+			wasPausedSinceLastPlay = true;
+		});
+		add(self.video, "playing", () => {
+			if (!wasPausedSinceLastPlay) return;
+			wasPausedSinceLastPlay = false;
+			handlePlaybackResumedTranslationRefresh.call(self).catch((error) => {
+				debug.log("[VOT] Failed to refresh translation after playback resumed", error);
+			});
+		});
+		add(self.video, "loadstart", resetPauseState);
+		add(self.video, "emptied", resetPauseState);
+	}
 	function bindVideoLifecycleEvents(ctx) {
 		const { self, overlayView, add } = ctx;
 		const safeSetCanPlay = async () => {
@@ -22134,6 +23275,7 @@ var vot = (function(exports) {
 			add,
 			addMany
 		};
+		bindPlaybackRefreshOnResume(ctx);
 		bindOverlayLayoutEvents(ctx);
 		bindYouTubeVolumeSync(ctx);
 		bindAudioTrackLanguageSync(ctx);
@@ -22267,50 +23409,6 @@ var vot = (function(exports) {
 		this.translateToLang = this.data.responseLanguage ?? "ru";
 		this.initExtraEvents();
 		this.initialized = true;
-	}
-	//#endregion
-	//#region src/videoHandler/modules/proxyShared.ts
-	var AUDIO_SOURCE_PREFIX = "https://vtrans.s3-private.mds.yandex.net/tts/prod/";
-	var AUDIO_PROXY_PATH_PREFIX = "/video-translation/audio-proxy/";
-	var SUBTITLE_SOURCE_PREFIX = "https://brosubs.s3-private.mds.yandex.net/vtrans/";
-	var SUBTITLE_PROXY_PATH_PREFIX = "/video-subtitles/subtitles-proxy/";
-	function resolveProxyWorkerHost(host) {
-		return host ?? "vot-worker.kload.workers.dev";
-	}
-	function isProxyClientEnabled(config) {
-		return Boolean(config.translateProxyEnabled);
-	}
-	function isProxyRoutingEnabled(config) {
-		return config.translateProxyEnabled === 2;
-	}
-	function shouldForceProxyClientGmXhr(config) {
-		return Boolean(config.gmXhrSupported && isProxyClientEnabled(config));
-	}
-	function proxifyYandexAudioUrl(audioUrl, config) {
-		if (!isProxyRoutingEnabled(config) || !audioUrl.startsWith(AUDIO_SOURCE_PREFIX)) return audioUrl;
-		return audioUrl.replace(AUDIO_SOURCE_PREFIX, `https://${resolveProxyWorkerHost(config.proxyWorkerHost)}${AUDIO_PROXY_PATH_PREFIX}`);
-	}
-	function unproxifyYandexAudioUrl(audioUrl) {
-		const str = String(audioUrl || "");
-		if (!str) return str;
-		try {
-			const url = new URL(str);
-			if (!url.pathname.startsWith(AUDIO_PROXY_PATH_PREFIX)) return str;
-			url.host = "vtrans.s3-private.mds.yandex.net";
-			url.pathname = `/tts/prod/${url.pathname.slice(31).replace(/^\/+/, "")}`;
-			url.protocol = "https:";
-			return url.toString();
-		} catch {
-			return str;
-		}
-	}
-	function isYandexAudioUrlOrProxy(url, config) {
-		return url.startsWith(AUDIO_SOURCE_PREFIX) || url.startsWith(`https://${resolveProxyWorkerHost(config.proxyWorkerHost)}${AUDIO_PROXY_PATH_PREFIX}`);
-	}
-	function proxifyYandexSubtitlesUrl(subtitlesUrl, config) {
-		if (!isProxyRoutingEnabled(config) || !subtitlesUrl.startsWith(SUBTITLE_SOURCE_PREFIX)) return subtitlesUrl;
-		const subtitlesPath = subtitlesUrl.slice(49);
-		return `https://${resolveProxyWorkerHost(config.proxyWorkerHost)}${SUBTITLE_PROXY_PATH_PREFIX}${subtitlesPath}`;
 	}
 	//#endregion
 	//#region src/subtitles/segmenter.ts
@@ -22958,123 +24056,6 @@ var vot = (function(exports) {
 		}
 	};
 	//#endregion
-	//#region src/videoHandler/modules/subtitlesShared.ts
-	var DISABLED_SUBTITLES_VALUE = "disabled";
-	var SUBTITLES_INDEX_OPTION_PATTERN = /^\d+$/u;
-	var [AUTO_SUBTITLE_LANGUAGE_VALUE, ORIGINAL_SUBTITLE_LANGUAGE_VALUE] = subtitleResponseLanguageModes;
-	function getIndexedSubtitleDescriptors(subtitles) {
-		const descriptors = [];
-		for (let index = 0; index < subtitles.length; index += 1) {
-			const descriptor = parseSubtitleDescriptor(subtitles[index]);
-			if (!descriptor) continue;
-			descriptors.push({
-				descriptor,
-				index
-			});
-		}
-		return descriptors;
-	}
-	function parseSubtitlesOptionIndex(value) {
-		if (!SUBTITLES_INDEX_OPTION_PATTERN.test(value)) return null;
-		const parsed = Number(value);
-		if (!Number.isSafeInteger(parsed)) return null;
-		return parsed;
-	}
-	function getSubtitleDescriptorAtIndex(subtitles, index) {
-		if (!Number.isInteger(index) || index < 0 || index >= subtitles.length) return null;
-		return parseSubtitleDescriptor(subtitles[index]);
-	}
-	function createDisabledSubtitlesOption() {
-		return {
-			label: localizationProvider.get("VOTSubtitlesDisabled"),
-			value: DISABLED_SUBTITLES_VALUE,
-			selected: true,
-			disabled: false
-		};
-	}
-	function buildSubtitleLabel(subtitle) {
-		return `${localizationProvider.getLangLabel(subtitle.language)}${subtitle.translatedFromLanguage ? ` ${localizationProvider.get("VOTTranslatedFrom")} ${localizationProvider.getLangLabel(subtitle.translatedFromLanguage)}` : ""}${subtitle.source === "yandex" ? "" : `, ${globalThis.location.hostname}`}${subtitle.isAutoGenerated ? ` (${localizationProvider.get("VOTAutogenerated")})` : ""}`;
-	}
-	function buildSubtitlesSelectOptions(subtitleDescriptors) {
-		const options = [createDisabledSubtitlesOption()];
-		for (const { descriptor, index } of subtitleDescriptors) options.push({
-			label: buildSubtitleLabel(descriptor),
-			value: String(index),
-			selected: false,
-			disabled: false
-		});
-		return options;
-	}
-	function getSelectedSubtitlesValue(selectedValues) {
-		const first = selectedValues[Symbol.iterator]().next();
-		return first.done ? void 0 : first.value;
-	}
-	function normalizeLang(lang) {
-		return (lang ?? "").toLowerCase();
-	}
-	function baseLang(lang) {
-		return normalizeLang(lang).split(/[-_]/)[0];
-	}
-	function langMatches(candidate, desired) {
-		if (!candidate || !desired) return false;
-		const cand = normalizeLang(candidate);
-		const want = normalizeLang(desired);
-		return cand === want || baseLang(cand) === baseLang(want);
-	}
-	function resolveSubtitlesLanguage(preference, detectedLanguage, responseLanguage) {
-		if (preference === ORIGINAL_SUBTITLE_LANGUAGE_VALUE) {
-			const originalLanguage = normalizeLang(detectedLanguage);
-			return originalLanguage && originalLanguage !== AUTO_SUBTITLE_LANGUAGE_VALUE ? originalLanguage : void 0;
-		}
-		if (typeof preference === "string" && preference && preference !== AUTO_SUBTITLE_LANGUAGE_VALUE) return normalizeLang(preference);
-		return normalizeLang(responseLanguage) || normalizeLang(detectedLanguage);
-	}
-	function pickBestSubtitlesIndex(subtitles, fromLang, toLang) {
-		if (!subtitles.length) return null;
-		const from = normalizeLang(fromLang);
-		const to = normalizeLang(toLang);
-		const fromIsAuto = from === "auto" || from === "";
-		const fromBase = baseLang(from);
-		const toBase = baseLang(to);
-		const isYandex = (descriptor) => descriptor.source === "yandex";
-		const isAutoGenerated = (descriptor) => Boolean(descriptor.isAutoGenerated);
-		const matchesPair = (descriptor, wantFrom, wantTo) => {
-			if (!langMatches(descriptor.language, wantTo)) return false;
-			if (fromIsAuto) return true;
-			return langMatches(descriptor.translatedFromLanguage, wantFrom);
-		};
-		const isSameLangOriginal = (descriptor, lang) => {
-			if (!langMatches(descriptor.language, lang)) return false;
-			if (!descriptor.translatedFromLanguage) return true;
-			return langMatches(descriptor.translatedFromLanguage, lang);
-		};
-		const find = (predicate) => subtitles.find(({ descriptor }) => predicate(descriptor))?.index ?? null;
-		const findOtherTarget = () => {
-			const otherTargetManual = find((descriptor) => !isYandex(descriptor) && langMatches(descriptor.language, to) && !isAutoGenerated(descriptor));
-			if (otherTargetManual != null) return otherTargetManual;
-			return find((descriptor) => !isYandex(descriptor) && langMatches(descriptor.language, to) && isAutoGenerated(descriptor));
-		};
-		if (!fromIsAuto && fromBase && toBase && fromBase === toBase) {
-			const nativeManual = find((descriptor) => isSameLangOriginal(descriptor, to) && !isAutoGenerated(descriptor));
-			if (nativeManual != null) return nativeManual;
-			const nativeAuto = find((descriptor) => isSameLangOriginal(descriptor, to) && isAutoGenerated(descriptor));
-			if (nativeAuto != null) return nativeAuto;
-			const otherTarget = findOtherTarget();
-			if (otherTarget != null) return otherTarget;
-			const yandexTargetSameLang = find((descriptor) => isYandex(descriptor) && langMatches(descriptor.language, to));
-			if (yandexTargetSameLang != null) return yandexTargetSameLang;
-		}
-		const yandexPair = find((descriptor) => isYandex(descriptor) && matchesPair(descriptor, from, to));
-		if (yandexPair != null) return yandexPair;
-		const yandexTarget = find((descriptor) => isYandex(descriptor) && langMatches(descriptor.language, to));
-		if (yandexTarget != null) return yandexTarget;
-		const otherPair = find((descriptor) => !isYandex(descriptor) && matchesPair(descriptor, from, to));
-		if (otherPair != null) return otherPair;
-		const otherTarget = findOtherTarget();
-		if (otherTarget != null) return otherTarget;
-		return null;
-	}
-	//#endregion
 	//#region src/videoHandler/modules/subtitles.ts
 	var subtitlesSelectionRequestVersion = /* @__PURE__ */ new WeakMap();
 	function getPreferredSubtitlesLanguage(handler) {
@@ -23279,889 +24260,8 @@ var vot = (function(exports) {
 		await this.updateSubtitlesLangSelect();
 	}
 	//#endregion
-	//#region src/videoHandler/modules/ducking.ts
-	var VOLUME_MIN_01 = 0;
-	var VOLUME_MAX_01 = 1;
-	var SMART_DUCKING_DEFAULT_CONFIG = Object.freeze({
-		tickMs: 50,
-		thresholdOnRms: .012,
-		thresholdOffRms: .009,
-		rmsAttackTauMs: 60,
-		rmsReleaseTauMs: 240,
-		holdMs: 520,
-		attackTauMs: 110,
-		releaseTauMs: 600,
-		maxDownPerSec: 3.5,
-		maxUpPerSec: .9,
-		rmsMissingGraceMs: 200,
-		maxDtMs: 250,
-		externalBaselineDelta01: .02,
-		unduckTolerance01: .01,
-		volumeStep01: VIDEO_VOLUME_STEP_01,
-		applyDeltaThreshold01: VIDEO_VOLUME_STEP_01 / 2
-	});
-	function initSmartDuckingRuntime(baseline) {
-		return {
-			isDucked: false,
-			speechGateOpen: false,
-			rmsEnvelope: 0,
-			baseline: normalizeVolume01(baseline),
-			lastApplied: void 0,
-			lastTickAt: 0,
-			lastSoundAt: 0,
-			rmsMissingSinceAt: null
-		};
-	}
-	function resetSmartDuckingRuntime() {
-		return initSmartDuckingRuntime();
-	}
-	function updateSpeechGate(input, runtime, config, now, hasRms) {
-		const gateOpen = runtime.speechGateOpen;
-		if (!input.smartEnabled) {
-			runtime.lastSoundAt = now;
-			runtime.rmsMissingSinceAt = null;
-			return true;
-		}
-		if (input.audioIsPlaying && !hasRms) {
-			runtime.rmsMissingSinceAt ??= now;
-			if (gateOpen) runtime.lastSoundAt = now;
-			if (runtime.rmsMissingSinceAt !== null && now - runtime.rmsMissingSinceAt >= config.rmsMissingGraceMs) {
-				runtime.lastSoundAt = now;
-				return true;
-			}
-			return gateOpen;
-		}
-		runtime.rmsMissingSinceAt = null;
-		if (!input.audioIsPlaying) return gateOpen && now - runtime.lastSoundAt <= config.holdMs;
-		if (!gateOpen && runtime.rmsEnvelope >= config.thresholdOnRms) {
-			runtime.lastSoundAt = now;
-			return true;
-		}
-		if (gateOpen && runtime.rmsEnvelope >= config.thresholdOffRms) {
-			runtime.lastSoundAt = now;
-			return true;
-		}
-		return gateOpen && now - runtime.lastSoundAt <= config.holdMs;
-	}
-	function resolveBaseline(runtime, currentVideoVolume, volumeOnStart, config) {
-		if (runtime.isDucked && isFiniteNumber(runtime.lastApplied) && Math.abs(currentVideoVolume - runtime.lastApplied) > config.externalBaselineDelta01) runtime.baseline = currentVideoVolume;
-		if (!runtime.isDucked) runtime.baseline = currentVideoVolume;
-		const baseline = runtime.baseline ?? volumeOnStart ?? currentVideoVolume;
-		runtime.baseline = baseline;
-		return baseline;
-	}
-	function resolveDesiredVolume(runtime, gateOpen, currentVideoVolume, baseline, duckingTarget01, config) {
-		const duckedTarget = Math.min(baseline, duckingTarget01);
-		if (gateOpen) {
-			runtime.isDucked = true;
-			return duckedTarget;
-		}
-		if (runtime.isDucked && Math.abs(baseline - currentVideoVolume) < config.unduckTolerance01) runtime.isDucked = false;
-		return baseline;
-	}
-	function smoothVolumeChange(desired, currentVideoVolume, dtMs, dtSec, config) {
-		const smoothingTauMs = desired < currentVideoVolume ? config.attackTauMs : config.releaseTauMs;
-		const smoothingAlpha = smoothingTauMs > 0 ? -Math.expm1(-dtMs / smoothingTauMs) : 1;
-		let nextVolume = currentVideoVolume + (desired - currentVideoVolume) * smoothingAlpha;
-		const maxDelta = (desired < currentVideoVolume ? config.maxDownPerSec : config.maxUpPerSec) * dtSec;
-		if (maxDelta > 0) nextVolume = clamp(nextVolume, currentVideoVolume - maxDelta, currentVideoVolume + maxDelta);
-		return clamp(nextVolume, VOLUME_MIN_01, VOLUME_MAX_01);
-	}
-	function buildVolumeDecision(runtime, currentVideoVolume, quantized, applyDeltaThreshold01) {
-		if (Math.abs(quantized - currentVideoVolume) < applyDeltaThreshold01) {
-			runtime.lastApplied = quantized;
-			return {
-				kind: "noop",
-				runtime
-			};
-		}
-		if (!isFiniteNumber(runtime.lastApplied) || Math.abs(quantized - runtime.lastApplied) >= applyDeltaThreshold01) {
-			runtime.lastApplied = quantized;
-			return {
-				kind: "apply",
-				runtime,
-				volume01: quantized
-			};
-		}
-		return {
-			kind: "noop",
-			runtime
-		};
-	}
-	function computeSmartDuckingStep(input, runtime, config = SMART_DUCKING_DEFAULT_CONFIG) {
-		const nextRuntime = normalizeRuntime(runtime);
-		const volumeOnStart = normalizeVolume01(input.volumeOnStart);
-		if (!input.translationActive || !input.enabledAutoVolume) return {
-			kind: "stop",
-			runtime: nextRuntime,
-			restoreVolume: nextRuntime.baseline ?? volumeOnStart
-		};
-		const now = Number.isFinite(input.nowMs) ? input.nowMs : Date.now();
-		const dtMs = clamp(now - (nextRuntime.lastTickAt || now), 0, config.maxDtMs);
-		const dtSec = dtMs / 1e3;
-		nextRuntime.lastTickAt = now;
-		const hasRms = isFiniteNumber(input.rms);
-		const rmsValue = hasRms ? clamp(input.rms, VOLUME_MIN_01, VOLUME_MAX_01) : 0;
-		const prevEnv = nextRuntime.rmsEnvelope;
-		const envTauMs = rmsValue > prevEnv ? config.rmsAttackTauMs : config.rmsReleaseTauMs;
-		const envAlpha = envTauMs > 0 ? -Math.expm1(-dtMs / envTauMs) : 1;
-		nextRuntime.rmsEnvelope = clamp(prevEnv + (rmsValue - prevEnv) * envAlpha, VOLUME_MIN_01, VOLUME_MAX_01);
-		const gateOpen = updateSpeechGate(input, nextRuntime, config, now, hasRms);
-		nextRuntime.speechGateOpen = gateOpen;
-		const currentVideoVolume = normalizeVolume01(input.currentVideoVolume);
-		if (!isFiniteNumber(currentVideoVolume)) return {
-			kind: "noop",
-			runtime: nextRuntime
-		};
-		const baseline = resolveBaseline(nextRuntime, currentVideoVolume, volumeOnStart, config);
-		if (!input.hostVideoActive) {
-			nextRuntime.lastApplied = currentVideoVolume;
-			return {
-				kind: "noop",
-				runtime: nextRuntime
-			};
-		}
-		const desired = resolveDesiredVolume(nextRuntime, gateOpen, currentVideoVolume, baseline, normalizeVolume01(input.duckingTarget01) ?? baseline, config);
-		const quantized = snapVolume01Towards(smoothVolumeChange(desired, currentVideoVolume, dtMs, dtSec, config), currentVideoVolume, desired, config.volumeStep01);
-		const applyDeltaThreshold01 = config.applyDeltaThreshold01;
-		return buildVolumeDecision(nextRuntime, currentVideoVolume, quantized, applyDeltaThreshold01);
-	}
-	function normalizeRuntime(runtime) {
-		return {
-			isDucked: Boolean(runtime.isDucked),
-			speechGateOpen: Boolean(runtime.speechGateOpen),
-			rmsEnvelope: normalizeVolume01(runtime.rmsEnvelope) ?? 0,
-			baseline: normalizeVolume01(runtime.baseline),
-			lastApplied: normalizeVolume01(runtime.lastApplied),
-			lastTickAt: isFiniteNumber(runtime.lastTickAt) ? runtime.lastTickAt : 0,
-			lastSoundAt: isFiniteNumber(runtime.lastSoundAt) ? runtime.lastSoundAt : 0,
-			rmsMissingSinceAt: isFiniteNumber(runtime.rmsMissingSinceAt) ? runtime.rmsMissingSinceAt : null
-		};
-	}
-	function normalizeVolume01(value) {
-		if (!isFiniteNumber(value)) return void 0;
-		return clamp(value, VOLUME_MIN_01, VOLUME_MAX_01);
-	}
-	function isFiniteNumber(value) {
-		return typeof value === "number" && Number.isFinite(value);
-	}
-	//#endregion
-	//#region src/videoHandler/modules/translation.ts
-	var SMART_DUCKING_TICK_MS = SMART_DUCKING_DEFAULT_CONFIG.tickMs;
-	var AUDIO_PROBE_TIMEOUT_MS = 5e3;
-	var AUDIO_PROBE_RETRY_DELAY_MS = 150;
-	var AUDIO_PROBE_MAX_ATTEMPTS = 2;
-	var smartDuckingAnalyserState = /* @__PURE__ */ new WeakMap();
-	function isAudioNode(node) {
-		if (!node || typeof node !== "object") return false;
-		const candidate = node;
-		return typeof candidate.connect === "function" && typeof candidate.disconnect === "function";
-	}
-	function getPlayerMediaElement(player) {
-		return player?.audio ?? player?.audioElement;
-	}
-	function getNowMs() {
-		return typeof performance !== "undefined" && typeof performance.now === "function" ? performance.now() : Date.now();
-	}
-	function getAutoVolumeMode(handler) {
-		if (!handler.data?.enabledAutoVolume) return "off";
-		if (handler.data?.syncVolume) return "classic";
-		return handler.data?.enabledSmartDucking ?? true ? "smart" : "classic";
-	}
-	async function resumePlayerAudioContextIfNeeded(handler) {
-		const ctx = handler.audioPlayer?.audioContext;
-		if (!ctx || ctx.state !== "suspended") return "not-needed";
-		const RESUME_TIMEOUT_MS = 1500;
-		const resumePromise = (async () => {
-			try {
-				await ctx.resume();
-				return "resumed";
-			} catch (err) {
-				debug.log("[updateTranslation] Failed to resume AudioContext", err);
-				return "failed";
-			}
-		})();
-		let timeoutId;
-		const timeoutPromise = new Promise((resolve) => {
-			timeoutId = setTimeout(() => resolve("timeout"), RESUME_TIMEOUT_MS);
-		});
-		const result = await Promise.race([resumePromise, timeoutPromise]);
-		if (timeoutId !== void 0) clearTimeout(timeoutId);
-		if (result === "resumed") debug.log("[updateTranslation] AudioContext resumed");
-		else if (result === "timeout") debug.log("[updateTranslation] AudioContext resume timeout");
-		return result;
-	}
-	async function rollbackStaleAppliedSourceIfStillCurrent(handler, appliedSourceUrl) {
-		if (!appliedSourceUrl || !handler.audioPlayer) return;
-		const player = handler.audioPlayer.player;
-		const currentSource = String(player.currentSrc || player.src || "");
-		if (handler.proxifyAudio(handler.unproxifyAudio(currentSource)) !== handler.proxifyAudio(handler.unproxifyAudio(appliedSourceUrl))) return;
-		try {
-			await player.clear();
-			player.src = "";
-			debug.log("[updateTranslation] cleared stale partially-applied source");
-		} catch (err) {
-			debug.log("[updateTranslation] failed to clear stale source", err);
-		}
-	}
-	function getSmartDuckingAudioContext(handler) {
-		return handler.audioPlayer?.audioContext ?? handler.audioContext;
-	}
-	function disconnectSmartDuckingAnalyser(state) {
-		if (state.connectedInputNode && state.analyser) try {
-			state.connectedInputNode.disconnect(state.analyser);
-		} catch {}
-		state.connectedInputNode = void 0;
-		if (state.createdMediaSource) try {
-			state.createdMediaSource.disconnect();
-		} catch {}
-		state.createdMediaSource = void 0;
-		if (state.analyser) try {
-			state.analyser.disconnect();
-		} catch {}
-		state.analyser = void 0;
-		state.analyserFloatData = void 0;
-		state.analyserData = void 0;
-		state.mediaElement = void 0;
-		state.audioContext = void 0;
-		state.mediaSourceCreationFailed = false;
-	}
-	function releaseSmartDuckingAnalyser(handler) {
-		const state = smartDuckingAnalyserState.get(handler);
-		if (!state) return;
-		disconnectSmartDuckingAnalyser(state);
-		smartDuckingAnalyserState.delete(handler);
-	}
-	function resolveSmartDuckingInputNode(player, media, audioContext, state) {
-		if (isAudioNode(player?.gainNode)) return player.gainNode;
-		if (isAudioNode(player?.audioSource)) return player.audioSource;
-		if (isAudioNode(player?.mediaElementSource)) return player.mediaElementSource;
-		if (state.mediaSourceCreationFailed && state.mediaElement === media && state.audioContext === audioContext) return;
-		if (state.createdMediaSource && state.mediaElement === media && state.audioContext === audioContext) return state.createdMediaSource;
-		try {
-			const source = audioContext.createMediaElementSource(media);
-			state.createdMediaSource = source;
-			state.mediaSourceCreationFailed = false;
-			return source;
-		} catch (err) {
-			state.mediaSourceCreationFailed = true;
-			debug.log("[SmartDucking] failed to create media source", err);
-			return;
-		}
-	}
-	function ensureSmartDuckingAnalyser(handler, player, media) {
-		const audioContext = getSmartDuckingAudioContext(handler);
-		if (!audioContext) return void 0;
-		let state = smartDuckingAnalyserState.get(handler);
-		if (!state) {
-			state = {};
-			smartDuckingAnalyserState.set(handler, state);
-		}
-		if (state.mediaElement && state.mediaElement !== media || state.audioContext && state.audioContext !== audioContext) disconnectSmartDuckingAnalyser(state);
-		state.mediaElement = media;
-		state.audioContext = audioContext;
-		if (!state.analyser) {
-			const analyser = audioContext.createAnalyser();
-			analyser.fftSize = 512;
-			state.analyser = analyser;
-		}
-		const inputNode = resolveSmartDuckingInputNode(player, media, audioContext, state);
-		const analyser = state.analyser;
-		if (!inputNode || !analyser) return void 0;
-		if (state.connectedInputNode !== inputNode) {
-			if (state.connectedInputNode) try {
-				state.connectedInputNode.disconnect(analyser);
-			} catch {}
-			try {
-				inputNode.connect(analyser);
-				state.connectedInputNode = inputNode;
-			} catch (err) {
-				debug.log("[SmartDucking] failed to connect analyser", err);
-				return;
-			}
-		}
-		return {
-			analyser,
-			state
-		};
-	}
-	function readSmartDuckingRuntime(handler) {
-		return {
-			isDucked: handler.smartVolumeIsDucked,
-			speechGateOpen: handler.smartVolumeSpeechGateOpen,
-			rmsEnvelope: handler.smartVolumeRmsEnvelope,
-			baseline: handler.smartVolumeDuckingBaseline,
-			lastApplied: handler.smartVolumeLastApplied,
-			lastTickAt: handler.smartVolumeLastTickAt,
-			lastSoundAt: handler.smartVolumeLastSoundAt,
-			rmsMissingSinceAt: handler.smartVolumeRmsMissingSinceAt
-		};
-	}
-	function writeSmartDuckingRuntime(handler, runtime) {
-		handler.smartVolumeIsDucked = runtime.isDucked;
-		handler.smartVolumeSpeechGateOpen = runtime.speechGateOpen;
-		handler.smartVolumeRmsEnvelope = runtime.rmsEnvelope;
-		handler.smartVolumeDuckingBaseline = runtime.baseline;
-		handler.smartVolumeLastApplied = runtime.lastApplied;
-		handler.smartVolumeLastTickAt = runtime.lastTickAt;
-		handler.smartVolumeLastSoundAt = runtime.lastSoundAt;
-		handler.smartVolumeRmsMissingSinceAt = runtime.rmsMissingSinceAt;
-	}
-	/**
-	* Stops Smart Auto-Volume ducking (if running), optionally restores volume,
-	* and resets all ducking-related state.
-	*/
-	function stopSmartVolumeDucking(handler, options = {}) {
-		const { restoreVolume } = options;
-		if (handler.smartVolumeDuckingInterval !== void 0) {
-			clearTimeout(handler.smartVolumeDuckingInterval);
-			handler.smartVolumeDuckingInterval = void 0;
-		}
-		const baseline = typeof restoreVolume === "number" ? restoreVolume : handler.smartVolumeDuckingBaseline ?? handler.volumeOnStart;
-		if (typeof baseline === "number" && (typeof restoreVolume === "number" || handler.smartVolumeIsDucked)) try {
-			handler.setVideoVolume(baseline);
-		} catch {}
-		releaseSmartDuckingAnalyser(handler);
-		writeSmartDuckingRuntime(handler, resetSmartDuckingRuntime());
-	}
-	function scheduleNextSmartDuckingTick(handler) {
-		if (typeof globalThis === "undefined") return;
-		if (handler.smartVolumeDuckingInterval === void 0) return;
-		handler.smartVolumeDuckingInterval = globalThis.setTimeout(() => {
-			if (handler.smartVolumeDuckingInterval === void 0) return;
-			try {
-				smartDuckingTick(handler);
-			} catch (err) {
-				debug.log("[SmartDucking] tick failed, stopping smart ducking", err);
-				stopSmartVolumeDucking(handler);
-				return;
-			}
-			if (handler.smartVolumeDuckingInterval === void 0) return;
-			scheduleNextSmartDuckingTick(handler);
-		}, SMART_DUCKING_TICK_MS);
-	}
-	function startSmartVolumeDucking(handler) {
-		if (typeof globalThis === "undefined") return;
-		if (handler.smartVolumeDuckingInterval !== void 0) return;
-		if (getAutoVolumeMode(handler) !== "smart") return;
-		const currentVideoVolume = handler.getVideoVolume();
-		const baseline = typeof handler.smartVolumeDuckingBaseline === "number" ? handler.smartVolumeDuckingBaseline : currentVideoVolume;
-		const runtime = initSmartDuckingRuntime(baseline);
-		if (Number.isFinite(currentVideoVolume) && Number.isFinite(baseline) && currentVideoVolume < baseline - SMART_DUCKING_DEFAULT_CONFIG.externalBaselineDelta01) {
-			const now = getNowMs();
-			runtime.isDucked = true;
-			runtime.speechGateOpen = true;
-			runtime.lastApplied = currentVideoVolume;
-			runtime.lastSoundAt = now;
-		}
-		writeSmartDuckingRuntime(handler, runtime);
-		handler.smartVolumeDuckingInterval = globalThis.setTimeout(() => {}, 0);
-		clearTimeout(handler.smartVolumeDuckingInterval);
-		scheduleNextSmartDuckingTick(handler);
-	}
-	function getTranslatedAudioRms(handler, media) {
-		const player = handler.audioPlayer?.player;
-		const analyserBundle = ensureSmartDuckingAnalyser(handler, player, media);
-		if (!analyserBundle) return void 0;
-		const { analyser, state } = analyserBundle;
-		try {
-			if (typeof analyser.getFloatTimeDomainData === "function") {
-				let floatData = state.analyserFloatData;
-				if (floatData?.length !== analyser.fftSize) {
-					floatData = new Float32Array(analyser.fftSize);
-					state.analyserFloatData = floatData;
-				}
-				analyser.getFloatTimeDomainData(floatData);
-				let sum = 0;
-				for (const value of floatData) sum += value * value;
-				return clamp(Math.sqrt(sum / floatData.length), 0, 1);
-			}
-			let data = state.analyserData;
-			if (data?.length !== analyser.fftSize) {
-				data = new Uint8Array(analyser.fftSize);
-				state.analyserData = data;
-			}
-			analyser.getByteTimeDomainData(data);
-			let sum = 0;
-			for (const rawValue of data) {
-				const normalizedValue = (rawValue - 128) / 128;
-				sum += normalizedValue * normalizedValue;
-			}
-			return clamp(Math.sqrt(sum / data.length), 0, 1);
-		} catch {
-			return;
-		}
-	}
-	function smartDuckingTick(handler) {
-		if (getAutoVolumeMode(handler) !== "smart") {
-			setupAudioSettings.call(handler);
-			return;
-		}
-		const player = handler.audioPlayer?.player;
-		const media = getPlayerMediaElement(player);
-		const audioIsPlaying = !!media && !media.paused && !media.muted && (media.volume ?? 1) > .001;
-		const now = getNowMs();
-		const currentVideoVolume = handler.getVideoVolume();
-		const hostVideo = handler.video;
-		const hostVideoActive = !(hostVideo && (hostVideo.paused || hostVideo.ended));
-		const dynamicDuckingTarget = clamp(handler.data?.autoVolume ?? 15, 0, 100) / 100;
-		handler.smartVolumeDuckingTarget = dynamicDuckingTarget;
-		const rms = audioIsPlaying && media ? getTranslatedAudioRms(handler, media) : 0;
-		const decision = computeSmartDuckingStep({
-			nowMs: now,
-			translationActive: handler.hasActiveSource(),
-			enabledAutoVolume: true,
-			smartEnabled: true,
-			audioIsPlaying,
-			rms,
-			currentVideoVolume,
-			hostVideoActive,
-			duckingTarget01: dynamicDuckingTarget,
-			volumeOnStart: handler.volumeOnStart
-		}, readSmartDuckingRuntime(handler), SMART_DUCKING_DEFAULT_CONFIG);
-		switch (decision.kind) {
-			case "stop":
-				stopSmartVolumeDucking(handler, { restoreVolume: decision.restoreVolume });
-				return;
-			case "apply":
-				handler.setVideoVolume(decision.volume01);
-				writeSmartDuckingRuntime(handler, decision.runtime);
-				return;
-			case "noop":
-				writeSmartDuckingRuntime(handler, decision.runtime);
-				return;
-			default: throw new TypeError("Unhandled smart ducking decision");
-		}
-	}
-	function waitForProbeRetry(delayMs, signal) {
-		if (delayMs <= 0 || signal.aborted) return Promise.resolve();
-		return new Promise((resolve) => {
-			const timeoutId = setTimeout(() => {
-				signal.removeEventListener("abort", onAbort);
-				resolve();
-			}, delayMs);
-			const onAbort = () => {
-				clearTimeout(timeoutId);
-				signal.removeEventListener("abort", onAbort);
-				resolve();
-			};
-			signal.addEventListener("abort", onAbort, { once: true });
-		});
-	}
-	async function probeAudioUrl(handler, audioUrl, actionContext) {
-		const signal = handler.actionsAbortController.signal;
-		const fetchOpts = {
-			headers: { range: "bytes=0-0" },
-			signal,
-			timeout: AUDIO_PROBE_TIMEOUT_MS
-		};
-		for (let attempt = 1; attempt <= AUDIO_PROBE_MAX_ATTEMPTS; attempt++) {
-			if (isProbeCancelled(handler, actionContext, signal)) return false;
-			try {
-				const response = await GM_fetch(audioUrl, fetchOpts);
-				if (isProbeCancelled(handler, actionContext, signal)) return false;
-				debug.log("[validateAudioUrl] probe response", {
-					audioUrl,
-					attempt,
-					ok: response.ok,
-					status: response.status
-				});
-				if (response.ok) return true;
-			} catch (err) {
-				if (isProbeCancelled(handler, actionContext, signal)) return false;
-				debug.log("[validateAudioUrl] probe error", {
-					audioUrl,
-					attempt,
-					err
-				});
-			}
-			if (!await shouldRetryAudioProbe(attempt, handler, actionContext, signal)) return false;
-		}
-		return false;
-	}
-	function isProbeCancelled(handler, actionContext, signal) {
-		return handler.isActionStale(actionContext) || signal.aborted;
-	}
-	async function shouldRetryAudioProbe(attempt, handler, actionContext, signal) {
-		if (attempt >= AUDIO_PROBE_MAX_ATTEMPTS) return true;
-		if (isProbeCancelled(handler, actionContext, signal)) return false;
-		await waitForProbeRetry(AUDIO_PROBE_RETRY_DELAY_MS, signal);
-		return !isProbeCancelled(handler, actionContext, signal);
-	}
-	async function validateAudioUrl(audioUrl, actionContext) {
-		if (this.isActionStale(actionContext)) return audioUrl;
-		if (await probeAudioUrl(this, audioUrl, actionContext)) return audioUrl;
-		const directUrl = this.unproxifyAudio(audioUrl);
-		if (directUrl !== audioUrl) {
-			if (await probeAudioUrl(this, directUrl, actionContext)) {
-				debug.log("[validateAudioUrl] switching to direct audio URL after probe");
-				return directUrl;
-			}
-		}
-		return audioUrl;
-	}
-	function scheduleTranslationRefresh() {
-		if (!this.videoData || this.videoData.isStream) return;
-		if (!this.hasActiveSource()) return;
-		clearTimeout(this.translationRefreshTimeout);
-		const refreshDelayMs = Math.max(3e4, YANDEX_TTL_MS - 300 * 1e3);
-		this.translationRefreshTimeout = setTimeout(() => {
-			this.refreshTranslationAudio().catch((error) => {
-				debug.log("[scheduleTranslationRefresh] refresh failed", error);
-			});
-		}, refreshDelayMs);
-	}
-	async function requestApplyAndCacheTranslation(self, options) {
-		const translateRes = await requestAndApplyTranslation({
-			requester: self.translationHandler,
-			request: {
-				videoData: options.videoData,
-				requestLang: options.requestLang,
-				responseLang: options.responseLang,
-				translationHelp: options.translationHelp,
-				useAudioDownload: Boolean(self.data?.useAudioDownload),
-				signal: self.actionsAbortController.signal
-			},
-			actionContext: options.actionContext,
-			isActionStale: (ctx) => self.isActionStale(ctx),
-			updateTranslation: (url, ctx) => self.updateTranslation(url, ctx),
-			scheduleTranslationRefresh: () => self.scheduleTranslationRefresh()
-		});
-		if (!translateRes) return null;
-		if (options.onBeforeCache) await options.onBeforeCache(translateRes);
-		setTranslationCacheValue({
-			cacheKey: options.cacheKey,
-			setTranslation: (key, value) => self.cacheManager.setTranslation(key, value),
-			videoId: options.cacheVideoId,
-			requestLang: options.cacheRequestLang,
-			responseLang: options.cacheResponseLang,
-			fallbackUrl: translateRes.url,
-			downloadTranslationUrl: self.downloadTranslationUrl,
-			usedLivelyVoice: translateRes.usedLivelyVoice
-		});
-		return translateRes;
-	}
-	async function refreshTranslationAudio() {
-		if (!this.videoData || this.videoData.isStream) return;
-		if (!this.hasActiveSource()) return;
-		if (this.isRefreshingTranslation) return;
-		const videoId = this.videoData.videoId;
-		if (!videoId) return;
-		if (this.actionsAbortController?.signal?.aborted) this.resetActionsAbortController("refreshTranslationAudio");
-		this.isRefreshingTranslation = true;
-		const actionContext = {
-			gen: this.actionsGeneration,
-			videoId
-		};
-		const normalizedTranslationHelp = normalizeTranslationHelp(this.videoData.translationHelp);
-		try {
-			if (!await requestApplyAndCacheTranslation(this, {
-				videoData: this.videoData,
-				requestLang: this.translateFromLang,
-				responseLang: this.translateToLang,
-				translationHelp: normalizedTranslationHelp,
-				actionContext,
-				cacheKey: this.getTranslationCacheKey(videoId, this.translateFromLang, this.translateToLang, normalizedTranslationHelp),
-				cacheVideoId: videoId,
-				cacheRequestLang: this.translateFromLang,
-				cacheResponseLang: this.translateToLang
-			})) return;
-		} finally {
-			this.isRefreshingTranslation = false;
-		}
-	}
-	function proxifyAudio(audioUrl) {
-		const proxiedAudioUrl = proxifyYandexAudioUrl(audioUrl, {
-			translateProxyEnabled: this.data?.translateProxyEnabled,
-			proxyWorkerHost: this.data?.proxyWorkerHost
-		});
-		if (proxiedAudioUrl !== audioUrl) debug.log(`[VOT] Audio proxied via ${proxiedAudioUrl}`);
-		return proxiedAudioUrl;
-	}
-	function unproxifyAudio(audioUrl) {
-		return unproxifyYandexAudioUrl(audioUrl);
-	}
-	async function handleProxySettingsChanged(reason = "proxySettingsChanged") {
-		debug.log(`[VOT] ${reason}: clearing translation/subtitles cache`);
-		try {
-			this.cacheManager.clear();
-			this.activeTranslation = null;
-		} catch {}
-		try {
-			await this.stopTranslation();
-		} catch {}
-		await this.initVOTClient();
-	}
-	function isMultiMethodS3(url) {
-		return isYandexAudioUrlOrProxy(url, { proxyWorkerHost: this.data?.proxyWorkerHost });
-	}
-	function normalizeManagedAudioUrl(handler, url) {
-		return handler.proxifyAudio(handler.unproxifyAudio(url));
-	}
-	async function applyTranslationSource(handler, sourceUrl, actionContext) {
-		const didSetSource = handler.audioPlayer.player.src !== sourceUrl;
-		let appliedSourceUrl = null;
-		if (didSetSource) {
-			handler.audioPlayer.player.src = sourceUrl;
-			appliedSourceUrl = sourceUrl;
-		}
-		try {
-			if (didSetSource) await handler.audioPlayer.init();
-			if (handler.isActionStale(actionContext)) {
-				await rollbackStaleAppliedSourceIfStillCurrent(handler, appliedSourceUrl);
-				return {
-					status: "stale",
-					didSetSource,
-					appliedSourceUrl
-				};
-			}
-			const resumeResult = await resumePlayerAudioContextIfNeeded(handler);
-			if (resumeResult === "timeout") debug.log("[updateTranslation] continuing after AudioContext resume timeout");
-			else if (resumeResult === "failed") debug.log("[updateTranslation] AudioContext resume failed, continue without deferred resume");
-			if (handler.isActionStale(actionContext)) {
-				await rollbackStaleAppliedSourceIfStillCurrent(handler, appliedSourceUrl);
-				return {
-					status: "stale",
-					didSetSource,
-					appliedSourceUrl
-				};
-			}
-			if (!handler.video.paused && handler.audioPlayer.player.src) handler.audioPlayer.player.lipSync("play");
-			return {
-				status: "success",
-				didSetSource,
-				appliedSourceUrl
-			};
-		} catch (error) {
-			return {
-				status: "error",
-				didSetSource,
-				appliedSourceUrl,
-				error
-			};
-		}
-	}
-	async function updateTranslation(audioUrl, actionContext) {
-		await this.waitForPendingStopTranslate();
-		if (this.isActionStale(actionContext)) return;
-		if (!this.audioPlayer) this.createPlayer();
-		if (this.audioPlayer.audioContext?.state === "closed") {
-			debug.log("[updateTranslation] AudioContext is closed, recreating player");
-			this.createPlayer();
-		}
-		const normalizedTargetUrl = normalizeManagedAudioUrl(this, audioUrl);
-		const currentSource = this.audioPlayer.player.currentSrc || this.audioPlayer.player.src || "";
-		const nextAudioUrl = normalizedTargetUrl !== normalizeManagedAudioUrl(this, currentSource) ? await this.validateAudioUrl(normalizedTargetUrl, actionContext) : normalizedTargetUrl;
-		if (this.isActionStale(actionContext)) return;
-		const resolvedSource = await applyTranslationWithDirectFallback(this, nextAudioUrl, actionContext);
-		const resolvedAudioUrl = resolvedSource.nextAudioUrl;
-		const applyResult = resolvedSource.applyResult;
-		const appliedSourceUrl = applyResult.appliedSourceUrl;
-		if (applyResult.status === "stale") return;
-		if (applyResult.status === "error") {
-			debug.log("this.audioPlayer.init() error", applyResult.error);
-			await rollbackStaleAppliedSourceIfStillCurrent(this, appliedSourceUrl);
-			const msg = toErrorMessage(applyResult.error);
-			this.transformBtn("error", msg);
-			return;
-		}
-		this.clearVolumeLinkState();
-		this.setupAudioSettings();
-		this.transformBtn("success", localizationProvider.get("disableTranslate"));
-		this.afterUpdateTranslation(resolvedAudioUrl);
-	}
-	async function applyTranslationWithDirectFallback(handler, audioUrl, actionContext) {
-		const nextAudioUrl = audioUrl;
-		const applyResult = await applyTranslationSource(handler, nextAudioUrl, actionContext);
-		if (!shouldRetryTranslationSource(handler, applyResult, actionContext, nextAudioUrl)) return {
-			nextAudioUrl,
-			applyResult
-		};
-		const retried = await retryTranslationWithDirectSource(handler, nextAudioUrl, applyResult.appliedSourceUrl, actionContext);
-		if (retried) return retried;
-		return {
-			nextAudioUrl,
-			applyResult
-		};
-	}
-	function shouldRetryTranslationSource(handler, applyResult, actionContext, audioUrl) {
-		return applyResult.status === "error" && applyResult.didSetSource && !handler.isActionStale(actionContext) && handler.unproxifyAudio(audioUrl) !== audioUrl;
-	}
-	async function retryTranslationWithDirectSource(handler, audioUrl, appliedSourceUrl, actionContext) {
-		const directUrl = handler.unproxifyAudio(audioUrl);
-		debug.log("[updateTranslation] proxied audio init failed, retrying direct URL");
-		try {
-			const validatedDirectUrl = await handler.validateAudioUrl(directUrl, actionContext);
-			if (handler.isActionStale(actionContext)) {
-				await rollbackStaleAppliedSourceIfStillCurrent(handler, appliedSourceUrl);
-				return {
-					nextAudioUrl: validatedDirectUrl,
-					applyResult: {
-						status: "stale",
-						didSetSource: true,
-						appliedSourceUrl
-					}
-				};
-			}
-			return {
-				nextAudioUrl: validatedDirectUrl,
-				applyResult: await applyTranslationSource(handler, validatedDirectUrl, actionContext)
-			};
-		} catch (fallbackErr) {
-			return {
-				nextAudioUrl: audioUrl,
-				applyResult: {
-					status: "error",
-					didSetSource: true,
-					appliedSourceUrl,
-					error: fallbackErr
-				}
-			};
-		}
-	}
-	async function translateFunc(VIDEO_ID, _isStream, requestLang, responseLang, translationHelp) {
-		await this.waitForPendingStopTranslate();
-		debug.log("Run videoValidator");
-		await this.videoValidator();
-		if (this.actionsAbortController?.signal?.aborted) this.resetActionsAbortController("translateFunc");
-		const overlayView = this.uiManager.votOverlayView;
-		if (!overlayView?.votButton) {
-			debug.log("[translateFunc] Overlay view missing, skipping translation");
-			return;
-		}
-		overlayView.votButton.loading = true;
-		this.hadAsyncWait = false;
-		this.volumeOnStart = this.getVideoVolume();
-		if (!VIDEO_ID) {
-			debug.log("Skip translation - no VIDEO_ID resolved yet");
-			await this.updateTranslationErrorMsg(new VOTLocalizedError("VOTNoVideoIDFound"), this.actionsAbortController.signal);
-			return;
-		}
-		const videoData = this.videoData;
-		if (!videoData) {
-			await this.updateTranslationErrorMsg(new VOTLocalizedError("VOTNoVideoIDFound"), this.actionsAbortController.signal);
-			return;
-		}
-		const normalizedTranslationHelp = normalizeTranslationHelp(translationHelp);
-		const cacheKey = this.getTranslationCacheKey(VIDEO_ID, requestLang, responseLang, normalizedTranslationHelp);
-		const activeKey = `video_${cacheKey}`;
-		if (this.activeTranslation?.key === activeKey) {
-			debug.log("[translateFunc] Reusing in-flight translation");
-			await this.activeTranslation.promise;
-			return;
-		}
-		const actionContext = {
-			gen: this.actionsGeneration,
-			videoId: VIDEO_ID
-		};
-		const translationPromise = (async () => {
-			if (this.isActionStale(actionContext)) {
-				debug.log("[translateFunc] Stale translation task - skipping");
-				return;
-			}
-			const reqLang = requestLang;
-			const resLang = responseLang;
-			const applyTranslationUrl = async (url) => await updateTranslationAndSchedule({
-				url,
-				actionContext,
-				isActionStale: (ctx) => this.isActionStale(ctx),
-				updateTranslation: (nextUrl, ctx) => this.updateTranslation(nextUrl, ctx),
-				scheduleTranslationRefresh: () => this.scheduleTranslationRefresh()
-			});
-			const cachedEntry = this.cacheManager.getTranslation(cacheKey);
-			if (cachedEntry?.url) {
-				if (!await applyTranslationUrl(cachedEntry.url)) return;
-				debug.log("[translateFunc] Cached translation was received");
-				return;
-			}
-			const translateRes = await requestApplyAndCacheTranslation(this, {
-				videoData,
-				requestLang: reqLang,
-				responseLang: resLang,
-				translationHelp: normalizedTranslationHelp,
-				actionContext,
-				cacheKey,
-				cacheVideoId: VIDEO_ID,
-				cacheRequestLang: requestLang,
-				cacheResponseLang: responseLang,
-				onBeforeCache: async () => {
-					const preferredSubtitleLanguage = this.getPreferredSubtitlesLanguage(videoData.detectedLanguage, videoData.responseLanguage);
-					if (!preferredSubtitleLanguage) return;
-					const subsCacheKey = this.videoData ? this.getSubtitlesCacheKey(VIDEO_ID, this.videoData.detectedLanguage, preferredSubtitleLanguage) : null;
-					const cachedSubs = subsCacheKey ? this.cacheManager.getSubtitles(subsCacheKey) : null;
-					if (!(Array.isArray(cachedSubs) && pickBestSubtitlesIndex(getIndexedSubtitleDescriptors(cachedSubs), videoData.detectedLanguage, preferredSubtitleLanguage) != null)) {
-						if (subsCacheKey) this.cacheManager.deleteSubtitles(subsCacheKey);
-						this.subtitles = [];
-						this.subtitlesCacheKey = null;
-					}
-				}
-			});
-			debug.log("[translateRes]", translateRes);
-			if (!translateRes) debug.log("Skip translation");
-		})();
-		this.activeTranslation = {
-			key: activeKey,
-			promise: translationPromise
-		};
-		try {
-			return await translationPromise;
-		} catch (err) {
-			this.hadAsyncWait = notifyTranslationFailureIfNeeded({
-				aborted: this.actionsAbortController.signal.aborted,
-				translateApiErrorsEnabled: Boolean(this.data?.translateAPIErrors),
-				hadAsyncWait: this.hadAsyncWait,
-				videoId: VIDEO_ID,
-				error: err,
-				notify: (params) => this.notifier.translationFailed(params)
-			});
-			throw err;
-		} finally {
-			if (this.activeTranslation?.promise === translationPromise) this.activeTranslation = null;
-			const overlayBtn = this.uiManager.votOverlayView?.votButton;
-			if (!this.activeTranslation && overlayBtn?.loading && !this.hasActiveSource()) {
-				debug.log("[translateFunc] clearing stale loading state");
-				this.transformBtn("none", localizationProvider.get("translateVideo"));
-			}
-		}
-	}
-	function isYouTubeHosts() {
-		return isTranslationDownloadHost(this.site.host);
-	}
-	function setupAudioSettings() {
-		if (typeof this.data?.defaultVolume === "number") this.audioPlayer.player.volume = this.data.defaultVolume / 100;
-		const autoVolumeMode = getAutoVolumeMode(this);
-		if (autoVolumeMode === "off") {
-			stopSmartVolumeDucking(this, { restoreVolume: this.smartVolumeDuckingBaseline ?? this.volumeOnStart });
-			return;
-		}
-		const targetVolume = clamp(this.data.autoVolume ?? 15, 0, 100) / 100;
-		this.smartVolumeDuckingTarget = targetVolume;
-		if (!this.hasActiveSource()) return;
-		if (autoVolumeMode === "smart") {
-			startSmartVolumeDucking(this);
-			return;
-		}
-		if (this.smartVolumeDuckingInterval !== void 0) {
-			clearTimeout(this.smartVolumeDuckingInterval);
-			this.smartVolumeDuckingInterval = void 0;
-		}
-		if (typeof this.smartVolumeDuckingBaseline !== "number") this.smartVolumeDuckingBaseline = this.getVideoVolume();
-		const baseline = this.smartVolumeDuckingBaseline ?? this.getVideoVolume();
-		this.setVideoVolume(Math.min(baseline, targetVolume));
-		writeSmartDuckingRuntime(this, initSmartDuckingRuntime(this.smartVolumeDuckingBaseline));
-		this.smartVolumeIsDucked = true;
-	}
-	function applyManualVideoVolumeOverride(volume01) {
-		if (!this.data?.enabledAutoVolume || !this.hasActiveSource()) return;
-		const nextVolume = snapVolume01(volume01);
-		this.smartVolumeDuckingTarget = nextVolume;
-		this.smartVolumeDuckingBaseline = nextVolume;
-		this.smartVolumeLastApplied = nextVolume;
-	}
-	//#endregion
 	//#region src/index.ts
-	var RESPONSE_LANG_SET = new Set(availableTTS);
-	var isResponseLang = (value) => RESPONSE_LANG_SET.has(value);
+	new Set(availableTTS);
 	var RESOLVED_VOID_PROMISE = Promise.resolve();
 	var VideoHandler = class {
 		video;
@@ -24190,7 +24290,6 @@ var vot = (function(exports) {
 		*/
 		subtitlesLoadPromises = /* @__PURE__ */ new Map();
 		downloadTranslationUrl = null;
-		translationRefreshTimeout;
 		isRefreshingTranslation = false;
 		autoRetry;
 		votOpts;
@@ -24373,7 +24472,6 @@ var vot = (function(exports) {
 			this.cacheManager = new InMemoryCacheManager();
 			this.interactionChecker = createIntervalIdleChecker();
 			this.interactionChecker.start();
-			const self = () => this;
 			this.uiManager = new UIManager({
 				mount: this.getOverlayMount(container),
 				data: this.data,
@@ -24412,77 +24510,7 @@ var vot = (function(exports) {
 					});
 				}
 			});
-			this.lifecycleController = new VideoLifecycleController({
-				get video() {
-					return self().video;
-				},
-				get site() {
-					return self().site;
-				},
-				get container() {
-					return self().container;
-				},
-				set container(value) {
-					if (self().container === value) return;
-					self().container = value;
-					self().uiManager.updateMount(self().getOverlayMount(value));
-				},
-				get firstPlay() {
-					return self().firstPlay;
-				},
-				set firstPlay(value) {
-					self().firstPlay = value;
-				},
-				stopTranslation: () => this.stopTranslation(),
-				get uiManager() {
-					return self().uiManager;
-				},
-				getVideoData: () => this.getVideoData(),
-				cacheManager: { getSubtitles: (key) => self().cacheManager.getSubtitles(key) },
-				getSubtitlesCacheKey: (videoId, detectedLanguage, subtitleLanguage) => this.getSubtitlesCacheKey(videoId, detectedLanguage, subtitleLanguage),
-				getPreferredSubtitlesLanguage: (detectedLanguage, responseLanguage) => this.getPreferredSubtitlesLanguage(detectedLanguage, responseLanguage),
-				updateSubtitlesLangSelect: () => this.updateSubtitlesLangSelect(),
-				enableSubtitlesForCurrentLangPair: () => this.enableSubtitlesForCurrentLangPair(),
-				setSelectMenuValues: (from, to) => this.setSelectMenuValues(from, to),
-				get translateToLang() {
-					return self().translateToLang;
-				},
-				set translateToLang(value) {
-					if (isResponseLang(value)) self().translateToLang = value;
-				},
-				get data() {
-					return self().data ?? {};
-				},
-				get subtitles() {
-					return self().subtitles;
-				},
-				set subtitles(value) {
-					self().subtitles = value;
-				},
-				get subtitlesCacheKey() {
-					return self().subtitlesCacheKey;
-				},
-				set subtitlesCacheKey(value) {
-					self().subtitlesCacheKey = value;
-				},
-				get videoData() {
-					return self().videoData;
-				},
-				set videoData(value) {
-					self().videoData = value;
-				},
-				get actionsAbortController() {
-					return self().actionsAbortController;
-				},
-				set actionsAbortController(value) {
-					self().actionsAbortController = value;
-				},
-				resetActionsAbortController: (reason) => this.resetActionsAbortController(reason),
-				initVOTClient: () => this.initVOTClient(),
-				translationOrchestrator: this.translationOrchestrator,
-				resetSubtitlesWidget: () => this.resetSubtitlesWidget(),
-				queueOverlayAutoHide: () => this.overlayVisibility?.queueAutoHide()
-			});
+			this.lifecycleController = new VideoLifecycleController(createVideoLifecycleHost(this, (value) => this.getOverlayMount(value)));
 			this.translationHandler = new VOTTranslationHandler(this);
 			this.videoManager = new VOTVideoManager(this);
 		}
@@ -24940,10 +24968,6 @@ var vot = (function(exports) {
 				if (this.autoRetry !== void 0) {
 					clearTimeout(this.autoRetry);
 					this.autoRetry = void 0;
-				}
-				if (this.translationRefreshTimeout !== void 0) {
-					clearTimeout(this.translationRefreshTimeout);
-					this.translationRefreshTimeout = void 0;
 				}
 				this.resetActionsAbortController("stopTranslate");
 			};
