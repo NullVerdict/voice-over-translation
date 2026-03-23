@@ -255,7 +255,17 @@ var vot = (function(exports) {
 	var __getOwnPropNames = Object.getOwnPropertyNames;
 	var __getProtoOf = Object.getPrototypeOf;
 	var __hasOwnProp = Object.prototype.hasOwnProperty;
+	var __esmMin = (fn, res) => () => (fn && (res = fn(fn = 0)), res);
 	var __commonJSMin = (cb, mod) => () => (mod || cb((mod = { exports: {} }).exports, mod), mod.exports);
+	var __exportAll = (all, no_symbols) => {
+		let target = {};
+		for (var name in all) __defProp(target, name, {
+			get: all[name],
+			enumerable: true
+		});
+		if (!no_symbols) __defProp(target, Symbol.toStringTag, { value: "Module" });
+		return target;
+	};
 	var __copyProps = (to, from, except, desc) => {
 		if (from && typeof from === "object" || typeof from === "function") for (var keys = __getOwnPropNames(from), i = 0, n = keys.length, key; i < n; i++) {
 			key = keys[i];
@@ -277,13 +287,13 @@ var vot = (function(exports) {
 		"hostVOT": "vot.toil.cc/v1",
 		"hostWorker": "vot-worker.toil.cc",
 		"mediaProxy": "media-proxy.toil.cc",
-		"userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/142.0.0.0 YaBrowser/25.12.0.0 Safari/537.36",
-		"componentVersion": "25.12.4.1198",
+		"userAgent": " Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 YaBrowser/26.3.0.2179 Yowser/2.5 Safari/537.36",
+		"componentVersion": "26.3.1.981",
 		"hmac": "bt8xH3VOlb4mqf0nqAibnDOoiPlXsisf",
-		"defaultDuration": 343,
+		"defaultDuration": 310,
 		"minChunkSize": 5295308,
 		"loggerLevel": 1,
-		"version": "2.4.14"
+		"version": "2.4.16"
 	};
 	//#endregion
 	//#region node_modules/@bufbuild/protobuf/dist/esm/wire/varint.js
@@ -2606,16 +2616,27 @@ var vot = (function(exports) {
 		error: error$1
 	};
 	//#endregion
-	//#region __vite-browser-external
-	var require___vite_browser_external = /* @__PURE__ */ __commonJSMin(((exports, module) => {
-		module.exports = {};
+	//#region src/shims/nodeCrypto.ts
+	var nodeCrypto_exports = /* @__PURE__ */ __exportAll({
+		default: () => webCrypto,
+		getRandomValues: () => getRandomValues,
+		randomUUID: () => randomUUID,
+		subtle: () => subtle
+	});
+	var webCrypto, subtle, getRandomValues, randomUUID;
+	var init_nodeCrypto = __esmMin((() => {
+		webCrypto = globalThis.crypto;
+		if (!webCrypto?.subtle) throw new TypeError("Web Crypto API is not available in this environment.");
+		subtle = webCrypto.subtle;
+		getRandomValues = webCrypto.getRandomValues.bind(webCrypto);
+		randomUUID = typeof webCrypto.randomUUID === "function" ? webCrypto.randomUUID.bind(webCrypto) : void 0;
 	}));
 	//#endregion
 	//#region node_modules/@vot.js/shared/dist/secure.js
 	var { componentVersion } = config_default$1;
 	async function getCrypto() {
 		if (typeof window !== "undefined" && window.crypto) return window.crypto;
-		return await Promise.resolve().then(() => /* @__PURE__ */ __toESM(require___vite_browser_external(), 1));
+		return await Promise.resolve().then(() => (init_nodeCrypto(), nodeCrypto_exports));
 	}
 	var utf8Encoder = new TextEncoder();
 	async function signHMAC(hashName, hmac, data) {
@@ -2665,8 +2686,8 @@ var vot = (function(exports) {
 		}
 	}
 	var browserSecHeaders = {
-		"sec-ch-ua": `"Chromium";v="142", "YaBrowser";v="${componentVersion.slice(0, 5)}", "Not?A_Brand";v="24", "Yowser";v="2.5"`,
-		"sec-ch-ua-full-version-list": `"Chromium";v="142.0.7444.59", "YaBrowser";v="${componentVersion}", "Not?A_Brand";v="24.0.0.0", "Yowser";v="2.5"`,
+		"sec-ch-ua": `"Chromium";v="146", "YaBrowser";v="${componentVersion.slice(0, 5)}", "Not?A_Brand";v="26", "Yowser";v="2.5"`,
+		"sec-ch-ua-full-version-list": `"Chromium";v="146.0.7680.154", "YaBrowser";v="${componentVersion}", "Not?A_Brand";v="26.0.0.0", "Yowser";v="2.5"`,
 		"Sec-Fetch-Mode": "no-cors"
 	};
 	//#endregion
@@ -7663,7 +7684,7 @@ var vot = (function(exports) {
 	function getCurrentUnixTimestampSeconds() {
 		return Math.floor(Date.now() / 1e3);
 	}
-	function isVOTSession(value) {
+	function isClientSession(value) {
 		if (!value || typeof value !== "object") return false;
 		const candidate = value;
 		return typeof candidate.expires === "number" && Number.isFinite(candidate.expires) && typeof candidate.timestamp === "number" && Number.isFinite(candidate.timestamp) && typeof candidate.uuid === "string" && candidate.uuid.length > 0 && typeof candidate.secretKey === "string" && candidate.secretKey.length > 0;
@@ -7672,16 +7693,14 @@ var vot = (function(exports) {
 		if (!value || typeof value !== "object") return {};
 		const now = getCurrentUnixTimestampSeconds();
 		const entries = Object.entries(value).flatMap(([module, session]) => {
-			if (!isVOTSession(session)) return [];
+			if (!isClientSession(session)) return [];
 			if (session.timestamp + session.expires <= now) return [];
 			return [[module, session]];
 		});
 		return Object.fromEntries(entries);
 	}
-	function isStoredVOTSession(value) {
-		if (!value || typeof value !== "object") return false;
-		const candidate = value;
-		return typeof candidate.expiresAt === "number" && Number.isFinite(candidate.expiresAt) && typeof candidate.secretKey === "string" && candidate.secretKey.length > 0 && typeof candidate.uuid === "string" && candidate.uuid.length > 0;
+	function hasSessions(sessions) {
+		return Object.keys(sessions).length > 0;
 	}
 	var VOTSessionStorageCache = class {
 		constructor(storage = votStorage) {
@@ -7693,35 +7712,24 @@ var vot = (function(exports) {
 		async restore(_host, currentSessions = {}) {
 			const storageKey = this.getStorageKey();
 			const rawStoredSession = await this.storage.getRaw(storageKey);
-			if (!isStoredVOTSession(rawStoredSession)) return currentSessions;
-			const nowMs = Date.now();
-			if (rawStoredSession.expiresAt <= nowMs) {
-				await this.storage.deleteRaw(storageKey);
+			const restoredSessions = sanitizeVOTSessions(rawStoredSession);
+			if (!hasSessions(restoredSessions)) {
+				if (rawStoredSession !== void 0) await this.storage.deleteRaw(storageKey);
 				return currentSessions;
 			}
-			const remainingSeconds = Math.max(1, Math.ceil((rawStoredSession.expiresAt - nowMs) / 1e3));
 			return {
 				...currentSessions,
-				"video-translation": {
-					secretKey: rawStoredSession.secretKey,
-					uuid: rawStoredSession.uuid,
-					expires: remainingSeconds,
-					timestamp: Math.floor(nowMs / 1e3)
-				}
+				...restoredSessions
 			};
 		}
 		async persist(_host, sessions) {
 			const storageKey = this.getStorageKey();
-			const translationSession = sanitizeVOTSessions(sessions)["video-translation"];
-			if (!translationSession) {
+			const sanitizedSessions = sanitizeVOTSessions(sessions);
+			if (!hasSessions(sanitizedSessions)) {
 				await this.storage.deleteRaw(storageKey);
 				return;
 			}
-			await this.storage.setRaw(storageKey, {
-				secretKey: translationSession.secretKey,
-				uuid: translationSession.uuid,
-				expiresAt: (translationSession.timestamp + translationSession.expires) * 1e3
-			});
+			await this.storage.setRaw(storageKey, sanitizedSessions);
 		}
 	};
 	/**
@@ -8408,6 +8416,14 @@ var vot = (function(exports) {
 		if (Array.isArray(a) && Array.isArray(b)) return a.length === b.length && a.every((item, index) => Object.is(item, b[index]));
 		return Object.is(a, b);
 	}
+	function parseStoredValue(rawValue) {
+		if (rawValue === null) return;
+		try {
+			return JSON.parse(rawValue);
+		} catch {
+			return;
+		}
+	}
 	async function updateConfig(data) {
 		if (data.compatVersion === "2025-05-09") return data;
 		const keysToRead = new Set([...Object.keys(data), ...compatKeysToRead]);
@@ -8433,18 +8449,31 @@ var vot = (function(exports) {
 	}
 	var VOTStorage = class {
 		support = null;
+		localStorageListeners = /* @__PURE__ */ new Map();
+		shouldUseSyntheticListeners(support) {
+			return !support.promiseAddValueChangeListener && !support.legacyAddValueChangeListener;
+		}
+		getGMRuntime() {
+			if (typeof GM !== "undefined") return GM;
+			return globalThis.GM;
+		}
 		resolveSupport() {
 			if (this.support) return this.support;
+			const gm = this.getGMRuntime();
 			const support = {
 				legacyGet: typeof GM_getValue === "function",
 				legacySet: typeof GM_setValue === "function",
 				legacyDelete: typeof GM_deleteValue === "function",
 				legacyList: typeof GM_listValues === "function",
-				promiseGet: isSupportGM4 && typeof GM?.getValue === "function",
-				promiseGetValues: isSupportGM4 && typeof GM?.getValues === "function",
-				promiseSet: isSupportGM4 && typeof GM?.setValue === "function",
-				promiseDelete: isSupportGM4 && typeof GM?.deleteValue === "function",
-				promiseList: isSupportGM4 && typeof GM?.listValues === "function"
+				legacyAddValueChangeListener: typeof globalThis.GM_addValueChangeListener === "function",
+				legacyRemoveValueChangeListener: typeof globalThis.GM_removeValueChangeListener === "function",
+				promiseGet: isSupportGM4 && typeof gm?.getValue === "function",
+				promiseGetValues: isSupportGM4 && typeof gm?.getValues === "function",
+				promiseSet: isSupportGM4 && typeof gm?.setValue === "function",
+				promiseDelete: isSupportGM4 && typeof gm?.deleteValue === "function",
+				promiseList: isSupportGM4 && typeof gm?.listValues === "function",
+				promiseAddValueChangeListener: isSupportGM4 && typeof gm?.addValueChangeListener === "function",
+				promiseRemoveValueChangeListener: isSupportGM4 && typeof gm?.removeValueChangeListener === "function"
 			};
 			this.support = support;
 			debug.log(`[VOT Storage] GM Promises: ${support.promiseGet} | GM legacy: ${support.legacyGet}`);
@@ -8493,8 +8522,17 @@ var vot = (function(exports) {
 		}
 		async setRaw(name, value) {
 			const support = this.resolveSupport();
-			if (support.promiseSet && GM.setValue) return await GM.setValue(name, value);
-			return this.syncSetByName(name, value, support);
+			const storageKey = name;
+			const shouldNotify = this.shouldUseSyntheticListeners(support);
+			const oldValue = shouldNotify ? await this.getRaw(name) : void 0;
+			if (support.promiseSet && GM.setValue) {
+				await GM.setValue(name, value);
+				if (shouldNotify) this.notifyLocalStorageListeners(storageKey, oldValue, value, false);
+				return;
+			}
+			const setResult = this.syncSetByName(name, value, support);
+			this.notifyLocalStorageListeners(storageKey, oldValue, value, false);
+			return setResult;
 		}
 		async set(name, value) {
 			return this.setRaw(name, value);
@@ -8505,11 +8543,74 @@ var vot = (function(exports) {
 		}
 		async deleteRaw(name) {
 			const support = this.resolveSupport();
-			if (support.promiseDelete && GM.deleteValue) return await GM.deleteValue(name);
-			return this.syncDeleteByName(name, support);
+			const storageKey = name;
+			const shouldNotify = this.shouldUseSyntheticListeners(support);
+			const oldValue = shouldNotify ? await this.getRaw(name) : void 0;
+			if (support.promiseDelete && GM.deleteValue) {
+				await GM.deleteValue(name);
+				if (shouldNotify) this.notifyLocalStorageListeners(storageKey, oldValue, void 0, false);
+				return;
+			}
+			const deleteResult = this.syncDeleteByName(name, support);
+			this.notifyLocalStorageListeners(storageKey, oldValue, void 0, false);
+			return deleteResult;
 		}
 		async delete(name) {
 			return this.deleteRaw(name);
+		}
+		addValueChangeListener(name, listener) {
+			const support = this.resolveSupport();
+			const gm = this.getGMRuntime();
+			if (support.promiseAddValueChangeListener) {
+				const addListener = gm?.addValueChangeListener;
+				const removeListener = support.promiseRemoveValueChangeListener ? gm?.removeValueChangeListener : void 0;
+				if (typeof addListener === "function") {
+					const listenerId = addListener(name, this.createTypedListener(listener));
+					return () => {
+						if (typeof removeListener === "function") removeListener(listenerId);
+					};
+				}
+			}
+			if (support.legacyAddValueChangeListener) {
+				const addListener = globalThis.GM_addValueChangeListener;
+				const removeListener = support.legacyRemoveValueChangeListener ? globalThis.GM_removeValueChangeListener : void 0;
+				if (typeof addListener === "function") {
+					const listenerId = addListener(name, this.createTypedListener(listener));
+					return () => {
+						if (typeof removeListener === "function") removeListener(listenerId);
+					};
+				}
+			}
+			const listeners = this.getLocalStorageListeners(name);
+			const typedListener = listener;
+			listeners.add(typedListener);
+			const onStorage = (event) => {
+				if (event.storageArea !== globalThis.localStorage || event.key !== name) return;
+				typedListener(name, parseStoredValue(event.oldValue), parseStoredValue(event.newValue), true);
+			};
+			globalThis.addEventListener("storage", onStorage);
+			return () => {
+				listeners.delete(typedListener);
+				if (listeners.size === 0) this.localStorageListeners.delete(name);
+				globalThis.removeEventListener("storage", onStorage);
+			};
+		}
+		createTypedListener(listener) {
+			return (key, oldValue, newValue, remote) => {
+				listener(key, oldValue, newValue, remote);
+			};
+		}
+		getLocalStorageListeners(name) {
+			const existing = this.localStorageListeners.get(name);
+			if (existing) return existing;
+			const created = /* @__PURE__ */ new Set();
+			this.localStorageListeners.set(name, created);
+			return created;
+		}
+		notifyLocalStorageListeners(name, oldValue, newValue, remote) {
+			const listeners = this.localStorageListeners.get(name);
+			if (!listeners || listeners.size === 0) return;
+			for (const listener of listeners) listener(name, oldValue, newValue, remote);
 		}
 		syncList(support) {
 			if (support.legacyList) return GM_listValues();
@@ -8530,6 +8631,25 @@ var vot = (function(exports) {
 		scope[VOT_STORAGE_GLOBAL_KEY] = created;
 		return created;
 	})();
+	//#endregion
+	//#region src/core/authRefreshMessage.ts
+	var AUTH_REFRESH_MESSAGE_SOURCE = "vot-auth";
+	var AUTH_REFRESH_MESSAGE_TYPE = "account-updated";
+	function createAuthRefreshMessage() {
+		return {
+			source: AUTH_REFRESH_MESSAGE_SOURCE,
+			type: AUTH_REFRESH_MESSAGE_TYPE
+		};
+	}
+	function isAuthRefreshMessage(value) {
+		if (!value || typeof value !== "object") return false;
+		const candidate = value;
+		return candidate.source === "vot-auth" && candidate.type === "account-updated";
+	}
+	function notifyAuthOpener(target = globalThis.opener) {
+		if (!target || typeof target.postMessage !== "function") return;
+		target.postMessage(createAuthRefreshMessage(), "*");
+	}
 	//#endregion
 	//#region src/core/auth.ts
 	function getProfilePayload() {
@@ -8553,6 +8673,7 @@ var vot = (function(exports) {
 			username: void 0,
 			avatarId: void 0
 		});
+		notifyAuthOpener();
 	}
 	async function handleProfilePage() {
 		const payload = getProfilePayload();
@@ -8565,6 +8686,7 @@ var vot = (function(exports) {
 			username,
 			avatarId
 		});
+		notifyAuthOpener();
 	}
 	async function initAuth() {
 		if (globalThis.location.pathname === "/auth/callback") return handleAuthCallbackPage();
@@ -9107,8 +9229,9 @@ var vot = (function(exports) {
 	var localizationProvider = new LocalizationProvider();
 	/**
 	* In the userscript build, SystemJS wrapping allowed a top-level await.
-	* For the extension build we emit classic scripts (IIFE), so we must avoid
-	* top-level await and instead expose an explicit lazy ready Promise.
+	* For the extension build we bootstrap through loader scripts and keep the
+	* runtime initialization explicit, so avoid top-level await and expose a lazy
+	* ready Promise instead.
 	*/
 	var localizationProviderReadyPromise = null;
 	function ensureLocalizationProviderReady() {
@@ -10355,7 +10478,8 @@ var vot = (function(exports) {
 			if (retryAttempt > 0) return 25e3;
 			return videoDurationSeconds <= 600 ? 6e4 : 75e3;
 		}
-		async translateVideoImpl(videoData, requestLang, responseLang, translationHelp = null, shouldSendFailedAudio = false, signal = NEVER_ABORTED_SIGNAL, disableLivelyVoice = false, retryAttempt = 0) {
+		async translateVideoImpl(videoData, requestLang, responseLang, translationHelp = null, shouldSendFailedAudio = false, signal = NEVER_ABORTED_SIGNAL, options = {}) {
+			const { disableLivelyVoice = false, retryAttempt = 0 } = options;
 			clearTimeout(this.videoHandler.autoRetry);
 			this.finishDownloadSuccess();
 			const requestLangForApi = this.videoHandler.getRequestLangForTranslation(requestLang, responseLang);
@@ -10395,7 +10519,10 @@ var vot = (function(exports) {
 					await this.audioDownloader.runAudioDownload(videoData.videoId, res.translationId, signal);
 					debug.log("waiting downloading finish");
 					await this.waitForAudioDownloadCompletion(signal, 15e3);
-					return await this.translateVideoImpl(videoData, requestLang, responseLang, translationHelp, true, signal, livelyDisabled, retryAttempt);
+					return await this.translateVideoImpl(videoData, requestLang, responseLang, translationHelp, true, signal, {
+						disableLivelyVoice: livelyDisabled,
+						retryAttempt
+					});
 				}
 			} catch (err) {
 				if (isAbortError(err)) {
@@ -10416,7 +10543,10 @@ var vot = (function(exports) {
 				return null;
 			}
 			this.videoHandler.hadAsyncWait = true;
-			return this.scheduleRetry(() => this.translateVideoImpl(videoData, requestLang, responseLang, translationHelp, shouldSendFailedAudio, signal, livelyDisabled, retryAttempt + 1), this.getVideoTranslationRetryDelayMs(retryAttempt, videoData.duration), signal);
+			return this.scheduleRetry(() => this.translateVideoImpl(videoData, requestLang, responseLang, translationHelp, shouldSendFailedAudio, signal, {
+				disableLivelyVoice: livelyDisabled,
+				retryAttempt: retryAttempt + 1
+			}), this.getVideoTranslationRetryDelayMs(retryAttempt, videoData.duration), signal);
 		}
 		async requestTranslationWithLivelyFallback({ videoData, requestLangForApi, responseLang, translationHelp, shouldSendFailedAudio, livelyDisabled, livelyVoiceAllowed }) {
 			let useLivelyVoice = !livelyDisabled && livelyVoiceAllowed && Boolean(this.videoHandler.data?.useLivelyVoice);
@@ -10742,10 +10872,15 @@ var vot = (function(exports) {
 				return;
 			}
 			const subtitleLanguage = this.host.getPreferredSubtitlesLanguage(this.host.videoData.detectedLanguage, this.host.videoData.responseLanguage);
-			const cacheKey = this.host.getSubtitlesCacheKey(this.host.videoData.videoId, this.host.videoData.detectedLanguage, subtitleLanguage);
-			const cachedSubtitles = this.host.cacheManager.getSubtitles(cacheKey);
-			this.host.subtitles = cachedSubtitles ?? [];
-			this.host.subtitlesCacheKey = cachedSubtitles !== void 0 ? cacheKey : null;
+			if (subtitleLanguage) {
+				const cacheKey = this.host.getSubtitlesCacheKey(this.host.videoData.videoId, this.host.videoData.detectedLanguage, subtitleLanguage);
+				const cachedSubtitles = this.host.cacheManager.getSubtitles(cacheKey);
+				this.host.subtitles = cachedSubtitles ?? [];
+				this.host.subtitlesCacheKey = cachedSubtitles !== void 0 ? cacheKey : null;
+			} else {
+				this.host.subtitles = [];
+				this.host.subtitlesCacheKey = null;
+			}
 			await this.host.updateSubtitlesLangSelect();
 			if (this.shouldAbortHandleSrcChanged(sessionId, "after subtitles update")) return;
 			this.host.translateToLang = this.host.data.responseLanguage ?? "ru";
@@ -11145,9 +11280,8 @@ var vot = (function(exports) {
 				detectLanguage: async (text) => await this.detectLanguageSingleFlight(videoData.videoId, text)
 			});
 			if (cacheLanguage) this.setDetectedLanguageCache(videoData.videoId, cacheLanguage);
-			if (detectedLanguage === "auto") return;
-			videoData.detectedLanguage = detectedLanguage;
-			if (this.videoHandler.translateFromLang === "auto") this.videoHandler.translateFromLang = detectedLanguage;
+			if (!detectedLanguage || detectedLanguage === "auto") return;
+			this.videoHandler.setSelectMenuValues(detectedLanguage, this.videoHandler.translateToLang);
 		}
 		async getVideoData() {
 			const { duration, url, videoId, host, title, translationHelp = null, localizedTitle, description, detectedLanguage: possibleLanguage, subtitles, isStream = false } = await getVideoData(this.videoHandler.site, {
@@ -11219,14 +11353,22 @@ var vot = (function(exports) {
 		*/
 		setVideoVolume(volume) {
 			const snapped = snapVolume01(volume);
+			const shouldUnmute = snapped > 0;
 			if (!isExternalVolumeHost(this.videoHandler.site.host)) {
+				if (shouldUnmute) this.videoHandler.video.muted = false;
 				this.videoHandler.video.volume = snapped;
 				return this;
 			}
 			try {
+				const player = YoutubeHelper.getPlayer();
 				const result = YoutubeHelper.setVolume(snapped);
+				if (shouldUnmute) {
+					player?.unMute?.();
+					this.videoHandler.video.muted = false;
+				}
 				if (typeof result === "boolean" && result || typeof result === "number" && Number.isFinite(result)) return this;
 			} catch {}
+			if (shouldUnmute) this.videoHandler.video.muted = false;
 			this.videoHandler.video.volume = snapped;
 			return this;
 		}
@@ -16887,7 +17029,9 @@ var vot = (function(exports) {
 			});
 			this.subtitlesSelect.addEventListener("beforeOpen", async (dialog) => {
 				if (!this.videoHandler?.videoData) return;
-				const cacheKey = this.videoHandler.getSubtitlesCacheKey(this.videoHandler.videoData.videoId, this.videoHandler.videoData.detectedLanguage, this.videoHandler.getPreferredSubtitlesLanguage(this.videoHandler.videoData.detectedLanguage, this.videoHandler.videoData.responseLanguage));
+				const subtitleLanguage = this.videoHandler.getPreferredSubtitlesLanguage(this.videoHandler.videoData.detectedLanguage, this.videoHandler.videoData.responseLanguage);
+				if (!subtitleLanguage) return;
+				const cacheKey = this.videoHandler.getSubtitlesCacheKey(this.videoHandler.videoData.videoId, this.videoHandler.videoData.detectedLanguage, subtitleLanguage);
 				if (this.videoHandler.subtitlesCacheKey === cacheKey) return;
 				if (this.videoHandler.cacheManager.getSubtitles(cacheKey) !== void 0) {
 					await this.videoHandler.ensureSubtitlesForCurrentLangPair();
@@ -19295,10 +19439,15 @@ var vot = (function(exports) {
 		suppressSubtitlesSmartLayoutCheckboxChange = false;
 		events = createSettingsEvents();
 		persistTimerIds = {};
+		onAuthRefreshMessage = (event) => {
+			if (!isAuthRefreshMessage(event.data)) return;
+			this.refreshAccountFromStorage();
+		};
 		dialog;
 		accountButton;
 		accountButtonRefreshTooltip;
 		accountButtonTokenTooltip;
+		accountStorageListenerCleanup;
 		autoTranslateCheckbox;
 		autoSubtitlesCheckbox;
 		dontTranslateLanguagesCheckbox;
@@ -19483,6 +19632,20 @@ var vot = (function(exports) {
 				backgroundColor: "var(--vot-helper-ondialog)",
 				parentElement: this.globalPortal
 			});
+		}
+		bindAccountStorageListener() {
+			this.accountStorageListenerCleanup?.();
+			this.accountStorageListenerCleanup = votStorage.addValueChangeListener("account", (_key, _oldValue, account) => {
+				this.data.account = account ?? {};
+				if (!this.isInitialized() || !this.accountButton) return;
+				this.updateAccountInfo();
+			});
+		}
+		async refreshAccountFromStorage() {
+			if (votStorage.isSupportOnlyLS) return;
+			this.data.account = await votStorage.get("account", {});
+			if (!this.isInitialized() || !this.accountButton) return;
+			this.updateAccountInfo();
 		}
 		buildSubtitleFontItems(selectedFontFamily, dynamicFontFamilies = []) {
 			const items = subtitleFontFamilies.map((fontFamily) => ({
@@ -19911,6 +20074,7 @@ var vot = (function(exports) {
 		}
 		initUIEvents() {
 			if (!this.isInitialized()) throw new Error("[VOT] SettingsView isn't initialized");
+			globalThis.addEventListener("message", this.onAuthRefreshMessage);
 			this.accountButton.addEventListener("click", async () => {
 				if (votStorage.isSupportOnlyLS) return;
 				if (this.accountButton.loggedIn) {
@@ -19943,10 +20107,9 @@ var vot = (function(exports) {
 				dialog.open();
 			});
 			this.accountButton.addEventListener("refresh", async () => {
-				if (votStorage.isSupportOnlyLS) return;
-				this.data.account = await votStorage.get("account", {});
-				this.updateAccountInfo();
+				await this.refreshAccountFromStorage();
 			});
+			this.bindAccountStorageListener();
 			this.bindPersistedSetting({
 				control: this.autoTranslateCheckbox,
 				event: "change",
@@ -20313,6 +20476,9 @@ var vot = (function(exports) {
 			]) tooltip?.release();
 		}
 		doReleaseUIEvents() {
+			this.accountStorageListenerCleanup?.();
+			this.accountStorageListenerCleanup = void 0;
+			globalThis.removeEventListener("message", this.onAuthRefreshMessage);
 			this.flushStoragePersists();
 			for (const event of Object.values(this.events)) event.clear();
 		}
@@ -20445,7 +20611,9 @@ var vot = (function(exports) {
 				await this.handleDownloadSubtitlesClick();
 			}).addEventListener("input:videoVolume", (volume) => {
 				if (!this.videoHandler) return;
-				this.videoHandler.setVideoVolume(volume / 100);
+				const nextVolume01 = volume / 100;
+				this.videoHandler.setVideoVolume(nextVolume01);
+				this.videoHandler.applyManualVideoVolumeOverride(nextVolume01);
 				if (!this.data.syncVolume) {
 					this.videoHandler.onVideoVolumeSliderSynced(volume);
 					return;
@@ -22854,7 +23022,10 @@ var vot = (function(exports) {
 		return cand === want || baseLang(cand) === baseLang(want);
 	}
 	function resolveSubtitlesLanguage(preference, detectedLanguage, responseLanguage) {
-		if (preference === ORIGINAL_SUBTITLE_LANGUAGE_VALUE) return normalizeLang(detectedLanguage) || normalizeLang(responseLanguage);
+		if (preference === ORIGINAL_SUBTITLE_LANGUAGE_VALUE) {
+			const originalLanguage = normalizeLang(detectedLanguage);
+			return originalLanguage && originalLanguage !== AUTO_SUBTITLE_LANGUAGE_VALUE ? originalLanguage : void 0;
+		}
 		if (typeof preference === "string" && preference && preference !== AUTO_SUBTITLE_LANGUAGE_VALUE) return normalizeLang(preference);
 		return normalizeLang(responseLanguage) || normalizeLang(detectedLanguage);
 	}
@@ -23041,6 +23212,7 @@ var vot = (function(exports) {
 		}
 		const fromLang = this.videoData?.detectedLanguage ?? this.translateFromLang;
 		const toLang = getPreferredSubtitlesLanguage(this);
+		if (!toLang) return this;
 		const bestIdx = pickBestSubtitlesIndex(getIndexedSubtitleDescriptors(this.subtitles), fromLang, toLang);
 		if (bestIdx == null) return this;
 		if (getSelectedSubtitlesValue(overlayView.subtitlesSelect.selectedValues) === String(bestIdx)) return this;
@@ -23914,6 +24086,7 @@ var vot = (function(exports) {
 				cacheResponseLang: responseLang,
 				onBeforeCache: async () => {
 					const preferredSubtitleLanguage = this.getPreferredSubtitlesLanguage(videoData.detectedLanguage, videoData.responseLanguage);
+					if (!preferredSubtitleLanguage) return;
 					const subsCacheKey = this.videoData ? this.getSubtitlesCacheKey(VIDEO_ID, this.videoData.detectedLanguage, preferredSubtitleLanguage) : null;
 					const cachedSubs = subsCacheKey ? this.cacheManager.getSubtitles(subsCacheKey) : null;
 					if (!(Array.isArray(cachedSubs) && pickBestSubtitlesIndex(getIndexedSubtitleDescriptors(cachedSubs), videoData.detectedLanguage, preferredSubtitleLanguage) != null)) {
@@ -23977,6 +24150,13 @@ var vot = (function(exports) {
 		this.setVideoVolume(Math.min(baseline, targetVolume));
 		writeSmartDuckingRuntime(this, initSmartDuckingRuntime(this.smartVolumeDuckingBaseline));
 		this.smartVolumeIsDucked = true;
+	}
+	function applyManualVideoVolumeOverride(volume01) {
+		if (!this.data?.enabledAutoVolume || !this.hasActiveSource()) return;
+		const nextVolume = snapVolume01(volume01);
+		this.smartVolumeDuckingTarget = nextVolume;
+		this.smartVolumeDuckingBaseline = nextVolume;
+		this.smartVolumeLastApplied = nextVolume;
 	}
 	//#endregion
 	//#region src/index.ts
@@ -24928,6 +25108,9 @@ var vot = (function(exports) {
 		setupAudioSettings() {
 			return this.callModule(setupAudioSettings);
 		}
+		applyManualVideoVolumeOverride(volume) {
+			return this.callModule(applyManualVideoVolumeOverride, volume);
+		}
 		/**
 		* Stops translation and synchronizes volume.
 		*/
@@ -25067,8 +25250,11 @@ var vot = (function(exports) {
 		});
 		videoObserver.enable();
 	}
-	if (bootState.status === "booting" || bootState.status === "booted") logBootstrap("bootstrap already initialized, skipping duplicate run", { status: bootState.status });
-	else {
+	function bootstrapContentScript() {
+		if (bootState.status === "booting" || bootState.status === "booted") {
+			logBootstrap("bootstrap already initialized, skipping duplicate run", { status: bootState.status });
+			return bootState.promise ?? Promise.resolve();
+		}
 		const runBootstrap = async () => {
 			try {
 				await main();
@@ -25081,9 +25267,12 @@ var vot = (function(exports) {
 		};
 		bootState.status = "booting";
 		bootState.promise = runBootstrap();
+		return bootState.promise;
 	}
+	bootstrapContentScript();
 	//#endregion
 	exports.VideoHandler = VideoHandler;
+	exports.bootstrapContentScript = bootstrapContentScript;
 	Object.defineProperty(exports, "countryCode", {
 		enumerable: true,
 		get: function() {
