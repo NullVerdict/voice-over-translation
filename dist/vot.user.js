@@ -2592,7 +2592,7 @@ var vot = (function(exports) {
 	function canLog(level) {
 		return config_default$1.loggerLevel <= level;
 	}
-	function log$1(...messages) {
+	function log(...messages) {
 		if (!canLog(LoggerLevel.DEBUG)) return;
 		console.log(prefix, ...messages);
 	}
@@ -2600,20 +2600,20 @@ var vot = (function(exports) {
 		if (!canLog(LoggerLevel.INFO)) return;
 		console.info(prefix, ...messages);
 	}
-	function warn$1(...messages) {
+	function warn(...messages) {
 		if (!canLog(LoggerLevel.WARN)) return;
 		console.warn(prefix, ...messages);
 	}
-	function error$1(...messages) {
+	function error(...messages) {
 		if (!canLog(LoggerLevel.ERROR)) return;
 		console.error(prefix, ...messages);
 	}
 	var Logger = {
 		canLog,
-		log: log$1,
+		log,
 		info,
-		warn: warn$1,
-		error: error$1
+		warn,
+		error
 	};
 	//#endregion
 	//#region src/shims/nodeCrypto.ts
@@ -3661,6 +3661,7 @@ var vot = (function(exports) {
 		idPlayer: "#player",
 		jwPlayer: ".jwplayer, .jw-media",
 		player: ".player",
+		shakaPlayer: ".shaka-video-container, [id^=\"shaka-video-container-\"]",
 		videoJsUniversal: "[id^='vjs_video_']:not([id*='_html5_api']):not(video), video-js:not([id*='_html5_api']), .video-js:not(video):not([id*='_html5_api']), .vjs-player:not([id*='_html5_api']), [data-vjs-player]:not([id*='_html5_api'])",
 		vkVideoPlayer: ".videoplayer_media, vk-video-player"
 	};
@@ -3698,7 +3699,7 @@ var vot = (function(exports) {
 			host: VideoService$1.piped,
 			url: "https://youtu.be/",
 			match: sitesPiped,
-			selector: ".shaka-video-container",
+			selector: sharedSelectors.shakaPlayer,
 			needBypassCSP: true
 		},
 		{
@@ -3858,7 +3859,7 @@ var vot = (function(exports) {
 			host: VideoService$1.twitter,
 			url: "https://twitter.com/i/status/",
 			match: /^(twitter|x).com$/,
-			selector: "div[data-testid=\"videoComponent\"] > div:nth-child(1) > div",
+			selector: "div[data-testid=\"videoComponent\"]",
 			eventSelector: "div[data-testid=\"videoPlayer\"]",
 			needBypassCSP: true
 		},
@@ -3887,7 +3888,7 @@ var vot = (function(exports) {
 			host: VideoService$1.rutube,
 			url: "https://rutube.ru/video/",
 			match: /^rutube.ru$/,
-			selector: ".video-player > div > div > div:nth-child(2)"
+			selector: `div[class*="videoWrapper"]`
 		},
 		{
 			additionalData: "embed",
@@ -4098,7 +4099,7 @@ var vot = (function(exports) {
 			host: ExtVideoService.udemy,
 			url: "https://www.udemy.com/",
 			match: /udemy.com$/,
-			selector: "[id^=\"shaka-video-container-\"]",
+			selector: sharedSelectors.shakaPlayer,
 			needExtraData: true
 		},
 		{
@@ -7521,19 +7522,11 @@ var vot = (function(exports) {
 	];
 	//#endregion
 	//#region src/utils/debug.ts
-	var log = (...text) => {
-		console.log("%c[VOT DEBUG]", "background: #3700ffff; color: #fff; padding: 5px;", ...text);
-	};
-	var warn = (...text) => {
-		console.warn("%c[VOT DEBUG]", "background: #e1ff00ff; color: #fff; padding: 5px;", ...text);
-	};
-	var error = (...text) => {
-		console.error("%c[VOT DEBUG]", "background: #F2452D; color: #fff; padding: 5px;", ...text);
-	};
+	var noop = () => {};
 	var debug = {
-		log,
-		warn,
-		error
+		log: noop,
+		warn: noop,
+		error: noop
 	};
 	//#endregion
 	//#region src/utils/localization.ts
@@ -12751,6 +12744,7 @@ var vot = (function(exports) {
 	//#region src/subtitles/smartLayout.ts
 	var clampNumber$1 = (value, min, max) => Math.min(max, Math.max(min, value));
 	var roundToInt = (value) => Math.round(value);
+	var roundToTenth = (value) => Math.round(value * 10) / 10;
 	var resolveAspectBand = (aspect) => {
 		if (aspect < .8) return {
 			widthRatio: .9,
@@ -12801,23 +12795,42 @@ var vot = (function(exports) {
 		};
 	};
 	var estimateAverageGlyphWidth = (fontSizePx) => Math.max(7, fontSizePx * .56);
-	function computeSmartLayoutForBox(box, cssMetrics = null) {
+	var computeContentAwareFontSize = ({ width, aspect, fontSizePx, maxWidthPx, contentMetrics }) => {
+		if (!contentMetrics || !Number.isFinite(contentMetrics.widestWordWidthPx) || contentMetrics.widestWordWidthPx <= 0 || !Number.isFinite(maxWidthPx) || maxWidthPx <= 0 || !Number.isFinite(fontSizePx) || fontSizePx <= 0) return fontSizePx;
+		const isCompactMobile = width <= 900 && aspect < 1.05;
+		const maxReductionPx = isCompactMobile ? 4 : 3;
+		const minFontSizePx = isCompactMobile ? 15 : 16;
+		const safeLineWidthPx = maxWidthPx * (isCompactMobile ? .98 : .94);
+		if (contentMetrics.widestWordWidthPx <= safeLineWidthPx) return fontSizePx;
+		return roundToTenth(clampNumber$1(fontSizePx * clampNumber$1(safeLineWidthPx / contentMetrics.widestWordWidthPx, Math.max(minFontSizePx / fontSizePx, (fontSizePx - maxReductionPx) / fontSizePx), 1), minFontSizePx, fontSizePx));
+	};
+	function computeSmartLayoutForBox(box, cssMetrics = null, contentMetrics = null) {
 		const width = Number.isFinite(box.w) ? Math.max(0, box.w) : 0;
 		const height = Number.isFinite(box.h) ? Math.max(0, box.h) : 0;
 		if (width <= 0 || height <= 0) return {
 			fontSizePx: cssMetrics?.fontSizePx ?? 20,
 			maxWidthPx: cssMetrics?.maxWidthPx ?? null
 		};
-		const { widthRatio, charsPerLine, fontHeightRatio } = resolveAspectBand(width / height);
+		const aspect = width / height;
+		const { widthRatio, charsPerLine, fontHeightRatio } = resolveAspectBand(aspect);
 		const { extraChars, widthScale } = resolveWidthBoost(width);
-		const derivedFontSizePx = clampNumber$1(height * fontHeightRatio, 16, 42);
-		const fontSizePx = cssMetrics?.fontSizePx ?? derivedFontSizePx;
-		const averageGlyphWidth = estimateAverageGlyphWidth(fontSizePx);
 		const minWidthPx = width * Math.min(.92, widthRatio);
 		const maxWidthPx = width * clampNumber$1(widthRatio * widthScale, .66, .92);
+		const baseFontSizePx = clampNumber$1(height * fontHeightRatio, 16, 42);
+		const preferredCharsPerLine = clampNumber$1(charsPerLine + extraChars, 25, 48);
+		const baseWidthFromChars = preferredCharsPerLine * estimateAverageGlyphWidth(baseFontSizePx);
+		const resolvedMaxWidthPx = clampNumber$1(cssMetrics?.maxWidthPx ?? baseWidthFromChars, minWidthPx, maxWidthPx);
+		const fontSizePx = computeContentAwareFontSize({
+			width,
+			aspect,
+			fontSizePx: baseFontSizePx,
+			maxWidthPx: resolvedMaxWidthPx,
+			contentMetrics
+		});
+		const finalMaxWidthPx = clampNumber$1(preferredCharsPerLine * estimateAverageGlyphWidth(fontSizePx), minWidthPx, maxWidthPx);
 		return {
 			fontSizePx,
-			maxWidthPx: roundToInt(clampNumber$1(clampNumber$1(charsPerLine + extraChars, 25, 48) * averageGlyphWidth, minWidthPx, maxWidthPx))
+			maxWidthPx: roundToInt(contentMetrics ? Math.max(resolvedMaxWidthPx, finalMaxWidthPx) : finalMaxWidthPx)
 		};
 	}
 	//#endregion
@@ -13319,11 +13332,10 @@ var vot = (function(exports) {
 				maxWidthPx
 			};
 		}
-		ensureSmartLayout(anchorBox) {
+		ensureSmartLayout(anchorBox, contentMetrics = null) {
 			if (!this.smartLayoutEnabled) return null;
-			const cssMetrics = this.readSmartCssMetrics();
-			const nextFontSizePx = cssMetrics?.fontSizePx ?? this.smartFontSizePx;
-			const next = computeSmartLayoutForBox(anchorBox, cssMetrics);
+			const next = computeSmartLayoutForBox(anchorBox, this.readSmartCssMetrics(), contentMetrics);
+			const nextFontSizePx = next.fontSizePx;
 			const nextMaxWidthPx = next.maxWidthPx ?? this.smartMaxWidthPx;
 			const nextKey = `${Math.round(nextFontSizePx)}|${Math.round(nextMaxWidthPx)}|${Math.round(next.maxWidthPx ?? 0)}`;
 			const fontChanged = Math.abs(nextFontSizePx - this.smartFontSizePx) > .5;
@@ -13334,6 +13346,7 @@ var vot = (function(exports) {
 				this.smartMaxWidthPx = nextMaxWidthPx;
 				this.resetRenderMemo();
 			}
+			this.setSubtitlesContainerVar("--vot-subtitles-font-size", next.fontSizePx > 0 ? `${next.fontSizePx}px` : null);
 			this.setSubtitlesContainerVar("--vot-subtitles-max-width", next.maxWidthPx && next.maxWidthPx > 0 ? `${next.maxWidthPx}px` : null);
 			if ((fontChanged || widthChanged) && this.lastWrapTokens) {
 				this.lastWrapKey = null;
@@ -13769,7 +13782,7 @@ var vot = (function(exports) {
 			if (!subtitlesContainer) return;
 			this.applyScaleCompensation(subtitlesContainer, layout);
 			this.syncAnchorDimensions(subtitlesContainer, anchorBox);
-			if (this.smartLayoutEnabled) this.ensureSmartLayout(anchorBox);
+			if (this.smartLayoutEnabled) this.ensureSmartLayout(anchorBox, this.lastWrapTokens ? this.buildSmartLayoutContentMetrics(this.lastWrapTokens) : null);
 			const elW = subtitlesContainer.offsetWidth;
 			const elH = subtitlesContainer.offsetHeight;
 			const bottomInset = this.getBottomInsetPx(layout, anchorBox);
@@ -13994,6 +14007,20 @@ var vot = (function(exports) {
 			return {
 				fontKey,
 				maxWidthPx: Math.max(0, baseMaxWidth - fontSizePx)
+			};
+		}
+		buildSmartLayoutContentMetrics(tokens) {
+			if (!tokens.length) return null;
+			const ctx = this.getMeasureContext();
+			if (!ctx) return null;
+			this.getTokenLayoutInputs(ctx);
+			const { slices } = buildWordSlices(tokens);
+			const measurableSlices = measureWordSlices(slices, (text) => ctx.measureText(text).width).filter((slice) => !slice.forcesLineBreak && slice.width > 0);
+			if (!measurableSlices.length) return null;
+			const widestSlice = measurableSlices.reduce((widest, current) => current.width > widest.width ? current : widest);
+			return {
+				widestWordWidthPx: widestSlice.width,
+				widestWordChars: widestSlice.charLength
 			};
 		}
 		getActiveLineKey(tokens) {
@@ -14384,7 +14411,7 @@ var vot = (function(exports) {
 			}
 			this.releaseTooltip();
 		}
-		refreshSmartLayoutIfNeeded() {
+		refreshSmartLayoutIfNeeded(tokens) {
 			if (!this.smartLayoutEnabled) return;
 			const now = performance.now();
 			if (this.lastSmartLayoutKey !== null && now - this.lastSmartLayoutCheckTs <= 500) return;
@@ -14392,7 +14419,7 @@ var vot = (function(exports) {
 			const layout = this.getLayoutSize();
 			if (!layout.w || !layout.h) return;
 			const anchorBox = this.computeAnchorBoxLayout(layout);
-			if (anchorBox.w && anchorBox.h) this.ensureSmartLayout(anchorBox);
+			if (anchorBox.w && anchorBox.h) this.ensureSmartLayout(anchorBox, this.buildSmartLayoutContentMetrics(tokens));
 		}
 		getRenderState(line, activeLineKey, time) {
 			const tokens = this.processTokens(line.tokens, time);
@@ -14437,7 +14464,7 @@ var vot = (function(exports) {
 				return;
 			}
 			this.lastActiveLineKey = activeLine.lineKey;
-			this.refreshSmartLayoutIfNeeded();
+			this.refreshSmartLayoutIfNeeded(activeLine.line.tokens);
 			const { tokens, tokensChanged, passedFlags, renderKey } = this.getRenderState(activeLine.line, activeLine.lineKey, time);
 			if (renderKey === this.lastRenderKey) {
 				if (this.highlightWords && !tokensChanged && passedFlags) this.updatePassedClasses(passedFlags);
