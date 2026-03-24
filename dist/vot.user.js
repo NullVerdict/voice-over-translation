@@ -2592,7 +2592,7 @@ var vot = (function(exports) {
 	function canLog(level) {
 		return config_default$1.loggerLevel <= level;
 	}
-	function log(...messages) {
+	function log$1(...messages) {
 		if (!canLog(LoggerLevel.DEBUG)) return;
 		console.log(prefix, ...messages);
 	}
@@ -2600,20 +2600,20 @@ var vot = (function(exports) {
 		if (!canLog(LoggerLevel.INFO)) return;
 		console.info(prefix, ...messages);
 	}
-	function warn(...messages) {
+	function warn$1(...messages) {
 		if (!canLog(LoggerLevel.WARN)) return;
 		console.warn(prefix, ...messages);
 	}
-	function error(...messages) {
+	function error$1(...messages) {
 		if (!canLog(LoggerLevel.ERROR)) return;
 		console.error(prefix, ...messages);
 	}
 	var Logger = {
 		canLog,
-		log,
+		log: log$1,
 		info,
-		warn,
-		error
+		warn: warn$1,
+		error: error$1
 	};
 	//#endregion
 	//#region src/shims/nodeCrypto.ts
@@ -4098,7 +4098,7 @@ var vot = (function(exports) {
 			host: ExtVideoService.udemy,
 			url: "https://www.udemy.com/",
 			match: /udemy.com$/,
-			selector: "div[data-purpose=\"curriculum-item-viewer-content\"] > section > div > div > div > div:nth-of-type(2)",
+			selector: "[id^=\"shaka-video-container-\"]",
 			needExtraData: true
 		},
 		{
@@ -7396,6 +7396,42 @@ var vot = (function(exports) {
 		return created;
 	}
 	//#endregion
+	//#region src/bootstrap/iframeInteractor.ts
+	var iframeInteractorInitialized = false;
+	function initIframeInteractor() {
+		if (iframeInteractorInitialized) return;
+		iframeInteractorInitialized = true;
+		const currentConfig = Object.entries({
+			"https://dev.epicgames.com": {
+				targetOrigin: "https://dev.epicgames.com",
+				dataFilter: (data) => typeof data === "string" && data.startsWith("getVideoId:"),
+				extractVideoId: (url) => url.pathname.split("/").at(-2) ?? null,
+				responseFormatter: (videoId, data) => `${typeof data === "string" ? data : ""}:${videoId}`
+			},
+			"https://www.dailymotion.com": {
+				targetOrigin: "https://geo.dailymotion.com",
+				dataFilter: (data) => typeof data === "string" && data.startsWith("getVideoId:"),
+				extractVideoId: (url) => {
+					return /(?:^|\/)video\/([^/]+)/.exec(url.pathname)?.[1];
+				},
+				responseFormatter: (videoId) => `getVideoId:${videoId}`
+			}
+		}).find(([origin]) => globalThis.location.origin === origin)?.[1];
+		if (!currentConfig) return;
+		globalThis.addEventListener("message", (event) => {
+			try {
+				if (event.origin !== currentConfig.targetOrigin) return;
+				if (!currentConfig.dataFilter(event.data)) return;
+				const videoId = currentConfig.extractVideoId(new URL(globalThis.location.href));
+				if (!videoId) return;
+				const response = currentConfig.responseFormatter(videoId, event.data);
+				if (event.source && "postMessage" in event.source) event.source.postMessage(response, currentConfig.targetOrigin);
+			} catch (error) {
+				console.error("Iframe communication error:", error);
+			}
+		});
+	}
+	//#endregion
 	//#region src/config/config.ts
 	var workerHost = "api.browser.yandex.ru";
 	/**
@@ -7485,11 +7521,19 @@ var vot = (function(exports) {
 	];
 	//#endregion
 	//#region src/utils/debug.ts
-	var noop = () => {};
+	var log = (...text) => {
+		console.log("%c[VOT DEBUG]", "background: #3700ffff; color: #fff; padding: 5px;", ...text);
+	};
+	var warn = (...text) => {
+		console.warn("%c[VOT DEBUG]", "background: #e1ff00ff; color: #fff; padding: 5px;", ...text);
+	};
+	var error = (...text) => {
+		console.error("%c[VOT DEBUG]", "background: #F2452D; color: #fff; padding: 5px;", ...text);
+	};
 	var debug = {
-		log: noop,
-		warn: noop,
-		error: noop
+		log,
+		warn,
+		error
 	};
 	//#endregion
 	//#region src/utils/localization.ts
@@ -7519,6 +7563,7 @@ var vot = (function(exports) {
 	//#endregion
 	//#region src/utils/utils.ts
 	var DEFAULT_OBJECT_URL_REVOKE_DELAY_MS = 3e4;
+	var ASCII_CONTROL_CHARS_RE = /\p{Cc}/gu;
 	var INVALID_FILENAME_CHARS_RE = /[\\/:*?"'<>|]+/g;
 	var URL_PROTOCOL_RE = /^https?:\/\//i;
 	var MULTIPLE_DASHES_RE = /-{2,}/g;
@@ -7527,12 +7572,7 @@ var vot = (function(exports) {
 		return (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
 	}
 	function stripAsciiControlChars(value) {
-		let out = "";
-		for (let index = 0; index < value.length; index++) {
-			const code = value.codePointAt(index) ?? 0;
-			if (code >= 32 && code !== 127) out += value[index];
-		}
-		return out;
+		return value.replace(ASCII_CONTROL_CHARS_RE, "");
 	}
 	/**
 	* Creates a stable JSON string representation for consistent hashing
@@ -7547,7 +7587,7 @@ var vot = (function(exports) {
 				seen.add(val);
 				if (Array.isArray(val)) return val;
 				const sorted = {};
-				const keys = Object.keys(val).sort((a, b) => a.localeCompare(b));
+				const keys = Object.keys(val).sort();
 				for (const key of keys) sorted[key] = val[key];
 				return sorted;
 			}
@@ -7638,10 +7678,10 @@ var vot = (function(exports) {
 	function clearFileName(filename) {
 		const trimmed = filename.trim();
 		if (!trimmed) return getDateFallbackFilename();
-		return stripAsciiControlChars(trimmed).replace(URL_PROTOCOL_RE, "").replaceAll(INVALID_FILENAME_CHARS_RE, "-").replaceAll(MULTIPLE_DASHES_RE, "-").replaceAll(EDGE_FILE_CHARS_RE, "") || getDateFallbackFilename();
+		return stripAsciiControlChars(trimmed).replace(URL_PROTOCOL_RE, "").replace(INVALID_FILENAME_CHARS_RE, "-").replace(MULTIPLE_DASHES_RE, "-").replace(EDGE_FILE_CHARS_RE, "") || getDateFallbackFilename();
 	}
 	var getTimestamp = () => Math.floor(Date.now() / 1e3);
-	var getHeaders = (headers) => headers ? Object.fromEntries(new Headers(headers).entries()) : {};
+	var getHeaders = (headers) => headers ? Object.fromEntries(new Headers(headers)) : {};
 	function clamp(value, min = 0, max = 100) {
 		return Math.min(Math.max(value, Math.min(min, max)), Math.max(min, max));
 	}
@@ -8169,7 +8209,7 @@ var vot = (function(exports) {
 		return !!(getCallbackGmXhr() || getPromiseGmXhr());
 	}
 	var isProxyOnlyExtension = !(typeof IS_EXTENSION !== "undefined" && IS_EXTENSION) && !!scriptHandler && !hasSupportedGmXhr();
-	var isSupportGM4 = GM !== void 0 || globalThis.GM !== void 0;
+	var isSupportGM4 = typeof GM !== "undefined" || globalThis.GM !== void 0;
 	var isSupportGMXhr = hasSupportedGmXhr();
 	function getRequestHost(url) {
 		const normalizedUrl = url.trim();
@@ -9240,43 +9280,9 @@ var vot = (function(exports) {
 	*/
 	var isIframe = () => globalThis.self !== globalThis.top;
 	//#endregion
-	//#region src/bootstrap/iframeInteractor.ts
-	function initIframeInteractor() {
-		const currentConfig = Object.entries({
-			"https://dev.epicgames.com": {
-				targetOrigin: "https://dev.epicgames.com",
-				dataFilter: (data) => typeof data === "string" && data.startsWith("getVideoId:"),
-				extractVideoId: (url) => url.pathname.split("/").at(-2) ?? null,
-				responseFormatter: (videoId, data) => `${typeof data === "string" ? data : ""}:${videoId}`
-			},
-			"https://www.dailymotion.com": {
-				targetOrigin: "https://geo.dailymotion.com",
-				dataFilter: (data) => typeof data === "string" && data.startsWith("getVideoId:"),
-				extractVideoId: (url) => {
-					return /(?:^|\/)video\/([^/]+)/.exec(url.pathname)?.[1];
-				},
-				responseFormatter: (videoId) => `getVideoId:${videoId}`
-			}
-		}).find(([origin]) => globalThis.location.origin === origin)?.[1];
-		if (!currentConfig) return;
-		globalThis.addEventListener("message", (event) => {
-			try {
-				if (event.origin !== currentConfig.targetOrigin) return;
-				if (!currentConfig.dataFilter(event.data)) return;
-				const videoId = currentConfig.extractVideoId(new URL(globalThis.location.href));
-				if (!videoId) return;
-				const response = currentConfig.responseFormatter(videoId, event.data);
-				if (event.source && "postMessage" in event.source) event.source.postMessage(response, currentConfig.targetOrigin);
-			} catch (error) {
-				console.error("Iframe communication error:", error);
-			}
-		});
-	}
-	//#endregion
 	//#region src/bootstrap/runtimeActivation.ts
 	var runtimeActivated = false;
 	var runtimeActivationPromise = null;
-	var iframeInteractorBound = false;
 	async function ensureRuntimeActivated(reason, logBootstrap) {
 		if (runtimeActivated) return;
 		if (runtimeActivationPromise !== null) {
@@ -9293,10 +9299,6 @@ var vot = (function(exports) {
 			await ensureLocalizationProviderReady();
 			if (!isIframe()) await localizationProvider.update();
 			debug.log(`Selected menu language: ${localizationProvider.lang}`);
-			if (!iframeInteractorBound) {
-				iframeInteractorBound = true;
-				initIframeInteractor();
-			}
 			runtimeActivated = true;
 		})();
 		try {
@@ -9426,8 +9428,8 @@ var vot = (function(exports) {
 	}
 	function resolveBootstrapMode(input) {
 		if (shouldSkipIframeBootstrap(input)) return "skip";
-		if (input.isIframe) return "iframe-lazy";
-		return "top-full";
+		if (!input.isIframe && input.origin === input.authOrigin) return "auth-eager";
+		return "lazy";
 	}
 	//#endregion
 	//#region src/utils/dom.ts
@@ -10540,47 +10542,31 @@ var vot = (function(exports) {
 		}
 		async requestTranslationWithLivelyFallback({ videoData, requestLangForApi, responseLang, translationHelp, shouldSendFailedAudio, livelyDisabled, livelyVoiceAllowed }) {
 			let useLivelyVoice = !livelyDisabled && livelyVoiceAllowed && Boolean(this.videoHandler.data?.useLivelyVoice);
-			let response;
-			for (let attempt = 0; attempt < 2; attempt += 1) {
-				response = await this.tryTranslateVideoRequest({
-					videoData,
-					requestLangForApi,
-					responseLang,
-					translationHelp,
-					shouldSendFailedAudio,
-					useLivelyVoice
-				});
-				if (!useLivelyVoice || !this.isLivelyVoiceUnavailableError(response)) break;
-				debug.log("[translateVideoImpl] Server responded that lively voices are unavailable. Falling back to standard translation.", response);
+			while (true) {
+				try {
+					const response = await this.videoHandler.votClient.translateVideo({
+						videoData,
+						requestLang: requestLangForApi,
+						responseLang,
+						translationHelp,
+						extraOpts: {
+							useLivelyVoice,
+							videoTitle: this.videoHandler.videoData?.title
+						},
+						shouldSendFailedAudio
+					});
+					if (!useLivelyVoice || !this.isLivelyVoiceUnavailableError(response)) return {
+						response,
+						useLivelyVoice,
+						livelyDisabled
+					};
+					debug.log("[translateVideoImpl] Server responded that lively voices are unavailable. Falling back to standard translation.", response);
+				} catch (err) {
+					if (!useLivelyVoice || !this.isLivelyVoiceUnavailableError(err)) throw err;
+					debug.log("[translateVideoImpl] Lively voices are unavailable. Falling back to standard translation.", err);
+				}
 				livelyDisabled = true;
 				useLivelyVoice = false;
-				response = void 0;
-			}
-			return {
-				response,
-				useLivelyVoice,
-				livelyDisabled
-			};
-		}
-		async tryTranslateVideoRequest({ videoData, requestLangForApi, responseLang, translationHelp, shouldSendFailedAudio, useLivelyVoice }) {
-			try {
-				return await this.videoHandler.votClient.translateVideo({
-					videoData,
-					requestLang: requestLangForApi,
-					responseLang,
-					translationHelp,
-					extraOpts: {
-						useLivelyVoice,
-						videoTitle: this.videoHandler.videoData?.title
-					},
-					shouldSendFailedAudio
-				});
-			} catch (err) {
-				if (useLivelyVoice && this.isLivelyVoiceUnavailableError(err)) {
-					debug.log("[translateVideoImpl] Lively voices are unavailable. Falling back to standard translation.", err);
-					return;
-				}
-				throw err;
 			}
 		}
 		waitForAudioDownloadCompletion(signal, timeoutMs) {
@@ -12692,59 +12678,45 @@ var vot = (function(exports) {
 		});
 		if (withBreak) plan.push({ kind: "break" });
 	};
-	var flushPendingPrefix = (plan, pendingPrefix) => {
-		if (!pendingPrefix.text) return;
-		pushTextPart(plan, pendingPrefix.text, pendingPrefix.style);
-		pendingPrefix.text = "";
-		pendingPrefix.style = void 0;
-	};
 	var skipWhitespaceTokens = (tokens, startIndex, renderEndTokenIndex) => {
 		let index = startIndex;
 		while (index <= renderEndTokenIndex && !tokens[index]?.isWordLike && !tokens[index]?.text.trim()) index += 1;
 		return index;
 	};
-	var consumeWordToken = (plan, tokens, startIndex, renderEndTokenIndex, breakAfterTokenIndexSet, pendingPrefix) => {
+	var consumeWordToken = (plan, tokens, startIndex, renderEndTokenIndex, breakAfterTokenIndexSet) => {
 		const token = tokens[startIndex];
-		const hasPendingPrefix = pendingPrefix.text.length > 0;
-		const body = hasPendingPrefix ? token.text : token.text.trimStart();
-		if (!hasPendingPrefix && body.length !== token.text.length) pushTextPart(plan, token.text.slice(0, token.text.length - body.length), token.style);
-		let text = pendingPrefix.text + body;
-		const style = pendingPrefix.text ? pendingPrefix.style : token.style;
-		pendingPrefix.text = "";
-		pendingPrefix.style = void 0;
-		let endIndex = startIndex;
-		let shouldBreakAfterSuffix = Boolean(breakAfterTokenIndexSet?.has(startIndex));
-		while (endIndex + 1 <= renderEndTokenIndex) {
-			const next = tokens[endIndex + 1];
-			if (!next || next.isWordLike || next.text === "\n" || !subtitleInlineStylesEqual(next.style, style)) break;
-			text += next.text;
-			endIndex += 1;
-			if (breakAfterTokenIndexSet?.has(endIndex)) shouldBreakAfterSuffix = true;
+		const leadingWhitespace = /^\s+/u.exec(token.text)?.[0] ?? "";
+		const body = token.text.slice(leadingWhitespace.length);
+		if (leadingWhitespace) pushTextPart(plan, leadingWhitespace, token.style);
+		const trailingPunctuation = /[\p{P}\p{S}]+$/u.exec(body)?.[0] ?? "";
+		const wordText = trailingPunctuation ? body.slice(0, body.length - trailingPunctuation.length) : body;
+		if (!wordText) {
+			if (body) pushTextPart(plan, body, token.style);
+			if (!breakAfterTokenIndexSet?.has(startIndex)) return startIndex + 1;
+			plan.push({ kind: "break" });
+			return skipWhitespaceTokens(tokens, startIndex + 1, renderEndTokenIndex);
 		}
 		plan.push({
 			kind: "word",
-			text,
-			style
+			text: wordText,
+			style: token.style
 		});
-		if (!shouldBreakAfterSuffix) return endIndex + 1;
+		if (trailingPunctuation) pushTextPart(plan, trailingPunctuation, token.style);
+		if (!breakAfterTokenIndexSet?.has(startIndex)) return startIndex + 1;
 		plan.push({ kind: "break" });
-		return skipWhitespaceTokens(tokens, endIndex + 1, renderEndTokenIndex);
+		return skipWhitespaceTokens(tokens, startIndex + 1, renderEndTokenIndex);
 	};
-	var consumeTextToken = (plan, token, tokenText, hasBreakAfter, pendingPrefix) => {
+	var consumeTextToken = (plan, tokenIndex, tokens, renderEndTokenIndex, token, tokenText, hasBreakAfter) => {
 		if (tokenText.trim().length === 0) {
-			flushPendingPrefix(plan, pendingPrefix);
 			pushTextPart(plan, tokenText, token.style, hasBreakAfter);
-			return;
+			return hasBreakAfter ? skipWhitespaceTokens(tokens, tokenIndex + 1, renderEndTokenIndex) : tokenIndex + 1;
 		}
 		if (hasBreakAfter) {
-			pushTextPart(plan, pendingPrefix.text + tokenText, pendingPrefix.text ? pendingPrefix.style : token.style, true);
-			pendingPrefix.text = "";
-			pendingPrefix.style = void 0;
-			return;
+			pushTextPart(plan, tokenText, token.style, true);
+			return skipWhitespaceTokens(tokens, tokenIndex + 1, renderEndTokenIndex);
 		}
-		if (pendingPrefix.text && !subtitleInlineStylesEqual(pendingPrefix.style, token.style)) flushPendingPrefix(plan, pendingPrefix);
-		pendingPrefix.text += tokenText;
-		pendingPrefix.style = token.style;
+		pushTextPart(plan, tokenText, token.style);
+		return tokenIndex + 1;
 	};
 	/**
 	* Build a render plan for subtitle tokens preserving existing grouping rules.
@@ -12754,10 +12726,6 @@ var vot = (function(exports) {
 	*/
 	function buildSubtitleRenderPlan(tokens, renderEndTokenIndex, breakAfterTokenIndexSet) {
 		const plan = [];
-		const pendingPrefix = {
-			text: "",
-			style: void 0
-		};
 		for (let i = 0; i <= renderEndTokenIndex;) {
 			const token = tokens[i];
 			const tokenText = token?.text ?? "";
@@ -12766,19 +12734,17 @@ var vot = (function(exports) {
 				continue;
 			}
 			if (tokenText === "\n") {
-				flushPendingPrefix(plan, pendingPrefix);
 				plan.push({ kind: "break" });
 				i += 1;
 				continue;
 			}
 			if (token.isWordLike) {
-				i = consumeWordToken(plan, tokens, i, renderEndTokenIndex, breakAfterTokenIndexSet, pendingPrefix);
+				i = consumeWordToken(plan, tokens, i, renderEndTokenIndex, breakAfterTokenIndexSet);
 				continue;
 			}
-			consumeTextToken(plan, token, tokenText, Boolean(breakAfterTokenIndexSet?.has(i)), pendingPrefix);
-			i += 1;
+			const hasBreakAfter = Boolean(breakAfterTokenIndexSet?.has(i));
+			i = consumeTextToken(plan, i, tokens, renderEndTokenIndex, token, tokenText, hasBreakAfter);
 		}
-		flushPendingPrefix(plan, pendingPrefix);
 		return plan;
 	}
 	//#endregion
@@ -16827,6 +16793,7 @@ var vot = (function(exports) {
 		dragStartX = 0;
 		dragStartY = 0;
 		currentClientX = 0;
+		activePointerId = null;
 		dragThresholdPx = 6;
 		containerRect = null;
 		dragIsBigContainer = null;
@@ -17080,10 +17047,10 @@ var vot = (function(exports) {
 			this.votButton.pipButton.style.touchAction = touchAction;
 			this.votButton.menuButton.style.touchAction = touchAction;
 			this.votButton.container.addEventListener("pointerdown", this.onDragStart, { signal });
-			this.votButton.container.addEventListener("touchstart", this.onTouchDragStart, {
-				signal,
-				passive: false
-			});
+			this.votButton.container.addEventListener("pointermove", this.onPointerMove, { signal });
+			this.votButton.container.addEventListener("pointerup", this.onDragEnd, { signal });
+			this.votButton.container.addEventListener("pointercancel", this.onDragEnd, { signal });
+			this.votButton.container.addEventListener("lostpointercapture", this.onDragEnd, { signal });
 			this.votMenu.container.addEventListener("click", (e) => {
 				e.preventDefault();
 				e.stopPropagation();
@@ -17234,29 +17201,17 @@ var vot = (function(exports) {
 		}
 		onDragStart = (event) => {
 			if (!event.isPrimary || event.button !== 0) return;
-			if (event.pointerType === "touch") return;
 			event.preventDefault();
+			this.activePointerId = event.pointerId;
 			this.startDragSession(event.clientX, event.clientY, "overlay-pointer-down");
-			document.addEventListener("pointermove", this.onGlobalPointerMove, { passive: true });
-			document.addEventListener("pointerup", this.onDragEnd);
-			document.addEventListener("pointercancel", this.onDragEnd);
+			try {
+				this.votButton?.container.setPointerCapture(event.pointerId);
+			} catch {}
 		};
-		onTouchDragStart = (event) => {
-			if (!event.touches || event.touches.length === 0) return;
-			const touch = event.touches[0];
-			this.startDragSession(touch.clientX, touch.clientY, "overlay-touch-start");
-			document.addEventListener("touchmove", this.onGlobalTouchMove, { passive: false });
-			document.addEventListener("touchend", this.onDragEnd);
-			document.addEventListener("touchcancel", this.onDragEnd);
-		};
-		onGlobalTouchMove = (event) => {
-			if (!event.touches || event.touches.length === 0) return;
-			const t = event.touches[0];
-			this.updateDragFromMove(t.clientX, t.clientY, "overlay-touch-move");
-			if (this.dragging) event.preventDefault();
-		};
-		onGlobalPointerMove = (event) => {
+		onPointerMove = (event) => {
+			if (this.activePointerId !== event.pointerId) return;
 			this.updateDragFromMove(event.clientX, event.clientY, "overlay-pointer-move");
+			if (this.dragging) event.preventDefault();
 		};
 		applyDragFromState = () => {
 			if (!this.dragging || !this.dragDirty || !this.containerRect) return;
@@ -17270,13 +17225,12 @@ var vot = (function(exports) {
 		onCheckerTick = () => {
 			this.applyDragFromState();
 		};
-		onDragEnd = () => {
-			document.removeEventListener("pointermove", this.onGlobalPointerMove);
-			document.removeEventListener("pointerup", this.onDragEnd);
-			document.removeEventListener("pointercancel", this.onDragEnd);
-			document.removeEventListener("touchmove", this.onGlobalTouchMove);
-			document.removeEventListener("touchend", this.onDragEnd);
-			document.removeEventListener("touchcancel", this.onDragEnd);
+		onDragEnd = (event) => {
+			if (event && this.activePointerId !== null && event.pointerId !== this.activePointerId) return;
+			const pointerId = this.activePointerId;
+			if (pointerId !== null) try {
+				if (this.votButton?.container.hasPointerCapture(pointerId)) this.votButton.container.releasePointerCapture(pointerId);
+			} catch {}
 			this.applyDragFromState();
 			const isBigContainer = this.dragIsBigContainer ?? this.isBigContainer;
 			if (this.dragging && isBigContainer && this.data.buttonPos) votStorage.set("buttonPos", this.data.buttonPos);
@@ -17285,6 +17239,7 @@ var vot = (function(exports) {
 			this.dragDirty = false;
 			this.containerRect = null;
 			this.dragIsBigContainer = null;
+			this.activePointerId = null;
 		};
 		updateButtonOpacity(opacity) {
 			if (!this.isInitialized() || !this.votMenu.hidden) return this;
@@ -23841,6 +23796,35 @@ var vot = (function(exports) {
 			endOffset: text.length
 		}];
 	};
+	var getNormalizedTokenText = (tokens) => normalizeSubtitleTextForDisplay(tokens.map((token) => token.text).join(""));
+	var normalizeExistingTokensForDisplay = (tokens) => {
+		const normalizedTokens = [];
+		for (const token of tokens) {
+			if (!token.text.includes("\n")) {
+				normalizedTokens.push(token);
+				continue;
+			}
+			const slices = splitSegmentText(token.text);
+			const sliceTimings = allocateTimingsByLength(slices.map((slice) => slice.text === "\n" ? "" : slice.text), token.startMs, token.durationMs);
+			for (let index = 0; index < slices.length; index += 1) {
+				const slice = slices[index];
+				const isLineBreak = slice.text === "\n";
+				normalizedTokens.push({
+					...token,
+					text: slice.text,
+					startMs: sliceTimings[index]?.startMs ?? token.startMs,
+					durationMs: isLineBreak ? 0 : sliceTimings[index]?.durationMs ?? 0,
+					isWordLike: isLineBreak ? false : token.isWordLike
+				});
+			}
+		}
+		return normalizedTokens;
+	};
+	var canReuseExistingTokens = (line, descriptor, lineText) => {
+		if (!lineText || !line.tokens.length || descriptor.source === "youtube") return false;
+		if (line.metadata?.styledSpans?.length && !line.tokens.some((token) => token.style)) return false;
+		return getNormalizedTokenText(line.tokens) === lineText;
+	};
 	var collectSourceTimedWords = (sourceTokens, locale) => {
 		const timedWords = [];
 		for (const token of sourceTokens) {
@@ -23898,6 +23882,7 @@ var vot = (function(exports) {
 	};
 	var buildLineTokens = (line, descriptor, lineText) => {
 		if (!lineText) return [];
+		if (canReuseExistingTokens(line, descriptor, lineText)) return normalizeExistingTokensForDisplay(line.tokens);
 		const locale = descriptor.language;
 		const styledSpans = line.metadata?.styledSpans ?? buildStyledDisplayModel(line.metadata?.rawText ?? line.text ?? lineText).styledSpans;
 		const segments = segmentText(lineText, locale);
@@ -25255,15 +25240,17 @@ var vot = (function(exports) {
 		const bootstrapMode = resolveBootstrapMode({
 			isIframe: isIframe(),
 			href: String(globalThis.location.href || ""),
-			origin: globalThis.location.origin
+			origin: globalThis.location.origin,
+			authOrigin: authServerUrl
 		});
 		if (bootstrapMode === "skip") {
 			logBootstrap("Skipping bootstrap for non-runnable iframe");
 			return;
 		}
-		logBootstrap("Loading extension");
-		if (bootstrapMode === "top-full") await ensureRuntimeActivated("top-frame", logBootstrap);
-		else logBootstrap("Lazy iframe bootstrap enabled; waiting for video detection");
+		initIframeInteractor();
+		logBootstrap("Loading extension", { mode: bootstrapMode });
+		if (bootstrapMode === "auth-eager") await ensureRuntimeActivated("auth-page", logBootstrap);
+		else logBootstrap("Lazy bootstrap enabled; waiting for video detection");
 		bindObserverListeners({
 			videoObserver,
 			videosWrappers,
