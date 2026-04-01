@@ -2592,7 +2592,7 @@ var vot = (function(exports) {
 	function canLog(level) {
 		return config_default$1.loggerLevel <= level;
 	}
-	function log(...messages) {
+	function log$1(...messages) {
 		if (!canLog(LoggerLevel.DEBUG)) return;
 		console.log(prefix, ...messages);
 	}
@@ -2600,20 +2600,20 @@ var vot = (function(exports) {
 		if (!canLog(LoggerLevel.INFO)) return;
 		console.info(prefix, ...messages);
 	}
-	function warn(...messages) {
+	function warn$1(...messages) {
 		if (!canLog(LoggerLevel.WARN)) return;
 		console.warn(prefix, ...messages);
 	}
-	function error(...messages) {
+	function error$1(...messages) {
 		if (!canLog(LoggerLevel.ERROR)) return;
 		console.error(prefix, ...messages);
 	}
 	var Logger = {
 		canLog,
-		log,
+		log: log$1,
 		info,
-		warn,
-		error
+		warn: warn$1,
+		error: error$1
 	};
 	//#endregion
 	//#region src/shims/nodeCrypto.ts
@@ -3684,8 +3684,16 @@ var vot = (function(exports) {
 		{
 			host: VideoService$1.youtube,
 			url: "https://youtu.be/",
-			match: /^(www.)?youtube(-nocookie|kids)?.com$/,
+			match: (url) => /^(www.)?youtube(-nocookie|kids)?.com$/.test(url.host) && !url.pathname.startsWith("/embed/"),
 			selector: ".html5-video-container:not(#inline-player *)",
+			needExtraData: true
+		},
+		{
+			host: VideoService$1.youtube,
+			url: "https://youtu.be/",
+			additionalData: "embed",
+			match: (url) => /^(www.)?youtube(-nocookie|kids)?.com$/.test(url.host) && url.pathname.startsWith("/embed/"),
+			selector: "html",
 			needExtraData: true
 		},
 		{
@@ -3971,7 +3979,7 @@ var vot = (function(exports) {
 			host: VideoService$1.googledrive,
 			url: "https://drive.google.com/file/d/",
 			match: /^youtube.googleapis.com$/,
-			selector: ".html5-video-container"
+			selector: "html"
 		},
 		{
 			host: VideoService$1.bannedvideo,
@@ -6554,7 +6562,7 @@ var vot = (function(exports) {
 		static setVolume(volume) {
 			const player = YoutubeHelper.getPlayer();
 			if (player?.setVolume) {
-				player.setVolume(volume * 100);
+				player.setVolume(Math.round(volume * 100));
 				return true;
 			}
 			return false;
@@ -7389,11 +7397,19 @@ var vot = (function(exports) {
 	];
 	//#endregion
 	//#region src/utils/debug.ts
-	var noop = () => {};
+	var log = (...text) => {
+		console.log("%c[VOT DEBUG]", "background: #3700ffff; color: #fff; padding: 5px;", ...text);
+	};
+	var warn = (...text) => {
+		console.warn("%c[VOT DEBUG]", "background: #e1ff00ff; color: #fff; padding: 5px;", ...text);
+	};
+	var error = (...text) => {
+		console.error("%c[VOT DEBUG]", "background: #F2452D; color: #fff; padding: 5px;", ...text);
+	};
 	var debug = {
-		log: noop,
-		warn: noop,
-		error: noop
+		log,
+		warn,
+		error
 	};
 	//#endregion
 	//#region src/utils/localization.ts
@@ -22846,9 +22862,12 @@ var vot = (function(exports) {
 		};
 	}
 	function bindOverlayHoverFocusEvents(addMany, target, overlayVisibility) {
-		addMany(target, ["pointerenter", "focusin"], (event) => overlayVisibility.handleOverlayInteraction(event));
+		addMany(target, ["focusin"], (event) => overlayVisibility.handleOverlayInteraction(event));
+		addMany(target, ["focusout"], (event) => overlayVisibility.scheduleHide(event));
+		if (isIframe() && typeof globalThis.window !== "undefined") return;
+		addMany(target, ["pointerenter"], (event) => overlayVisibility.handleOverlayInteraction(event));
 		addMany(target, ["pointermove"], (event) => overlayVisibility.handleOverlayInteraction(event), { passive: true });
-		addMany(target, ["pointerleave", "focusout"], (event) => overlayVisibility.scheduleHide(event));
+		addMany(target, ["pointerleave"], (event) => overlayVisibility.scheduleHide(event));
 	}
 	function toPercentInt(value, fallback = 0) {
 		const numeric = typeof value === "number" ? value : Number(value);
@@ -23034,9 +23053,16 @@ var vot = (function(exports) {
 		add(globalThis, "blur", clearUserPressedKeys);
 		const eventContainer = self.getEventContainer();
 		if (eventContainer) {
-			addMany(eventContainer, ["pointerenter", "pointerdown"], (event) => self.overlayVisibility.handleHostInteraction(event));
-			add(eventContainer, "pointermove", (event) => self.overlayVisibility.handleHostInteraction(event), { passive: true });
-			add(eventContainer, "pointerleave", (event) => self.overlayVisibility.scheduleHide(event));
+			const useWindowEvents = isIframe() && typeof globalThis.window !== "undefined";
+			const interactionTarget = useWindowEvents ? globalThis.window : eventContainer;
+			if (useWindowEvents) {
+				addMany(interactionTarget, ["pointermove", "pointerdown"], (event) => self.overlayVisibility.handleHostInteraction(event), { passive: true });
+				add(interactionTarget, "blur", () => self.overlayVisibility.scheduleHide());
+			} else {
+				addMany(interactionTarget, ["pointerenter", "pointerdown"], (event) => self.overlayVisibility.handleHostInteraction(event));
+				add(interactionTarget, "pointermove", (event) => self.overlayVisibility.handleHostInteraction(event), { passive: true });
+				add(interactionTarget, "pointerleave", (event) => self.overlayVisibility.scheduleHide(event));
+			}
 		}
 		self.rebindOverlayVisibilityTargets();
 		if (platformConfig.allowTouchMoveHandler) add(document, "touchmove", (event) => self.overlayVisibility.handleHostInteraction(event), { passive: true });
@@ -25145,7 +25171,7 @@ var vot = (function(exports) {
 	* @returns {HTMLElement|null} The matching parent element.
 	*/
 	function findContainer(site, video) {
-		debug.log("findContainer", site, video);
+		debug.log("findContainer", site, site.selector, video);
 		if (!site.selector) {
 			debug.log("findContainer without selector, using parentElement");
 			return video.parentElement;
