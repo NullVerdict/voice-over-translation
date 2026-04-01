@@ -7,7 +7,7 @@
 // @name:ru        [VOT] - Закадровый перевод видео
 // @name:zh        [VOT] - 画外音视频翻译
 // @namespace      vot
-// @version        1.11.4.2
+// @version        1.11.4.4
 // @author         Toil, SashaXser, MrSoczekXD, mynovelhost, sodapng
 // @description    A small extension that adds a Yandex Browser video translation to other browsers
 // @description:de Eine kleine Erweiterung, die eine Voice-over-Übersetzung von Videos aus dem Yandex-Browser zu anderen Browsern hinzufügt
@@ -8981,7 +8981,7 @@ var vot = (function(exports) {
 		return buildVersion || scriptVersion || "unknown";
 	}
 	function getRuntimeLocaleVersion() {
-		return resolveRuntimeLocaleVersion(String("1.11.4.2"), typeof GM_info !== "undefined" ? String(GM_info?.script?.version || "") : "");
+		return resolveRuntimeLocaleVersion(String("1.11.4.4"), typeof GM_info !== "undefined" ? String(GM_info?.script?.version || "") : "");
 	}
 	var LocalizationProvider = class {
 		/**
@@ -20604,6 +20604,9 @@ var vot = (function(exports) {
 					return;
 				}
 				this.videoHandler.syncVolumeWrapper("translation", nextVolume);
+			}).addEventListener("select:fromLanguage", async () => {
+				if (!this.videoHandler) return;
+				await this.videoHandler.refreshAutoSubtitlesForCurrentLangPair();
 			}).addEventListener("select:subtitles", (data) => {
 				if (!this.videoHandler) return;
 				this.runDetached(this.videoHandler.changeSubtitlesLang(data), "Failed to change subtitles language");
@@ -20620,10 +20623,10 @@ var vot = (function(exports) {
 				if (checked && videoHandler && !videoHandler.hasActiveSource()) await this.handleTranslationBtnClick();
 			}).addEventListener("change:autoSubtitles", async (checked) => {
 				if (!checked || !this.videoHandler?.videoData?.videoId) return;
-				await this.videoHandler.enableSubtitlesForCurrentLangPair();
+				await this.videoHandler.refreshAutoSubtitlesForCurrentLangPair();
 			}).addEventListener("select:responseLanguageSubtitles", async () => {
 				if (!this.videoHandler?.data.autoSubtitles || !this.videoHandler.videoData) return;
-				await this.videoHandler.enableSubtitlesForCurrentLangPair();
+				await this.videoHandler.refreshAutoSubtitlesForCurrentLangPair();
 			}).addEventListener("change:showVideoVolume", () => {
 				this.withInitializedOverlayView((overlayView) => {
 					if (!overlayView.videoVolumeSlider || !overlayView.votButton) return;
@@ -23940,22 +23943,22 @@ var vot = (function(exports) {
 	var subtitlesSelectionRequestVersion = /* @__PURE__ */ new WeakMap();
 	function getPreferredSubtitlesLanguage(handler) {
 		const videoData = handler.videoData;
-		return handler.getPreferredSubtitlesLanguage(videoData?.detectedLanguage, videoData?.responseLanguage);
+		return handler.getPreferredSubtitlesLanguage(videoData?.detectedLanguage, videoData?.responseLanguage) ?? videoData?.responseLanguage ?? handler.translateToLang;
+	}
+	function getCacheDetectedLanguage(handler) {
+		const videoData = handler.videoData;
+		const detectedLanguage = videoData?.detectedLanguage?.toLowerCase();
+		if (detectedLanguage && detectedLanguage !== "auto") return detectedLanguage;
+		return videoData?.responseLanguage?.toLowerCase() ?? handler.translateToLang;
 	}
 	function getCurrentSubtitlesCacheKey(handler) {
 		const videoData = handler.videoData;
 		if (!videoData?.videoId) return null;
-		const detectedLanguage = videoData.detectedLanguage?.toLowerCase();
-		if (!detectedLanguage || detectedLanguage === "auto") return null;
+		const detectedLanguage = getCacheDetectedLanguage(handler);
+		if (!detectedLanguage) return null;
 		const subtitleLanguage = getPreferredSubtitlesLanguage(handler);
 		if (!subtitleLanguage) return null;
 		return handler.getSubtitlesCacheKey(videoData.videoId, detectedLanguage, subtitleLanguage);
-	}
-	async function ensureResolvedVideoLanguageForSubtitles(handler) {
-		if (!handler.videoData?.videoId) return false;
-		await handler.videoManager.ensureDetectedLanguageForTranslation(handler.videoData);
-		const detectedLanguage = handler.videoData.detectedLanguage?.toLowerCase();
-		return Boolean(detectedLanguage && detectedLanguage !== "auto");
 	}
 	function buildSubtitleDescriptorKey(descriptor) {
 		return [
@@ -24041,14 +24044,6 @@ var vot = (function(exports) {
 		await this.changeSubtitlesLang(DISABLED_SUBTITLES_VALUE);
 	}
 	async function ensureSubtitlesForCurrentLangPair() {
-		if (!await ensureResolvedVideoLanguageForSubtitles(this)) {
-			if (this.subtitlesCacheKey !== null || this.subtitles.length > 0) {
-				this.subtitles = [];
-				this.subtitlesCacheKey = null;
-				await this.updateSubtitlesLangSelect();
-			}
-			return this;
-		}
 		const cacheKey = getCurrentSubtitlesCacheKey(this);
 		if (!cacheKey) {
 			if (this.subtitlesCacheKey !== null || this.subtitles.length > 0) {
@@ -24097,6 +24092,15 @@ var vot = (function(exports) {
 		return this;
 	}
 	/**
+	* Re-evaluates the active subtitles track for the currently selected language
+	* pair, but only when auto-subtitles are enabled.
+	*/
+	async function refreshAutoSubtitlesForCurrentLangPair() {
+		if (!this.data?.autoSubtitles || !this.videoData?.videoId) return this;
+		await this.enableSubtitlesForCurrentLangPair();
+		return this;
+	}
+	/**
 	* Hotkey helper: toggles subtitles.
 	*
 	* - If subtitles are currently enabled (any non-"disabled" value), disable them.
@@ -24119,12 +24123,6 @@ var vot = (function(exports) {
 			console.error(`[VOT] ${localizationProvider.getDefault("VOTNoVideoIDFound")}`);
 			this.subtitles = [];
 			this.subtitlesCacheKey = null;
-			return;
-		}
-		if (!await ensureResolvedVideoLanguageForSubtitles(this)) {
-			this.subtitles = [];
-			this.subtitlesCacheKey = null;
-			await this.updateSubtitlesLangSelect();
 			return;
 		}
 		const subtitleLanguage = getPreferredSubtitlesLanguage(this);
@@ -24337,7 +24335,7 @@ var vot = (function(exports) {
 			return `${videoId}_${detectedLanguage}_${subtitleLanguage}_${Boolean(this.data?.useLivelyVoice)}`;
 		}
 		getPreferredSubtitlesLanguage(detectedLanguage = this.videoData?.detectedLanguage ?? "auto", responseLanguage = this.videoData?.responseLanguage ?? this.translateToLang, preference = this.data?.responseLanguageSubtitles) {
-			return resolveSubtitlesLanguage(preference, detectedLanguage, responseLanguage);
+			return resolveSubtitlesLanguage(preference, detectedLanguage, responseLanguage) ?? responseLanguage ?? detectedLanguage;
 		}
 		isActionStale(actionContext) {
 			if (!actionContext) return false;
@@ -24684,6 +24682,13 @@ var vot = (function(exports) {
 		*/
 		enableSubtitlesForCurrentLangPair() {
 			return this.callModuleAsync(enableSubtitlesForCurrentLangPair);
+		}
+		/**
+		* Re-evaluates the active subtitles track for the current language pair,
+		* but only when auto-subtitles are enabled.
+		*/
+		refreshAutoSubtitlesForCurrentLangPair() {
+			return this.callModuleAsync(refreshAutoSubtitlesForCurrentLangPair);
 		}
 		/**
 		* Toggles subtitles for the current video.
