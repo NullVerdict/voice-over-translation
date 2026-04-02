@@ -8137,8 +8137,15 @@ var vot = (function(exports) {
 	}
 	async function gmXhrFetch(urlStr, timeout, fetchOptions) {
 		const headers = getHeaders(fetchOptions.headers);
+		const method = (fetchOptions.method || "GET").toUpperCase();
 		const callbackGmXhr = getCallbackGmXhr();
 		const promiseGmXhr = getPromiseGmXhr();
+		debug.log("[GM_fetch] GM_xmlhttpRequest start", {
+			url: urlStr,
+			method,
+			timeout,
+			headerCount: Object.keys(headers).length
+		});
 		if (callbackGmXhr) return await new Promise((resolve, reject) => {
 			let settled = false;
 			let onAbort;
@@ -8169,11 +8176,38 @@ var vot = (function(exports) {
 						headers: responseHeaders
 					});
 					Object.defineProperty(response, "url", { value: resp.finalUrl ?? urlStr });
+					debug.log("[GM_fetch] GM_xmlhttpRequest completed", {
+						url: response.url,
+						method,
+						status: response.status,
+						statusText: response.statusText
+					});
 					resolve(response);
 				},
-				ontimeout: () => failOnce(/* @__PURE__ */ new Error("Timeout")),
-				onerror: (error) => failOnce(new Error(getGmXhrErrorMessage(error))),
-				onabort: () => failOnce(makeAbortError())
+				ontimeout: () => {
+					debug.warn("[GM_fetch] GM_xmlhttpRequest timed out", {
+						url: urlStr,
+						method,
+						timeout
+					});
+					failOnce(/* @__PURE__ */ new Error("Timeout"));
+				},
+				onerror: (error) => {
+					const message = getGmXhrErrorMessage(error);
+					debug.warn("[GM_fetch] GM_xmlhttpRequest failed", {
+						url: urlStr,
+						method,
+						error: message
+					});
+					failOnce(new Error(message));
+				},
+				onabort: () => {
+					debug.warn("[GM_fetch] GM_xmlhttpRequest aborted", {
+						url: urlStr,
+						method
+					});
+					failOnce(makeAbortError());
+				}
 			});
 			onAbort = () => {
 				try {
@@ -8191,7 +8225,7 @@ var vot = (function(exports) {
 		});
 		if (!promiseGmXhr) throw new TypeError("GM_xmlhttpRequest is not available");
 		const request = promiseGmXhr({
-			method: fetchOptions.method || "GET",
+			method,
 			url: urlStr,
 			responseType: "blob",
 			data: fetchOptions.body,
@@ -8219,6 +8253,12 @@ var vot = (function(exports) {
 				headers: responseHeaders
 			});
 			Object.defineProperty(response, "url", { value: resp.finalUrl ?? urlStr });
+			debug.log("[GM_fetch] GM.xmlHttpRequest completed", {
+				url: response.url,
+				method,
+				status: response.status,
+				statusText: response.statusText
+			});
 			return response;
 		} finally {
 			if (abortHandler) fetchOptions.signal?.removeEventListener("abort", abortHandler);
@@ -8229,12 +8269,29 @@ var vot = (function(exports) {
 		const urlStr = toRequestUrl(url);
 		const host = getRequestHost(urlStr);
 		const method = resolveRequestMethod(url, fetchOptions.method);
+		const useGmXhr = shouldUseGmXhr(host, urlStr, forceGmXhr);
+		debug.log("[GM_fetch] request", {
+			url: urlStr,
+			method,
+			host: host ?? "unknown",
+			timeout,
+			transport: useGmXhr ? "GM_xmlhttpRequest" : "fetch",
+			forced: forceGmXhr,
+			responseCache: responseCache ? {
+				ttlMs: responseCache.ttlMs,
+				key: responseCache.key ?? null,
+				useMemory: responseCache.useMemory ?? true,
+				useCacheApi: responseCache.useCacheApi ?? true,
+				dedupe: responseCache.dedupe ?? true
+			} : null
+		});
 		const performRequest = async () => {
-			if (shouldUseGmXhr(host, urlStr, forceGmXhr)) {
-				debug.log("GM_fetch: routing request via GM_xmlhttpRequest", {
+			if (useGmXhr) {
+				debug.log("[GM_fetch] using GM_xmlhttpRequest transport", {
+					url: urlStr,
+					method,
 					host: host ?? "unknown",
-					reason: forceGmXhr ? "forced" : "host-policy",
-					url: urlStr
+					reason: forceGmXhr ? "forced" : "host-policy"
 				});
 				return await gmXhrFetch(urlStr, timeout, fetchOptions);
 			}
@@ -8246,7 +8303,12 @@ var vot = (function(exports) {
 				});
 			} catch (err) {
 				if (signal.aborted || isAbortError$1(err)) throw err;
-				debug.log("GM_fetch preventing CORS by GM_xmlhttpRequest", getErrorMessage(err) || "Unknown error");
+				debug.warn("[GM_fetch] fetch failed, retrying via GM_xmlhttpRequest", {
+					url: urlStr,
+					method,
+					host: host ?? "unknown",
+					error: getErrorMessage(err) || "Unknown error"
+				});
 				return await gmXhrFetch(urlStr, timeout, fetchOptions);
 			} finally {
 				cleanup();
@@ -9051,6 +9113,11 @@ var vot = (function(exports) {
 		async checkUpdates(force = false) {
 			debug.log("Check locale updates...");
 			try {
+				const runtimeLocaleVersion = getRuntimeLocaleVersion();
+				if (!force) {
+					const storedLocaleVersion = await votStorage.get("localeVersion", "");
+					if (runtimeLocaleVersion !== "unknown" && storedLocaleVersion === runtimeLocaleVersion) return false;
+				}
 				const res = await GM_fetch(this.buildUrl(this.hashesUrl, "", force));
 				if (!res.ok) throw res.status;
 				const hashes = await res.json();
@@ -10212,6 +10279,14 @@ var vot = (function(exports) {
 		if (message === "Audio link wasn't received" || message === "Audio link wasn't received from VOT response") return new VOTLocalizedError("audioNotReceived");
 		return error;
 	}
+	function summarizeTranslationResponse(response) {
+		return {
+			status: response.status,
+			translated: response.translated,
+			remainingTime: response.remainingTime,
+			translationId: response.translationId
+		};
+	}
 	var VOTTranslationHandler = class {
 		videoHandler;
 		audioDownloader;
@@ -10351,6 +10426,17 @@ var vot = (function(exports) {
 			clearTimeout(this.videoHandler.autoRetry);
 			this.finishDownloadSuccess();
 			const requestLangForApi = this.videoHandler.getRequestLangForTranslation(requestLang, responseLang);
+			debug.log("[Translation] translateVideoImpl start", {
+				videoId: videoData.videoId,
+				duration: videoData.duration,
+				requestLang,
+				requestLangForApi,
+				responseLang,
+				retryAttempt,
+				disableLivelyVoice,
+				shouldSendFailedAudio,
+				translationHelpCount: translationHelp?.length ?? 0
+			});
 			debug.log(videoData, `Translate video (requestLang: ${requestLang}, requestLangForApi: ${requestLangForApi}, responseLang: ${responseLang})`);
 			let livelyDisabled = disableLivelyVoice;
 			try {
@@ -10369,23 +10455,44 @@ var vot = (function(exports) {
 				const useLivelyVoice = translationAttempt.useLivelyVoice;
 				const res = translationAttempt.response;
 				if (!res) throw new Error("Failed to get translation response");
-				debug.log("Translate video result", res);
+				debug.log("[Translation] translateVideoImpl response", {
+					videoId: videoData.videoId,
+					useLivelyVoice,
+					...summarizeTranslationResponse(res)
+				});
 				throwIfAborted(signal);
 				if (res.translated && res.remainingTime < 1) {
-					debug.log("Video translation finished with this data: ", res);
+					debug.log("[Translation] translation finished", {
+						videoId: videoData.videoId,
+						useLivelyVoice,
+						...summarizeTranslationResponse(res)
+					});
 					return {
 						...res,
 						usedLivelyVoice: useLivelyVoice
 					};
 				}
 				const message = res.message ?? localizationProvider.get("translationTakeFewMinutes");
+				debug.log("[Translation] translation still processing", {
+					videoId: videoData.videoId,
+					useLivelyVoice,
+					...summarizeTranslationResponse(res),
+					message
+				});
 				await this.videoHandler.updateTranslationErrorMsg(res.remainingTime > 0 ? formatTranslationEta(res.remainingTime, (key) => localizationProvider.get(key)) : message, signal);
 				if (res.status === VideoTranslationStatus.AUDIO_REQUESTED && this.videoHandler.isYouTubeHosts()) {
 					this.videoHandler.hadAsyncWait = true;
-					debug.log("Start audio download");
+					debug.log("[Translation] audio download started", {
+						videoId: videoData.videoId,
+						translationId: res.translationId
+					});
 					this.downloading = true;
 					await this.audioDownloader.runAudioDownload(videoData.videoId, res.translationId, signal);
-					debug.log("waiting downloading finish");
+					debug.log("[Translation] waiting for audio download completion", {
+						videoId: videoData.videoId,
+						translationId: res.translationId,
+						timeoutMs: 15e3
+					});
 					await this.waitForAudioDownloadCompletion(signal, 15e3);
 					return await this.translateVideoImpl(videoData, requestLang, responseLang, translationHelp, true, signal, {
 						disableLivelyVoice: livelyDisabled,
@@ -10394,10 +10501,19 @@ var vot = (function(exports) {
 				}
 			} catch (err) {
 				if (isAbortError$1(err)) {
-					debug.log("aborted video translation");
+					debug.log("[Translation] translation aborted", {
+						videoId: videoData.videoId,
+						retryAttempt
+					});
 					return null;
 				}
 				const uiError = mapVotClientErrorForUi(err);
+				debug.error("[Translation] translation failed", {
+					videoId: videoData.videoId,
+					retryAttempt,
+					error: err,
+					mappedError: uiError
+				});
 				await this.videoHandler.updateTranslationErrorMsg(getServerErrorMessage(uiError) ?? uiError, signal);
 				this.videoHandler.hadAsyncWait = notifyTranslationFailureIfNeeded({
 					aborted: Boolean(this.videoHandler.actionsAbortController?.signal?.aborted),
@@ -10407,19 +10523,43 @@ var vot = (function(exports) {
 					error: err,
 					notify: (params) => this.videoHandler.notifier.translationFailed(params)
 				});
-				console.error("[VOT]", err);
 				return null;
 			}
 			this.videoHandler.hadAsyncWait = true;
+			const retryDelayMs = this.getVideoTranslationRetryDelayMs(retryAttempt, videoData.duration);
+			debug.log("[Translation] scheduling translation retry", {
+				videoId: videoData.videoId,
+				retryAttempt,
+				retryDelayMs,
+				duration: videoData.duration
+			});
 			return this.scheduleRetry(() => this.translateVideoImpl(videoData, requestLang, responseLang, translationHelp, shouldSendFailedAudio, signal, {
 				disableLivelyVoice: livelyDisabled,
 				retryAttempt: retryAttempt + 1
-			}), this.getVideoTranslationRetryDelayMs(retryAttempt, videoData.duration), signal);
+			}), retryDelayMs, signal);
 		}
 		async requestTranslationWithLivelyFallback({ videoData, requestLangForApi, responseLang, translationHelp, shouldSendFailedAudio, livelyDisabled, livelyVoiceAllowed }) {
 			let useLivelyVoice = !livelyDisabled && livelyVoiceAllowed && Boolean(this.videoHandler.data?.useLivelyVoice);
+			debug.log("[Translation] requesting translation from VOT client", {
+				videoId: videoData.videoId,
+				requestLangForApi,
+				responseLang,
+				shouldSendFailedAudio,
+				livelyDisabled,
+				livelyVoiceAllowed,
+				useLivelyVoice,
+				translationHelpCount: translationHelp?.length ?? 0
+			});
 			while (true) {
 				try {
+					debug.log("[Translation] votClient.translateVideo call", {
+						videoId: videoData.videoId,
+						requestLangForApi,
+						responseLang,
+						useLivelyVoice,
+						shouldSendFailedAudio,
+						translationHelpCount: translationHelp?.length ?? 0
+					});
 					const response = await this.videoHandler.votClient.translateVideo({
 						videoData,
 						requestLang: requestLangForApi,
@@ -10431,18 +10571,38 @@ var vot = (function(exports) {
 						},
 						shouldSendFailedAudio
 					});
-					if (!useLivelyVoice || !this.isLivelyVoiceUnavailableError(response)) return {
-						response,
+					if (!useLivelyVoice || !this.isLivelyVoiceUnavailableError(response)) {
+						debug.log("[Translation] votClient.translateVideo resolved", {
+							videoId: videoData.videoId,
+							useLivelyVoice,
+							...summarizeTranslationResponse(response)
+						});
+						return {
+							response,
+							useLivelyVoice,
+							livelyDisabled
+						};
+					}
+					debug.warn("[Translation] lively voice unavailable in response", {
+						videoId: videoData.videoId,
 						useLivelyVoice,
-						livelyDisabled
-					};
-					debug.log("[translateVideoImpl] Server responded that lively voices are unavailable. Falling back to standard translation.", response);
+						...summarizeTranslationResponse(response)
+					});
 				} catch (err) {
 					if (!useLivelyVoice || !this.isLivelyVoiceUnavailableError(err)) throw err;
-					debug.log("[translateVideoImpl] Lively voices are unavailable. Falling back to standard translation.", err);
+					debug.warn("[Translation] lively voice unavailable in error", {
+						videoId: videoData.videoId,
+						useLivelyVoice,
+						error: err
+					});
 				}
 				livelyDisabled = true;
 				useLivelyVoice = false;
+				debug.log("[Translation] retrying translation without lively voice", {
+					videoId: videoData.videoId,
+					requestLangForApi,
+					responseLang
+				});
 			}
 		}
 		waitForAudioDownloadCompletion(signal, timeoutMs) {
