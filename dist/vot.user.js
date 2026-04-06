@@ -9427,16 +9427,6 @@ var vot = (function(exports) {
 		}
 		return false;
 	}
-	function isDocumentViewportElement(element) {
-		return element === document.body || element === document.documentElement;
-	}
-	function resolveScopedFullscreenElement(fullscreenEl, anchors, options = {}) {
-		const { allowDocumentViewport = false } = options;
-		if (!(fullscreenEl instanceof HTMLElement)) return null;
-		if (isDocumentViewportElement(fullscreenEl) && !allowDocumentViewport) return null;
-		for (const anchor of anchors) if (anchor && (containsCrossShadow(fullscreenEl, anchor) || containsCrossShadow(anchor, fullscreenEl))) return fullscreenEl;
-		return null;
-	}
 	function closestCrossShadow(element, selector) {
 		if (!element || !selector) return null;
 		return walkCrossShadow(element, selector, element instanceof Document ? null : element);
@@ -13334,10 +13324,7 @@ var vot = (function(exports) {
 		constructor(video, container, intervalIdleChecker) {
 			this.video = video;
 			this.container = container;
-			this.fullscreenLayerController = new FullscreenLayerController({
-				video,
-				container
-			});
+			this.fullscreenLayerController = new FullscreenLayerController({ container });
 			this.intervalIdleChecker = intervalIdleChecker;
 			this.useVideoFrameCallbacks = !!this.video && typeof this.video.requestVideoFrameCallback === "function";
 			this.onPointerDownBound = (event) => this.onPointerDown(event);
@@ -20808,7 +20795,7 @@ var vot = (function(exports) {
 		getGlobalPortalHost(mount) {
 			const doc = document;
 			const fullscreenEl = doc.fullscreenElement ?? doc.webkitFullscreenElement;
-			return Boolean(resolveScopedFullscreenElement(fullscreenEl, [mount.root], { allowDocumentViewport: true })) ? mount.root : document.documentElement;
+			return fullscreenEl instanceof HTMLElement && (fullscreenEl === mount.root || fullscreenEl.contains(mount.root) || mount.root.contains(fullscreenEl)) ? mount.root : document.documentElement;
 		}
 		initUIEvents() {
 			if (!this.isInitialized()) throw new Error("[VOT] UIManager isn't initialized");
@@ -24535,7 +24522,8 @@ var vot = (function(exports) {
 		*/
 		getFullscreenOverlayRoot() {
 			const doc = document;
-			return resolveScopedFullscreenElement(doc.fullscreenElement ?? doc.webkitFullscreenElement, [this.container]);
+			const fullscreenEl = doc.fullscreenElement ?? doc.webkitFullscreenElement;
+			return fullscreenEl instanceof HTMLElement && (fullscreenEl === this.container || fullscreenEl.contains(this.container) || this.container.contains(fullscreenEl)) ? fullscreenEl : null;
 		}
 		getOverlayMountPoints(container = this.container) {
 			const fullscreenRoot = this.getFullscreenOverlayRoot();
