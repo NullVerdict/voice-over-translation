@@ -4022,7 +4022,8 @@ var vot = (function(exports) {
 			host: VideoService$1.archive,
 			url: "https://archive.org/details/",
 			match: /^archive.org$/,
-			selector: sharedSelectors.jwPlayer
+			selector: sharedSelectors.jwPlayer,
+			needExtraData: true
 		},
 		{
 			host: VideoService$1.kodik,
@@ -4082,7 +4083,7 @@ var vot = (function(exports) {
 			host: VideoService$1.odysee,
 			url: "stub",
 			match: /^odysee.com$/,
-			selector: sharedSelectors.videoJsUniversal,
+			selector: ".video-js-parent",
 			needExtraData: true
 		},
 		{
@@ -4354,7 +4355,21 @@ var vot = (function(exports) {
 	//#region node_modules/@vot.js/ext/dist/helpers/archive.js
 	var ArchiveHelper = class extends BaseHelper {
 		async getVideoId(url) {
-			return /(details|embed)\/([^/]+)/.exec(url.pathname)?.[2];
+			const videoId = /(details|embed)\/(.+)/.exec(url.pathname)?.[2];
+			if (!videoId) return void 0;
+			return videoId.replace(/\/$/, "") || void 0;
+		}
+		async getVideoData(videoId) {
+			if (!videoId) return void 0;
+			const downloadUrl = `https://archive.org/download/${videoId.replace(/\+/g, "%20").replace(/\.[^.]+$/, ".mp4")}`;
+			return {
+				url: videoId,
+				video_url: downloadUrl,
+				translationHelp: [{
+					target: "video_file_url",
+					targetUrl: downloadUrl
+				}]
+			};
 		}
 	};
 	//#endregion
@@ -5337,15 +5352,7 @@ var vot = (function(exports) {
 	var OdyseeHelper = class extends BaseHelper {
 		API_ORIGIN = "https://odysee.com";
 		async getVideoData(videoId) {
-			try {
-				const content = await (await this.fetch(`${this.API_ORIGIN}/${videoId}`)).text();
-				const url = /"contentUrl":(\s)?"([^"]+)"/.exec(content)?.[2];
-				if (!url) throw new VideoHelperError("Odysee url doesn't parsed");
-				return { url };
-			} catch (err) {
-				Logger.error(`Failed to get odysee video data by video ID: ${videoId}`, err.message);
-				return;
-			}
+			return { url: `${this.API_ORIGIN}/${videoId}`.replace(/:[a-zA-Z0-9]+$/, "") };
 		}
 		async getVideoId(url) {
 			return url.pathname.slice(1);
@@ -9592,13 +9599,7 @@ var vot = (function(exports) {
 	var ANDROID_CLIENT_VERSION = "19.44.38";
 	var ANDROID_VR_CLIENT_VERSION = "1.60.19";
 	var IOS_CLIENT_VERSION = "19.45.4";
-	var CLIENT_FALLBACK_ORDER = [
-		"ANDROID_VR",
-		"ANDROID",
-		"IOS",
-		"WEB",
-		"MWEB"
-	];
+	var CLIENTS = ["ANDROID_VR"];
 	var DEFAULT_HEADERS = {
 		accept: "*/*",
 		origin: YT_BASE,
@@ -9766,7 +9767,7 @@ var vot = (function(exports) {
 		return "audio/aac";
 	}
 	function buildClientAttemptOrder(requestedClient) {
-		const ordered = requestedClient ? [requestedClient, ...CLIENT_FALLBACK_ORDER] : [...CLIENT_FALLBACK_ORDER];
+		const ordered = requestedClient ? [requestedClient, ...CLIENTS] : [...CLIENTS];
 		const seen = /* @__PURE__ */ new Set();
 		return ordered.filter((client) => {
 			if (seen.has(client)) return false;
