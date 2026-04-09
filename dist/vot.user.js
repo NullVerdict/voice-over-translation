@@ -91,9 +91,7 @@
 // @match          *://*.archive.org/*
 // @match          *://*.patreon.com/*
 // @match          *://*.reddit.com/*
-// @match          *://*.kodik.info/*
-// @match          *://*.kodik.biz/*
-// @match          *://*.kodik.cc/*
+// @match          *://*.kodikplayer.com/*
 // @match          *://*.kick.com/*
 // @match          *://developer.apple.com/*
 // @match          *://dev.epicgames.com/*
@@ -4028,7 +4026,7 @@ var vot = (function(exports) {
 		{
 			host: VideoService$1.kodik,
 			url: "stub",
-			match: /^kodik.(info|biz|cc)$/,
+			match: /^kodikplayer.com$/,
 			selector: sharedSelectors.flowplayer,
 			needExtraData: true
 		},
@@ -5154,7 +5152,7 @@ var vot = (function(exports) {
 			}
 		}
 		decryptUrl(encryptedUrl) {
-			return `https:${atob(encryptedUrl.replace(/[a-zA-Z]/g, (e) => {
+			return `${atob(encryptedUrl.replace(/[a-zA-Z]/g, (e) => {
 				const charCode = e.charCodeAt(0) + 18;
 				const pos = e <= "Z" ? 90 : 122;
 				return String.fromCharCode(pos >= charCode ? charCode : charCode - 26);
@@ -5167,7 +5165,7 @@ var vot = (function(exports) {
 			if (!videoData) return;
 			const videoLink = Object.entries(videoData.links[videoData.default.toString()]).find(([, data]) => data.type === "application/x-mpegURL")?.[1];
 			if (!videoLink) return;
-			return { url: videoLink.src.startsWith("//") ? `https:${videoLink.src}` : this.decryptUrl(videoLink.src) };
+			return { url: videoLink.src.startsWith("//") ? `${videoLink.src}` : this.decryptUrl(videoLink.src) };
 		}
 		async getVideoId(url) {
 			return /\/(uv|video|seria|episode|season|serial)\/([^/]+)\/([^/]+)\/([\d]+)p/.exec(url.pathname)?.[0];
@@ -5498,18 +5496,28 @@ var vot = (function(exports) {
 	//#region node_modules/@vot.js/ext/dist/helpers/reddit.js
 	var RedditHelper = class extends BaseHelper {
 		API_ORIGIN = "https://www.reddit.com";
-		async getContentUrl(_videoId) {
-			if (this.service?.additionalData !== "old") {
-				const player = document.querySelector("shreddit-player-2, shreddit-player");
-				return (player?.getAttribute("src") ?? player?.querySelector("source[type=\"application/vnd.apple.mpegURL\"]")?.getAttribute("src"))?.replaceAll("&amp;", "&");
-			}
-			return document.querySelector("[data-hls-url]")?.dataset.hlsUrl?.replaceAll("&amp;", "&");
+		async getDashAudioUrl(dashUrl) {
+			const res = await fetch(dashUrl);
+			if (!res.ok) return void 0;
+			const xml = await res.text();
+			const doc = new DOMParser().parseFromString(xml, "application/xml");
+			const audioBaseUrl = doc.querySelector("AdaptationSet[contentType=\"audio\"] BaseURL")?.textContent ?? doc.querySelector("Representation[id=\"AUDIO-1\"] BaseURL")?.textContent;
+			if (!audioBaseUrl) return void 0;
+			const base = new URL(dashUrl);
+			return new URL(audioBaseUrl, base).href;
 		}
 		async getVideoData(videoId) {
 			try {
-				const contentUrl = await this.getContentUrl(videoId);
-				if (!contentUrl) throw new VideoHelperError("Failed to find content url");
-				return { url: decodeURIComponent(contentUrl) };
+				const res = await fetch(`${this.API_ORIGIN}/r/${videoId}.json`, { headers: { Accept: "application/json" } });
+				if (!res.ok) throw new VideoHelperError(`Reddit API error: ${res.status}`);
+				const post = (await res.json())?.[0]?.data?.children?.[0]?.data;
+				const redditVideo = post?.secure_media?.reddit_video ?? post?.media?.reddit_video ?? post?.crosspost_parent_list?.[0]?.secure_media?.reddit_video ?? post?.crosspost_parent_list?.[0]?.media?.reddit_video;
+				if (!redditVideo) throw new VideoHelperError("No reddit_video found in post");
+				const dashUrl = redditVideo.dash_url?.replaceAll("&amp;", "&");
+				if (!dashUrl) throw new VideoHelperError("No dash_url in reddit_video");
+				const audioUrl = await this.getDashAudioUrl(dashUrl);
+				if (!audioUrl) throw new VideoHelperError("Failed to extract audio URL from DASH MPD");
+				return { url: audioUrl };
 			} catch (err) {
 				Logger.error(`Failed to get reddit video data by video ID: ${videoId}`, err.message);
 				return;
@@ -9596,9 +9604,7 @@ var vot = (function(exports) {
 	//#region src/audioDownloader/ytAudio/src/AudioDownloader.ts
 	var VIDEO_ID_PATTERN = /^[a-zA-Z0-9_-]{11}$/;
 	var YT_BASE = "https://www.youtube.com";
-	var ANDROID_CLIENT_VERSION = "19.44.38";
 	var ANDROID_VR_CLIENT_VERSION = "1.60.19";
-	var IOS_CLIENT_VERSION = "19.45.4";
 	var CLIENTS = ["ANDROID_VR"];
 	var DEFAULT_HEADERS = {
 		accept: "*/*",
@@ -9609,57 +9615,18 @@ var vot = (function(exports) {
 	function withSignal(signal) {
 		return signal ? { signal } : {};
 	}
-	function resolveInnertubeClient(requestedClient, watchContext, videoId) {
-		switch (requestedClient) {
-			case "ANDROID":
-			case "YTMUSIC_ANDROID":
-			case "YTSTUDIO_ANDROID": return {
-				clientName: "ANDROID",
-				clientVersion: ANDROID_CLIENT_VERSION,
-				hl: "en",
-				gl: "US",
-				androidSdkVersion: 34,
-				osName: "Android",
-				osVersion: "14",
-				platform: "MOBILE"
-			};
-			case "ANDROID_VR": return {
-				clientName: "ANDROID_VR",
-				clientVersion: ANDROID_VR_CLIENT_VERSION,
-				hl: "en",
-				gl: "US",
-				androidSdkVersion: 31,
-				osName: "Android",
-				osVersion: "12",
-				platform: "MOBILE"
-			};
-			case "IOS": return {
-				clientName: "IOS",
-				clientVersion: IOS_CLIENT_VERSION,
-				hl: "en",
-				gl: "US",
-				platform: "MOBILE",
-				osName: "iPhone",
-				osVersion: "18.0.0.22A3354",
-				deviceMake: "Apple",
-				deviceModel: "iPhone16,2"
-			};
-			case "MWEB": return {
-				clientName: "MWEB",
-				clientVersion: watchContext.clientVersion,
-				hl: "en",
-				gl: "US",
-				originalUrl: `${YT_BASE}/watch?v=${videoId}`
-			};
-			default: return {
-				clientName: "WEB",
-				clientVersion: watchContext.clientVersion,
-				hl: "en",
-				gl: "US",
-				utcOffsetMinutes: 0,
-				originalUrl: `${YT_BASE}/watch?v=${videoId}`
-			};
-		}
+	function resolveInnertubeClient(requestedClient) {
+		if (requestedClient !== void 0 && requestedClient !== "ANDROID_VR") throw new Error(`Unsupported Innertube client: ${requestedClient}`);
+		return {
+			clientName: "ANDROID_VR",
+			clientVersion: ANDROID_VR_CLIENT_VERSION,
+			hl: "en",
+			gl: "US",
+			androidSdkVersion: 31,
+			osName: "Android",
+			osVersion: "12",
+			platform: "MOBILE"
+		};
 	}
 	function extractVideoId(input) {
 		const value = input.trim();
@@ -9893,7 +9860,7 @@ var vot = (function(exports) {
 			return {
 				videoId,
 				chosenFormat,
-				streamUrl: this.resolveFormatUrl(chosenFormat, watchContext.clientVersion)
+				streamUrl: this.resolveFormatUrl(chosenFormat)
 			};
 		}
 		async resolveStreamContentLength(streamUrl, contentLengthHint, signal, forceProbe = false) {
@@ -9936,10 +9903,9 @@ var vot = (function(exports) {
 				channels: format.audioChannels && format.audioChannels > 0 ? format.audioChannels : 2
 			};
 		}
-		resolveFormatUrl(format, clientVersion) {
+		resolveFormatUrl(format) {
 			if (!format.url) throw new Error("Selected format does not contain a direct stream URL");
 			const streamUrl = new URL(format.url);
-			if (streamUrl.searchParams.get("c") === "WEB") streamUrl.searchParams.set("cver", clientVersion);
 			streamUrl.searchParams.set("cpn", makeCPN());
 			return streamUrl.toString();
 		}
@@ -9970,7 +9936,7 @@ var vot = (function(exports) {
 			return context;
 		}
 		async fetchPlayerResponse(videoId, watchContext, requestedClient, signal) {
-			const client = resolveInnertubeClient(requestedClient, watchContext, videoId);
+			const client = resolveInnertubeClient(requestedClient);
 			if (watchContext.visitorData) client.visitorData = watchContext.visitorData;
 			const body = {
 				context: { client },
