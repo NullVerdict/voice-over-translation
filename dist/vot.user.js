@@ -196,6 +196,7 @@
 // @exclude        file://*/*.webm*
 // @exclude        *://accounts.youtube.com/*
 // @require        https://gist.githubusercontent.com/ilyhalight/6eb5bb4dffc7ca9e3c57d6933e2452f3/raw/7ab38af2228d0bed13912e503bc8a9ee4b11828d/gm-addstyle-polyfill.js
+// @connect        api.browser.yandex.ru
 // @connect        yandex.ru
 // @connect        disk.yandex.kz
 // @connect        disk.yandex.com
@@ -240,7 +241,6 @@
 // @grant          GM.listValues
 // @grant          GM.notification
 // @grant          GM.setValue
-// @grant          GM.xmlHttpRequest
 // @grant          window.focus
 // ==/UserScript==
 
@@ -8047,13 +8047,8 @@ var vot = (function(exports) {
 		const gmXhr = typeof GM_xmlhttpRequest === "undefined" ? globalThis.GM_xmlhttpRequest : GM_xmlhttpRequest;
 		return typeof gmXhr === "function" ? gmXhr : void 0;
 	}
-	function getPromiseGmXhr() {
-		const gm = typeof GM === "undefined" ? globalThis.GM : GM;
-		const gmXhr = gm?.xmlHttpRequest ?? gm?.xmlhttpRequest;
-		return typeof gmXhr === "function" ? gmXhr.bind(gm) : void 0;
-	}
 	function hasSupportedGmXhr() {
-		return !!(getCallbackGmXhr() || getPromiseGmXhr());
+		return !!getCallbackGmXhr();
 	}
 	var isProxyOnlyExtension = !(typeof IS_EXTENSION !== "undefined" && IS_EXTENSION) && !!scriptHandler && !hasSupportedGmXhr();
 	var isSupportGM4 = typeof GM !== "undefined" || globalThis.GM !== void 0;
@@ -8185,47 +8180,6 @@ var vot = (function(exports) {
 			}
 		});
 	}
-	async function executePromiseGmXhr(gmXhr, urlStr, timeout, fetchOptions, method, headers) {
-		const request = gmXhr({
-			method,
-			url: urlStr,
-			responseType: "blob",
-			data: fetchOptions.body,
-			timeout,
-			headers
-		});
-		let abortHandler;
-		try {
-			const abortPromise = new Promise((_, reject) => {
-				if (!fetchOptions.signal) return;
-				abortHandler = () => {
-					try {
-						request.abort?.();
-					} catch {}
-					reject(makeAbortError());
-				};
-				fetchOptions.signal.addEventListener("abort", abortHandler, { once: true });
-				if (fetchOptions.signal.aborted) abortHandler();
-			});
-			const resp = await Promise.race([request, abortPromise]);
-			const responseHeaders = parseResponseHeaders(resp.responseHeaders);
-			const response = new Response(resp.response, {
-				status: resp.status,
-				statusText: typeof resp.statusText === "string" ? resp.statusText : "",
-				headers: responseHeaders
-			});
-			Object.defineProperty(response, "url", { value: resp.finalUrl ?? urlStr });
-			debug.log("[GM_fetch] GM.xmlHttpRequest completed", {
-				url: response.url,
-				method,
-				status: response.status,
-				statusText: response.statusText
-			});
-			return response;
-		} finally {
-			if (abortHandler) fetchOptions.signal?.removeEventListener("abort", abortHandler);
-		}
-	}
 	async function gmXhrFetch(urlStr, timeout, fetchOptions) {
 		const headers = getHeaders(fetchOptions.headers);
 		const method = (fetchOptions.method || "GET").toUpperCase();
@@ -8246,23 +8200,11 @@ var vot = (function(exports) {
 					method,
 					error: getGmXhrErrorMessage(error)
 				});
+				throw error;
 			}
 		}
-		const promiseGmXhr = getPromiseGmXhr();
-		if (promiseGmXhr) {
-			debug.log("[GM_fetch] attempting promise-style GM.xmlHttpRequest");
-			try {
-				return await executePromiseGmXhr(promiseGmXhr, urlStr, timeout, fetchOptions, method, headers);
-			} catch (error) {
-				debug.warn("[GM_fetch] promise-style GM.xmlHttpRequest failed", {
-					url: urlStr,
-					method,
-					error: getGmXhrErrorMessage(error)
-				});
-			}
-		}
-		debug.warn("[GM_fetch] none of the GM approaches worked");
-		throw new Error("All GM approaches failed");
+		debug.warn("[GM_fetch] callback-style GM_xmlhttpRequest not available");
+		throw new Error("GM_xmlhttpRequest not available");
 	}
 	async function GM_fetch(url, opts = {}) {
 		const { timeout = 15e3, forceGmXhr = false, responseCache, ...fetchOptions } = opts;
