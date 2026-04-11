@@ -196,7 +196,6 @@
 // @exclude        file://*/*.webm*
 // @exclude        *://accounts.youtube.com/*
 // @require        https://gist.githubusercontent.com/ilyhalight/6eb5bb4dffc7ca9e3c57d6933e2452f3/raw/7ab38af2228d0bed13912e503bc8a9ee4b11828d/gm-addstyle-polyfill.js
-// @connect        api.browser.yandex.ru
 // @connect        yandex.ru
 // @connect        disk.yandex.kz
 // @connect        disk.yandex.com
@@ -241,6 +240,7 @@
 // @grant          GM.listValues
 // @grant          GM.notification
 // @grant          GM.setValue
+// @grant          GM.xmlHttpRequest
 // @grant          window.focus
 // ==/UserScript==
 
@@ -8041,14 +8041,20 @@ var vot = (function(exports) {
 	var YANDEX_API_HOST = "api.browser.yandex.ru";
 	var GOOGLEVIDEO_HOST_SUFFIX = "googlevideo.com";
 	var HEADER_LINE_RE = /^([\w-]+):\s*(.+)$/;
+	var VALID_STATUS_TEXT_RE = /^[\x20-\x7E]*$/;
 	var URL_SCHEME_RE = /^[a-zA-Z][a-zA-Z\d+.-]*:/;
 	var scriptHandler = typeof GM_info === "undefined" ? void 0 : GM_info?.scriptHandler;
 	function getCallbackGmXhr() {
 		const gmXhr = typeof GM_xmlhttpRequest === "undefined" ? globalThis.GM_xmlhttpRequest : GM_xmlhttpRequest;
 		return typeof gmXhr === "function" ? gmXhr : void 0;
 	}
+	function getPromiseGmXhr() {
+		const gm = typeof GM === "undefined" ? globalThis.GM : GM;
+		const gmXhr = gm?.xmlHttpRequest ?? gm?.xmlhttpRequest;
+		return typeof gmXhr === "function" ? gmXhr.bind(gm) : void 0;
+	}
 	function hasSupportedGmXhr() {
-		return !!getCallbackGmXhr();
+		return !!(getCallbackGmXhr() || getPromiseGmXhr());
 	}
 	var isProxyOnlyExtension = !(typeof IS_EXTENSION !== "undefined" && IS_EXTENSION) && !!scriptHandler && !hasSupportedGmXhr();
 	var isSupportGM4 = typeof GM !== "undefined" || globalThis.GM !== void 0;
@@ -8097,9 +8103,54 @@ var vot = (function(exports) {
 	}
 	function getGmXhrErrorMessage(error) {
 		const maybeError = error;
-		if (typeof maybeError?.error === "string") return maybeError.error;
-		if (typeof maybeError?.statusText === "string") return maybeError.statusText;
-		return getErrorMessage(error) || "Unknown error";
+		if (typeof maybeError?.error === "string" && maybeError.error.length > 0) return maybeError.error;
+		if (typeof maybeError?.statusText === "string" && maybeError.statusText.length > 0) return maybeError.statusText;
+		return getErrorMessage(error) || "Unknown GM XHR error";
+	}
+	/**
+	* Safari (and some script managers on Safari) can return status=0 or
+	* status=undefined from GM_xmlhttpRequest, which causes new Response() to
+	* throw a RangeError: "Status must be between 200 and 599".
+	*
+	* This helper coerces any out-of-range value to 200 so we can still construct
+	* a valid Response and let the caller inspect the body / re-throw as needed.
+	*/
+	function sanitizeStatus(status) {
+		const n = typeof status === "number" ? status : Number(status);
+		if (Number.isInteger(n) && n >= 200 && n <= 599) return n;
+		return 200;
+	}
+	/**
+	* Safari may pass statusText values that contain non-printable or non-ASCII
+	* characters, which causes new Response() to throw a TypeError.
+	* Only pass through strings that match the HTTP reason-phrase grammar.
+	*/
+	function sanitizeStatusText(statusText) {
+		if (typeof statusText === "string" && VALID_STATUS_TEXT_RE.test(statusText)) return statusText;
+		return "";
+	}
+	/**
+	* Safari's GM_xmlhttpRequest Swift backend may return null/undefined for
+	* resp.response when the request succeeds (e.g. 204 No Content, or simply a
+	* Safari bug).  Passing undefined/null to new Response() is fine — the spec
+	* treats it as an empty body.
+	*/
+	function sanitizeResponseBody(response) {
+		if (response instanceof Blob) return response;
+		return null;
+	}
+	function buildResponse(resp, urlStr) {
+		const status = sanitizeStatus(resp.status);
+		const statusText = sanitizeStatusText(resp.statusText);
+		const body = sanitizeResponseBody(resp.response);
+		const responseHeaders = parseResponseHeaders(resp.responseHeaders);
+		const response = new Response(body, {
+			status,
+			statusText,
+			headers: responseHeaders
+		});
+		Object.defineProperty(response, "url", { value: resp.finalUrl ?? urlStr });
+		return response;
 	}
 	async function executeCallbackGmXhr(gmXhr, urlStr, timeout, fetchOptions, method, headers) {
 		return new Promise((resolve, reject) => {
@@ -8125,20 +8176,25 @@ var vot = (function(exports) {
 					if (settled) return;
 					settled = true;
 					cleanupAbort();
-					const responseHeaders = parseResponseHeaders(resp.responseHeaders);
-					const response = new Response(resp.response, {
-						status: resp.status,
-						statusText: typeof resp.statusText === "string" ? resp.statusText : "",
-						headers: responseHeaders
-					});
-					Object.defineProperty(response, "url", { value: resp.finalUrl ?? urlStr });
-					debug.log("[GM_fetch] GM_xmlhttpRequest completed", {
-						url: response.url,
-						method,
-						status: response.status,
-						statusText: response.statusText
-					});
-					resolve(response);
+					try {
+						const response = buildResponse(resp, urlStr);
+						debug.log("[GM_fetch] GM_xmlhttpRequest completed", {
+							url: response.url,
+							method,
+							status: response.status,
+							statusText: response.statusText
+						});
+						resolve(response);
+					} catch (buildErr) {
+						debug.warn("[GM_fetch] GM_xmlhttpRequest response build failed", {
+							url: urlStr,
+							method,
+							error: getErrorMessage(buildErr),
+							rawStatus: resp.status,
+							rawStatusText: resp.statusText
+						});
+						reject(buildErr instanceof Error ? buildErr : new Error(getErrorMessage(buildErr)));
+					}
 				},
 				ontimeout: () => {
 					debug.warn("[GM_fetch] GM_xmlhttpRequest timed out", {
@@ -8180,6 +8236,40 @@ var vot = (function(exports) {
 			}
 		});
 	}
+	async function executePromiseGmXhr(gmXhr, urlStr, timeout, fetchOptions, method, headers) {
+		const request = gmXhr({
+			method,
+			url: urlStr,
+			responseType: "blob",
+			data: fetchOptions.body,
+			timeout,
+			headers
+		});
+		let abortHandler;
+		try {
+			const abortPromise = new Promise((_, reject) => {
+				if (!fetchOptions.signal) return;
+				abortHandler = () => {
+					try {
+						request.abort?.();
+					} catch {}
+					reject(makeAbortError());
+				};
+				fetchOptions.signal.addEventListener("abort", abortHandler, { once: true });
+				if (fetchOptions.signal.aborted) abortHandler();
+			});
+			const response = buildResponse(await Promise.race([request, abortPromise]), urlStr);
+			debug.log("[GM_fetch] GM.xmlHttpRequest completed", {
+				url: response.url,
+				method,
+				status: response.status,
+				statusText: response.statusText
+			});
+			return response;
+		} finally {
+			if (abortHandler) fetchOptions.signal?.removeEventListener("abort", abortHandler);
+		}
+	}
 	async function gmXhrFetch(urlStr, timeout, fetchOptions) {
 		const headers = getHeaders(fetchOptions.headers);
 		const method = (fetchOptions.method || "GET").toUpperCase();
@@ -8200,11 +8290,23 @@ var vot = (function(exports) {
 					method,
 					error: getGmXhrErrorMessage(error)
 				});
-				throw error;
 			}
 		}
-		debug.warn("[GM_fetch] callback-style GM_xmlhttpRequest not available");
-		throw new Error("GM_xmlhttpRequest not available");
+		const promiseGmXhr = getPromiseGmXhr();
+		if (promiseGmXhr) {
+			debug.log("[GM_fetch] attempting promise-style GM.xmlHttpRequest");
+			try {
+				return await executePromiseGmXhr(promiseGmXhr, urlStr, timeout, fetchOptions, method, headers);
+			} catch (error) {
+				debug.warn("[GM_fetch] promise-style GM.xmlHttpRequest failed", {
+					url: urlStr,
+					method,
+					error: getGmXhrErrorMessage(error)
+				});
+			}
+		}
+		debug.warn("[GM_fetch] none of the GM approaches worked");
+		throw new Error("All GM approaches failed");
 	}
 	async function GM_fetch(url, opts = {}) {
 		const { timeout = 15e3, forceGmXhr = false, responseCache, ...fetchOptions } = opts;
