@@ -8106,18 +8106,8 @@ var vot = (function(exports) {
 		if (typeof maybeError?.statusText === "string") return maybeError.statusText;
 		return getErrorMessage(error) || "Unknown error";
 	}
-	async function gmXhrFetch(urlStr, timeout, fetchOptions) {
-		const headers = getHeaders(fetchOptions.headers);
-		const method = (fetchOptions.method || "GET").toUpperCase();
-		const callbackGmXhr = getCallbackGmXhr();
-		const promiseGmXhr = getPromiseGmXhr();
-		debug.log("[GM_fetch] GM_xmlhttpRequest start", {
-			url: urlStr,
-			method,
-			timeout,
-			headerCount: Object.keys(headers).length
-		});
-		if (callbackGmXhr) return await new Promise((resolve, reject) => {
+	async function executeCallbackGmXhr(gmXhr, urlStr, timeout, fetchOptions, method, headers) {
+		return new Promise((resolve, reject) => {
 			let settled = false;
 			let onAbort;
 			const cleanupAbort = () => {
@@ -8129,7 +8119,7 @@ var vot = (function(exports) {
 				cleanupAbort();
 				reject(error);
 			};
-			const request = callbackGmXhr({
+			const request = gmXhr({
 				method: fetchOptions.method || "GET",
 				url: urlStr,
 				responseType: "blob",
@@ -8194,8 +8184,9 @@ var vot = (function(exports) {
 				}
 			}
 		});
-		if (!promiseGmXhr) throw new TypeError("GM_xmlhttpRequest is not available");
-		const request = promiseGmXhr({
+	}
+	async function executePromiseGmXhr(gmXhr, urlStr, timeout, fetchOptions, method, headers) {
+		const request = gmXhr({
 			method,
 			url: urlStr,
 			responseType: "blob",
@@ -8235,6 +8226,44 @@ var vot = (function(exports) {
 			if (abortHandler) fetchOptions.signal?.removeEventListener("abort", abortHandler);
 		}
 	}
+	async function gmXhrFetch(urlStr, timeout, fetchOptions) {
+		const headers = getHeaders(fetchOptions.headers);
+		const method = (fetchOptions.method || "GET").toUpperCase();
+		debug.log("[GM_fetch] GM_xmlhttpRequest start", {
+			url: urlStr,
+			method,
+			timeout,
+			headerCount: Object.keys(headers).length
+		});
+		const callbackGmXhr = getCallbackGmXhr();
+		if (callbackGmXhr) {
+			debug.log("[GM_fetch] attempting callback-style GM_xmlhttpRequest");
+			try {
+				return await executeCallbackGmXhr(callbackGmXhr, urlStr, timeout, fetchOptions, method, headers);
+			} catch (error) {
+				debug.warn("[GM_fetch] callback-style GM_xmlhttpRequest failed", {
+					url: urlStr,
+					method,
+					error: getGmXhrErrorMessage(error)
+				});
+			}
+		}
+		const promiseGmXhr = getPromiseGmXhr();
+		if (promiseGmXhr) {
+			debug.log("[GM_fetch] attempting promise-style GM.xmlHttpRequest");
+			try {
+				return await executePromiseGmXhr(promiseGmXhr, urlStr, timeout, fetchOptions, method, headers);
+			} catch (error) {
+				debug.warn("[GM_fetch] promise-style GM.xmlHttpRequest failed", {
+					url: urlStr,
+					method,
+					error: getGmXhrErrorMessage(error)
+				});
+			}
+		}
+		debug.warn("[GM_fetch] none of the GM approaches worked");
+		throw new Error("All GM approaches failed");
+	}
 	async function GM_fetch(url, opts = {}) {
 		const { timeout = 15e3, forceGmXhr = false, responseCache, ...fetchOptions } = opts;
 		const urlStr = toRequestUrl(url);
@@ -8264,7 +8293,28 @@ var vot = (function(exports) {
 					host: host ?? "unknown",
 					reason: forceGmXhr ? "forced" : "host-policy"
 				});
-				return await gmXhrFetch(urlStr, timeout, fetchOptions);
+				try {
+					return await gmXhrFetch(urlStr, timeout, fetchOptions);
+				} catch (err) {
+					debug.warn("[GM_fetch] all GM approaches failed, falling back to native fetch", {
+						url: urlStr,
+						method,
+						host: host ?? "unknown",
+						error: getErrorMessage(err) || "Unknown error"
+					});
+					const { signal, cleanup } = createTimeoutSignal(timeout, fetchOptions.signal);
+					try {
+						return await fetch(url, {
+							...fetchOptions,
+							signal
+						});
+					} catch (fetchErr) {
+						if (signal.aborted || isAbortError$1(fetchErr)) throw fetchErr;
+						throw fetchErr;
+					} finally {
+						cleanup();
+					}
+				}
 			}
 			const { signal, cleanup } = createTimeoutSignal(timeout, fetchOptions.signal);
 			try {
