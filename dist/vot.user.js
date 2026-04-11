@@ -8134,16 +8134,38 @@ var vot = (function(exports) {
 	* resp.response when the request succeeds (e.g. 204 No Content, or simply a
 	* Safari bug).  Passing undefined/null to new Response() is fine — the spec
 	* treats it as an empty body.
+	*
+	* Some userscript managers (e.g. older ViolentMonkey on Chrome) return an
+	* ArrayBuffer or ArrayBufferView even when responseType is set to "blob".
+	* Tampermonkey may also return a string on certain platforms.  The Response
+	* constructor accepts all of these natively, so we forward them as-is rather
+	* than silently discarding the body.
 	*/
 	function sanitizeResponseBody(response) {
 		if (response instanceof Blob) return response;
+		if (response instanceof ArrayBuffer) return response;
+		if (ArrayBuffer.isView(response)) return response;
+		if (typeof response === "string" && response.length > 0) return response;
 		return null;
+	}
+	function getBodyTypeLabel(body) {
+		if (body === null) return "null";
+		if (body instanceof Blob) return `Blob(${body.size})`;
+		if (body instanceof ArrayBuffer) return `ArrayBuffer(${body.byteLength})`;
+		if (ArrayBuffer.isView(body)) return `${body.constructor.name}(${body.byteLength})`;
+		return `string(${body.length})`;
 	}
 	function buildResponse(resp, urlStr) {
 		const status = sanitizeStatus(resp.status);
 		const statusText = sanitizeStatusText(resp.statusText);
 		const body = sanitizeResponseBody(resp.response);
 		const responseHeaders = parseResponseHeaders(resp.responseHeaders);
+		debug.log("[GM_fetch] buildResponse", {
+			url: urlStr,
+			status,
+			rawStatus: resp.status,
+			bodyType: getBodyTypeLabel(body)
+		});
 		const response = new Response(body, {
 			status,
 			statusText,
