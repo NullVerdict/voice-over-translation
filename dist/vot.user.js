@@ -8041,7 +8041,6 @@ var vot = (function(exports) {
 	var YANDEX_API_HOST = "api.browser.yandex.ru";
 	var GOOGLEVIDEO_HOST_SUFFIX = "googlevideo.com";
 	var HEADER_LINE_RE = /^([\w-]+):\s*(.+)$/;
-	var VALID_STATUS_TEXT_RE = /^[\x20-\x7E]*$/;
 	var URL_SCHEME_RE = /^[a-zA-Z][a-zA-Z\d+.-]*:/;
 	var scriptHandler = typeof GM_info === "undefined" ? void 0 : GM_info?.scriptHandler;
 	function getCallbackGmXhr() {
@@ -8056,7 +8055,7 @@ var vot = (function(exports) {
 	function hasSupportedGmXhr() {
 		return !!(getCallbackGmXhr() || getPromiseGmXhr());
 	}
-	var isProxyOnlyExtension = !(typeof IS_EXTENSION !== "undefined" && IS_EXTENSION) && !!scriptHandler && !hasSupportedGmXhr();
+	var isProxyOnlyExtension = !(typeof IS_EXTENSION !== "undefined" && IS_EXTENSION) && !["Tampermonkey", "Violentmonkey"].includes(scriptHandler);
 	var isSupportGM4 = typeof GM !== "undefined" || globalThis.GM !== void 0;
 	var isSupportGMXhr = hasSupportedGmXhr();
 	function getRequestHost(url) {
@@ -8107,65 +8106,11 @@ var vot = (function(exports) {
 		if (typeof maybeError?.statusText === "string" && maybeError.statusText.trim().length > 0 && maybeError.statusText !== "\"\"" && maybeError.statusText !== "''") return maybeError.statusText;
 		return getErrorMessage(error) || "Unknown GM XHR error";
 	}
-	/**
-	* Safari (and some script managers on Safari) can return status=0 or
-	* status=undefined from GM_xmlhttpRequest, which causes new Response() to
-	* throw a RangeError: "Status must be between 200 and 599".
-	*
-	* This helper coerces any out-of-range value to 200 so we can still construct
-	* a valid Response and let the caller inspect the body / re-throw as needed.
-	*/
-	function sanitizeStatus(status) {
-		const n = typeof status === "number" ? status : Number(status);
-		if (Number.isInteger(n) && n >= 200 && n <= 599) return n;
-		return 200;
-	}
-	/**
-	* Safari may pass statusText values that contain non-printable or non-ASCII
-	* characters, which causes new Response() to throw a TypeError.
-	* Only pass through strings that match the HTTP reason-phrase grammar.
-	*/
-	function sanitizeStatusText(statusText) {
-		if (typeof statusText === "string" && VALID_STATUS_TEXT_RE.test(statusText)) return statusText;
-		return "";
-	}
-	/**
-	* Safari's GM_xmlhttpRequest Swift backend may return null/undefined for
-	* resp.response when the request succeeds (e.g. 204 No Content, or simply a
-	* Safari bug).  Passing undefined/null to new Response() is fine — the spec
-	* treats it as an empty body.
-	*
-	* Some userscript managers (e.g. older ViolentMonkey on Chrome) return an
-	* ArrayBuffer or ArrayBufferView even when responseType is set to "blob".
-	* Tampermonkey may also return a string on certain platforms.  The Response
-	* constructor accepts all of these natively, so we forward them as-is rather
-	* than silently discarding the body.
-	*/
-	function sanitizeResponseBody(response) {
-		if (response instanceof Blob) return response;
-		if (response instanceof ArrayBuffer) return response;
-		if (ArrayBuffer.isView(response)) return response;
-		if (typeof response === "string" && response.length > 0) return response;
-		return null;
-	}
-	function getBodyTypeLabel(body) {
-		if (body === null) return "null";
-		if (body instanceof Blob) return `Blob(${body.size})`;
-		if (body instanceof ArrayBuffer) return `ArrayBuffer(${body.byteLength})`;
-		if (ArrayBuffer.isView(body)) return `${body.constructor.name}(${body.byteLength})`;
-		return `string(${body.length})`;
-	}
 	function buildResponse(resp, urlStr) {
-		const status = sanitizeStatus(resp.status);
-		const statusText = sanitizeStatusText(resp.statusText);
-		const body = sanitizeResponseBody(resp.response);
+		const status = resp.status;
+		const statusText = typeof resp.statusText === "string" ? resp.statusText : "";
+		const body = resp.response instanceof Blob ? resp.response : null;
 		const responseHeaders = parseResponseHeaders(resp.responseHeaders);
-		debug.log("[GM_fetch] buildResponse", {
-			url: urlStr,
-			status,
-			rawStatus: resp.status,
-			bodyType: getBodyTypeLabel(body)
-		});
 		const response = new Response(body, {
 			status,
 			statusText,
