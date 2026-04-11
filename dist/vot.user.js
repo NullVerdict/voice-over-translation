@@ -8103,8 +8103,8 @@ var vot = (function(exports) {
 	}
 	function getGmXhrErrorMessage(error) {
 		const maybeError = error;
-		if (typeof maybeError?.error === "string" && maybeError.error.length > 0) return maybeError.error;
-		if (typeof maybeError?.statusText === "string" && maybeError.statusText.length > 0) return maybeError.statusText;
+		if (typeof maybeError?.error === "string" && maybeError.error.trim().length > 0) return maybeError.error;
+		if (typeof maybeError?.statusText === "string" && maybeError.statusText.trim().length > 0 && maybeError.statusText !== "\"\"" && maybeError.statusText !== "''") return maybeError.statusText;
 		return getErrorMessage(error) || "Unknown GM XHR error";
 	}
 	/**
@@ -8166,7 +8166,7 @@ var vot = (function(exports) {
 				reject(error);
 			};
 			const request = gmXhr({
-				method: fetchOptions.method || "GET",
+				method,
 				url: urlStr,
 				responseType: "blob",
 				data: fetchOptions.body,
@@ -8285,6 +8285,7 @@ var vot = (function(exports) {
 			try {
 				return await executeCallbackGmXhr(callbackGmXhr, urlStr, timeout, fetchOptions, method, headers);
 			} catch (error) {
+				if (isAbortError$1(error)) throw error;
 				debug.warn("[GM_fetch] callback-style GM_xmlhttpRequest failed", {
 					url: urlStr,
 					method,
@@ -8298,6 +8299,7 @@ var vot = (function(exports) {
 			try {
 				return await executePromiseGmXhr(promiseGmXhr, urlStr, timeout, fetchOptions, method, headers);
 			} catch (error) {
+				if (isAbortError$1(error)) throw error;
 				debug.warn("[GM_fetch] promise-style GM.xmlHttpRequest failed", {
 					url: urlStr,
 					method,
@@ -8340,6 +8342,8 @@ var vot = (function(exports) {
 				try {
 					return await gmXhrFetch(urlStr, timeout, fetchOptions);
 				} catch (err) {
+					if (isAbortError$1(err)) throw err;
+					if (forceGmXhr || shouldUseGmXhr(host, urlStr)) throw err;
 					debug.warn("[GM_fetch] all GM approaches failed, falling back to native fetch", {
 						url: urlStr,
 						method,
@@ -8352,9 +8356,6 @@ var vot = (function(exports) {
 							...fetchOptions,
 							signal
 						});
-					} catch (fetchErr) {
-						if (signal.aborted || isAbortError$1(fetchErr)) throw fetchErr;
-						throw fetchErr;
 					} finally {
 						cleanup();
 					}
