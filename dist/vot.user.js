@@ -6834,12 +6834,20 @@ var vot = (function(exports) {
 	//#endregion
 	//#region node_modules/chaimu/dist/player.js
 	var videoLipSyncEvents = [
+		"playing",
+		"ratechange",
 		"play",
+		"waiting",
 		"pause",
-		"ratechange"
+		"seeked"
 	];
-	var SYNC_DRIFT_S = .2;
-	var SYNC_LOOP_MS = 50;
+	var playSyncModes = new Set([
+		"play",
+		"playing",
+		"seeked"
+	]);
+	var pauseSyncModes = new Set(["pause", "waiting"]);
+	var chaimuExtraPlaySyncModes = new Set(["ratechange"]);
 	function initAudioContext() {
 		const audioContext = window.AudioContext ?? window.webkitAudioContext;
 		return audioContext ? new audioContext() : void 0;
@@ -6850,8 +6858,6 @@ var vot = (function(exports) {
 		fetch;
 		_src;
 		fetchOpts;
-		syncTimer;
-		syncPending = false;
 		constructor(chaimu, src) {
 			this.chaimu = chaimu;
 			this._src = src;
@@ -6864,65 +6870,20 @@ var vot = (function(exports) {
 		async clear() {
 			return this;
 		}
-		get mediaElement() {}
 		lipSync(_mode = false) {
-			this.syncPlayback();
 			return this;
 		}
-		syncMediaToVideo() {
-			const media = this.mediaElement;
-			const video = this.chaimu.video;
-			if (!media || !video) return false;
-			try {
-				if (media.playbackRate !== video.playbackRate) media.playbackRate = video.playbackRate;
-				if (Math.abs(media.currentTime - video.currentTime) > SYNC_DRIFT_S) media.currentTime = video.currentTime;
-			} catch {
-				return false;
-			}
-			return true;
-		}
-		shouldPlayWithVideo() {
-			const video = this.chaimu.video;
-			return Boolean(video && !video.paused && !video.ended && !video.seeking && video.readyState >= HTMLMediaElement.HAVE_FUTURE_DATA);
-		}
-		async syncPlayback() {
-			if (this.syncPending || !this.src) return this;
-			const media = this.mediaElement;
-			if (!media || !this.chaimu.video) return this;
-			this.syncPending = true;
-			try {
-				this.syncMediaToVideo();
-				if (this.shouldPlayWithVideo()) {
-					if (media.paused) await this.play();
-					return this;
-				}
-				if (!media.paused) await this.pause();
-				return this;
-			} finally {
-				this.syncPending = false;
-			}
-		}
-		handleVideoEvent = (_event) => {
-			this.syncPlayback();
+		handleVideoEvent = (event) => {
+			debug_default.log(`handle video ${event.type}`);
+			this.lipSync(event.type);
 			return this;
-		};
-		syncLoop = () => {
-			this.syncPlayback();
-			if (this.syncTimer === void 0) return;
-			this.syncTimer = setTimeout(this.syncLoop, SYNC_LOOP_MS);
 		};
 		removeVideoEvents() {
-			if (this.syncTimer !== void 0) {
-				clearTimeout(this.syncTimer);
-				this.syncTimer = void 0;
-			}
-			for (const eventName of videoLipSyncEvents) this.chaimu.video?.removeEventListener(eventName, this.handleVideoEvent);
+			for (const e of videoLipSyncEvents) this.chaimu.video?.removeEventListener(e, this.handleVideoEvent);
 			return this;
 		}
 		addVideoEvents() {
-			this.removeVideoEvents();
-			for (const eventName of videoLipSyncEvents) this.chaimu.video?.addEventListener(eventName, this.handleVideoEvent);
-			this.syncTimer = setTimeout(this.syncLoop, 0);
+			for (const e of videoLipSyncEvents) this.chaimu.video?.addEventListener(e, this.handleVideoEvent);
 			return this;
 		}
 		async play() {
@@ -6954,6 +6915,12 @@ var vot = (function(exports) {
 		get currentTime() {
 			return 0;
 		}
+		shouldResumeFromVideo(mode, extraModes) {
+			return Boolean(mode && (playSyncModes.has(mode) || extraModes?.has(mode)));
+		}
+		shouldPauseFromVideo(mode) {
+			return Boolean(mode && pauseSyncModes.has(mode));
+		}
 	};
 	var AudioPlayer = class extends BasePlayer {
 		static name = "AudioPlayer";
@@ -6961,26 +6928,20 @@ var vot = (function(exports) {
 		gainNode;
 		audioSource;
 		gainValue = 1;
-		get mediaElement() {
-			return this.audio;
-		}
-		get mediaElementSource() {
-			return this.audioSource;
-		}
-		get hasAudioGraph() {
-			return Boolean(this.audioSource && this.gainNode);
-		}
 		constructor(chaimu, src) {
 			super(chaimu, src);
 			this.updateAudio();
 		}
-		async resumeAudioContextIfNeeded() {
-			if (!this.hasAudioGraph || !this.chaimu.audioContext) return;
-			if (this.chaimu.audioContext.state === "suspended") await this.chaimu.audioContext.resume();
-		}
-		async suspendAudioContextIfNeeded() {
-			if (!this.hasAudioGraph || !this.chaimu.audioContext) return;
-			if (this.chaimu.audioContext.state === "running") await this.chaimu.audioContext.suspend();
+		initAudioBooster() {
+			if (!this.chaimu.audioContext) return this;
+			this.disconnectAudioNodes();
+			const gainNode = this.chaimu.audioContext.createGain();
+			this.gainNode = gainNode;
+			gainNode.gain.value = this.gainValue;
+			gainNode.connect(this.chaimu.audioContext.destination);
+			this.audioSource = this.chaimu.audioContext.createMediaElementSource(this.audio);
+			this.audioSource.connect(gainNode);
+			return this;
 		}
 		disconnectAudioNodes() {
 			if (this.audioSource) {
@@ -6992,53 +6953,57 @@ var vot = (function(exports) {
 				this.gainNode = void 0;
 			}
 		}
-		connectAudioNodes() {
-			this.disconnectAudioNodes();
-			const audioContext = this.chaimu.audioContext;
-			if (!audioContext) {
-				this.audio.volume = Math.min(this.gainValue, 1);
-				return this;
-			}
-			this.gainNode = audioContext.createGain();
-			this.audioSource = audioContext.createMediaElementSource(this.audio);
-			this.gainNode.gain.value = this.gainValue;
-			this.audioSource.connect(this.gainNode);
-			this.gainNode.connect(audioContext.destination);
-			this.audio.volume = 1;
-			return this;
-		}
 		updateAudio() {
 			this.audio?.pause();
 			this.audio = new Audio(this.src);
 			this.audio.crossOrigin = "anonymous";
-			this.connectAudioNodes();
+			this.audio.volume = this.gainValue;
 			return this;
 		}
 		async init() {
 			this.updateAudio();
+			this.initAudioBooster();
 			return this;
 		}
 		audioErrorHandle = (e) => {
 			console.error("[AudioPlayer]", e);
 		};
+		syncAudioToVideo() {
+			if (!this.chaimu.video) return false;
+			this.audio.currentTime = this.chaimu.video.currentTime;
+			this.audio.playbackRate = this.chaimu.video.playbackRate;
+			return true;
+		}
+		lipSync(mode = false) {
+			debug_default.log("[AudioPlayer] lipsync video", this.chaimu.video);
+			if (!this.syncAudioToVideo()) return this;
+			if (!mode) {
+				debug_default.log("[AudioPlayer] lipsync mode isn't set");
+				return this;
+			}
+			debug_default.log(`[AudioPlayer] lipsync mode is ${mode}`);
+			if (this.shouldResumeFromVideo(mode) && !this.chaimu.video.paused) {
+				this.play();
+				return this;
+			}
+			if (this.shouldPauseFromVideo(mode)) this.pause();
+			return this;
+		}
 		async clear() {
 			this.audio.pause();
 			this.audio.src = "";
 			this.audio.removeAttribute("src");
-			await this.suspendAudioContextIfNeeded();
 			this.disconnectAudioNodes();
 			return this;
 		}
 		async play() {
 			debug_default.log("[AudioPlayer] play called");
-			await this.resumeAudioContextIfNeeded();
-			await this.audio.play().catch(this.audioErrorHandle);
+			if (this.audio) await this.audio.play().catch(this.audioErrorHandle);
 			return this;
 		}
 		async pause() {
 			debug_default.log("[AudioPlayer] pause called");
-			this.audio.pause();
-			await this.suspendAudioContextIfNeeded();
+			if (this.audio) this.audio.pause();
 			return this;
 		}
 		set src(url) {
@@ -7061,7 +7026,7 @@ var vot = (function(exports) {
 				this.gainNode.gain.value = value;
 				return;
 			}
-			this.audio.volume = Math.min(value, 1);
+			this.audio.volume = value;
 		}
 		get volume() {
 			return this.gainNode ? this.gainNode.gain.value : this.audio.volume;
@@ -7083,9 +7048,6 @@ var vot = (function(exports) {
 		gainNode;
 		blobUrl;
 		gainValue = 1;
-		get mediaElement() {
-			return this.audioElement;
-		}
 		async createBlobUrl() {
 			if (!this._src) throw new Error("No audio source provided");
 			debug_default.log(`[ChaimuPlayer] Fetching audio from ${this._src}...`);
@@ -7135,7 +7097,6 @@ var vot = (function(exports) {
 			if (!this.chaimu.audioContext) throw new Error("No audio context available");
 			const audio = new Audio(src);
 			audio.crossOrigin = "anonymous";
-			audio.volume = 1;
 			if ("preservesPitch" in audio) {
 				audio.preservesPitch = true;
 				if ("mozPreservesPitch" in audio) audio.mozPreservesPitch = true;
@@ -7148,9 +7109,30 @@ var vot = (function(exports) {
 			this.mediaElementSource.connect(gainNode);
 			gainNode.connect(this.chaimu.audioContext.destination);
 		}
+		syncAudioToVideo() {
+			if (!this.audioElement || !this.chaimu.video) return false;
+			this.audioElement.currentTime = this.chaimu.video.currentTime;
+			this.audioElement.playbackRate = this.chaimu.video.playbackRate;
+			return true;
+		}
+		lipSync(mode = false) {
+			debug_default.log("[ChaimuPlayer] lipsync video", this.chaimu.video, this);
+			if (!this.chaimu.video) return this;
+			if (!mode) {
+				debug_default.log("[ChaimuPlayer] lipsync mode isn't set");
+				return this;
+			}
+			debug_default.log(`[ChaimuPlayer] lipsync mode is ${mode}`);
+			if (this.shouldResumeFromVideo(mode, chaimuExtraPlaySyncModes) && !this.chaimu.video.paused) {
+				this.play();
+				return this;
+			}
+			if (this.shouldPauseFromVideo(mode)) this.pause();
+			return this;
+		}
 		async clear() {
-			await this.pause().catch(() => void 0);
 			if (this.audioElement) {
+				this.audioElement.pause();
 				this.audioElement.src = "";
 				this.audioElement.removeAttribute("src");
 				this.audioElement.load();
@@ -7165,18 +7147,16 @@ var vot = (function(exports) {
 			if (this.chaimu.audioContext.state === "closed") throw new Error("Audio context is closed");
 			if (this.chaimu.audioContext.state === "suspended") await this.chaimu.audioContext.resume();
 		}
-		async suspendContext() {
-			if (!this.chaimu.audioContext) throw new Error("No audio context available");
-			if (this.chaimu.audioContext.state === "running") await this.chaimu.audioContext.suspend();
-		}
 		async pause() {
-			this.audioElement?.pause();
-			await this.suspendContext();
+			if (!this.chaimu.audioContext) throw new Error("No audio context available");
+			if (this.audioElement) this.audioElement.pause();
+			if (this.chaimu.audioContext.state === "running") await this.chaimu.audioContext.suspend();
 			return this;
 		}
 		async play() {
 			if (!this.audioElement) throw new Error("Audio element is missing");
 			await this.resumeContext();
+			this.syncAudioToVideo();
 			try {
 				await this.audioElement.play();
 			} catch (err) {
@@ -7230,8 +7210,8 @@ var vot = (function(exports) {
 		}
 		async init() {
 			await this.player.init();
+			if (this.video && !this.video.paused) this.player.lipSync("play");
 			this.player.addVideoEvents();
-			this.player.lipSync("play");
 		}
 		set debug(value) {
 			this._debug = config_default.debug = value;
