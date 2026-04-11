@@ -12519,6 +12519,7 @@ var vot = (function(exports) {
 			if (getComputedStyle(this.container).position === "static") this.container.style.position = "relative";
 			if (widgetContainer && widgetContainer.parentElement !== this.container) this.container.appendChild(widgetContainer);
 		}
+		release() {}
 	};
 	//#endregion
 	//#region src/subtitles/inlineStyle.ts
