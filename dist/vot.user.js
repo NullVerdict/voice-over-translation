@@ -7515,7 +7515,9 @@ var vot = (function(exports) {
 		if (options.fileHandle) {
 			if (await writeBlobToHandle(options.fileHandle, blob)) return true;
 		}
-		if (options.preferShare) return await shareBlob(blob, filename) === "shared";
+		if (options.preferShare) {
+			if (await shareBlob(blob, filename) === "shared") return true;
+		}
 		return triggerBlobDownload(blob, filename);
 	}
 	function revokeObjectUrlLater(url, delayMs = DEFAULT_OBJECT_URL_REVOKE_DELAY_MS) {
