@@ -21035,6 +21035,7 @@ var vot = (function(exports) {
 					const nextVolume = clamp(currentVolume, 0, maxVolume);
 					overlayView.translationVolumeSlider.value = nextVolume;
 					this.videoHandler?.onTranslationVolumeSliderSynced(nextVolume);
+					this.videoHandler?.syncTranslationPlaybackVolume();
 				});
 			}).addEventListener("change:syncVolume", (checked) => {
 				if (!this.videoHandler) return;
@@ -21048,6 +21049,7 @@ var vot = (function(exports) {
 					const nextTranslation = clamp(translationSlider.value, 0, maxVolume);
 					translationSlider.value = nextTranslation;
 					this.videoHandler.onTranslationVolumeSliderSynced(nextTranslation);
+					this.videoHandler.syncTranslationPlaybackVolume();
 					if (!checked) return;
 					this.videoHandler.resetVolumeLinkState(Number(videoSlider.value), nextTranslation);
 				});
@@ -22608,6 +22610,13 @@ var vot = (function(exports) {
 		this.smartVolumeLastApplied = nextVolume;
 	}
 	//#endregion
+	//#region src/utils/translationVolume.ts
+	function applyTranslationPlaybackVolume(player, volumePercent, fallbackVolumePercent) {
+		const nextVolume = typeof volumePercent === "number" && Number.isFinite(volumePercent) ? volumePercent : fallbackVolumePercent;
+		if (!player || typeof nextVolume !== "number" || !Number.isFinite(nextVolume)) return;
+		player.volume = nextVolume / 100;
+	}
+	//#endregion
 	//#region src/videoHandler/modules/proxyShared.ts
 	var AUDIO_SOURCE_PREFIX = "https://vtrans.s3-private.mds.yandex.net/tts/prod/";
 	var AUDIO_PROXY_PATH_PREFIX = "/video-translation/audio-proxy/";
@@ -23052,6 +23061,11 @@ var vot = (function(exports) {
 		this.setupAudioSettings();
 		this.transformBtn("success", localizationProvider.get("disableTranslate"));
 		this.afterUpdateTranslation(resolvedAudioUrl);
+	}
+	function syncTranslationPlaybackVolume() {
+		const player = this.audioPlayer?.player;
+		const nextVolume = this.uiManager.votOverlayView?.translationVolumeSlider?.value;
+		applyTranslationPlaybackVolume(player, nextVolume, this.data?.defaultVolume);
 	}
 	async function applyTranslationWithDirectFallback(handler, audioUrl, actionContext) {
 		const nextAudioUrl = audioUrl;
@@ -25367,6 +25381,7 @@ var vot = (function(exports) {
 				this.downloadTranslationUrl = audioUrl;
 			}
 			debug.log("afterUpdateTranslation downloadTranslationUrl", this.downloadTranslationUrl);
+			this.syncTranslationPlaybackVolume();
 			if (this.data?.sendNotifyOnComplete && this.hadAsyncWait && isSuccess) {
 				this.notifier.translationCompleted(globalThis.location.hostname);
 				this.hadAsyncWait = false;
@@ -25419,6 +25434,9 @@ var vot = (function(exports) {
 		* @param {string} audioUrl The audio URL.
 		*/
 		updateTranslation = updateTranslation;
+		syncTranslationPlaybackVolume() {
+			return this.callModule(syncTranslationPlaybackVolume);
+		}
 		/**
 		* Translates the video/audio.
 		* @param {string} VIDEO_ID The video ID.
