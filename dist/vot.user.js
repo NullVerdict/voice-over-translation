@@ -7,7 +7,7 @@
 // @name:ru        [VOT] - Закадровый перевод видео
 // @name:zh        [VOT] - 画外音视频翻译
 // @namespace      vot
-// @version        1.11.5.1
+// @version        1.11.5.2
 // @author         Toil, SashaXser, MrSoczekXD, mynovelhost, sodapng
 // @description    A small extension that adds a Yandex Browser video translation to other browsers
 // @description:de Eine kleine Erweiterung, die eine Voice-over-Übersetzung von Videos aus dem Yandex-Browser zu anderen Browsern hinzufügt
@@ -4788,7 +4788,7 @@ var vot = (function(exports) {
 	var DeeplearningAIHelper = class extends BaseHelper {
 		async getVideoData(_videoId) {
 			if (!this.video) return;
-			const sourceUrl = this.video.querySelector("source[type=\"application/x-mpegurl\"]")?.src;
+			const sourceUrl = this.video.querySelector("source[type=\"application/x-mpegurl\"]")?.src.replace(/\.m3u8/, "_360p.mp4");
 			if (!sourceUrl) return;
 			return { url: sourceUrl };
 		}
@@ -10999,7 +10999,7 @@ var vot = (function(exports) {
 		return buildVersion || scriptVersion || "unknown";
 	}
 	function getRuntimeLocaleVersion() {
-		return resolveRuntimeLocaleVersion(String("1.11.5.1"), typeof GM_info !== "undefined" ? String(GM_info?.script?.version || "") : "");
+		return resolveRuntimeLocaleVersion(String("1.11.5.2"), typeof GM_info !== "undefined" ? String(GM_info?.script?.version || "") : "");
 	}
 	var LocalizationProvider = class {
 		/**
@@ -17468,6 +17468,20 @@ var vot = (function(exports) {
 		return addTitleId3Tag(arrayBuffer, filename);
 	}
 	//#endregion
+	//#region src/utils/translationVolume.ts
+	function safeSetPlayerVolume(player, volume) {
+		try {
+			player.volume = volume;
+		} catch {
+			player.volume = Math.max(0, Math.min(1, volume));
+		}
+	}
+	function applyTranslationPlaybackVolume(player, volumePercent, fallbackVolumePercent) {
+		const nextVolume = typeof volumePercent === "number" && Number.isFinite(volumePercent) ? volumePercent : fallbackVolumePercent;
+		if (!player || typeof nextVolume !== "number" || !Number.isFinite(nextVolume)) return;
+		safeSetPlayerVolume(player, nextVolume / 100);
+	}
+	//#endregion
 	//#region src/ui/mount.ts
 	/**
 	* Compare overlay mount points by DOM identity.
@@ -20992,7 +21006,7 @@ var vot = (function(exports) {
 			}).addEventListener("input:translationVolume", (volume) => {
 				if (!this.videoHandler) return;
 				const nextVolume = volume ?? this.data.defaultVolume ?? 100;
-				this.videoHandler.audioPlayer.player.volume = nextVolume / 100;
+				safeSetPlayerVolume(this.videoHandler.audioPlayer.player, nextVolume / 100);
 				if (!this.data.syncVolume) {
 					this.videoHandler.onTranslationVolumeSliderSynced(nextVolume);
 					return;
@@ -22579,7 +22593,7 @@ var vot = (function(exports) {
 		}
 	}
 	function setupAudioSettings() {
-		if (typeof this.data?.defaultVolume === "number") this.audioPlayer.player.volume = this.data.defaultVolume / 100;
+		if (typeof this.data?.defaultVolume === "number") safeSetPlayerVolume(this.audioPlayer.player, this.data.defaultVolume / 100);
 		const autoVolumeMode = getAutoVolumeMode(this);
 		if (autoVolumeMode === "off") {
 			stopSmartVolumeDucking(this, { restoreVolume: this.smartVolumeDuckingBaseline ?? this.volumeOnStart });
@@ -22608,13 +22622,6 @@ var vot = (function(exports) {
 		this.smartVolumeDuckingTarget = nextVolume;
 		this.smartVolumeDuckingBaseline = nextVolume;
 		this.smartVolumeLastApplied = nextVolume;
-	}
-	//#endregion
-	//#region src/utils/translationVolume.ts
-	function applyTranslationPlaybackVolume(player, volumePercent, fallbackVolumePercent) {
-		const nextVolume = typeof volumePercent === "number" && Number.isFinite(volumePercent) ? volumePercent : fallbackVolumePercent;
-		if (!player || typeof nextVolume !== "number" || !Number.isFinite(nextVolume)) return;
-		player.volume = nextVolume / 100;
 	}
 	//#endregion
 	//#region src/videoHandler/modules/proxyShared.ts
@@ -25236,7 +25243,7 @@ var vot = (function(exports) {
 			});
 			if (typeof nextTranslation === "number") {
 				translationSlider.value = nextTranslation;
-				if (this.audioPlayer?.player) this.audioPlayer.player.volume = nextTranslation / 100;
+				if (this.audioPlayer?.player) safeSetPlayerVolume(this.audioPlayer.player, nextTranslation / 100);
 				return;
 			}
 			if (typeof nextVideo === "number") {
