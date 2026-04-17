@@ -17469,16 +17469,42 @@ var vot = (function(exports) {
 	}
 	//#endregion
 	//#region src/utils/translationVolume.ts
+	/**
+	* Sets player volume with support for gainNode amplification (audioBooster).
+	* When volume > 1.0 and gainNode is available, uses gainNode for amplification.
+	* Otherwise, clamps volume to [0, 1] range for standard media elements.
+	*/
 	function safeSetPlayerVolume(player, volume) {
+		const gainNode = player.gainNode;
+		const hasGainNode = !!gainNode?.gain;
+		debug.log("[safeSetPlayerVolume] setting volume:", volume, "hasGainNode:", hasGainNode, "usingAudioBooster:", volume > 1 && hasGainNode);
+		if (volume > 1 && gainNode?.gain) try {
+			player.volume = 1;
+			gainNode.gain.value = volume;
+			debug.log("[safeSetPlayerVolume] audioBooster applied - gainNode.value:", volume);
+			return;
+		} catch (err) {
+			debug.log("[safeSetPlayerVolume] audioBooster failed, falling back:", err);
+		}
 		try {
 			player.volume = volume;
+			debug.log("[safeSetPlayerVolume] standard volume set:", volume);
 		} catch {
 			player.volume = Math.max(0, Math.min(1, volume));
+			debug.log("[safeSetPlayerVolume] volume clamped to:", player.volume);
 		}
+		if (gainNode?.gain && volume <= 1) try {
+			gainNode.gain.value = 1;
+			debug.log("[safeSetPlayerVolume] gainNode reset to 1");
+		} catch {}
 	}
 	function applyTranslationPlaybackVolume(player, volumePercent, fallbackVolumePercent) {
 		const nextVolume = typeof volumePercent === "number" && Number.isFinite(volumePercent) ? volumePercent : fallbackVolumePercent;
-		if (!player || typeof nextVolume !== "number" || !Number.isFinite(nextVolume)) return;
+		debug.log("[applyTranslationPlaybackVolume] volumePercent:", volumePercent, "fallback:", fallbackVolumePercent, "resolved:", nextVolume, "hasPlayer:", !!player);
+		if (!player || typeof nextVolume !== "number" || !Number.isFinite(nextVolume)) {
+			debug.log("[applyTranslationPlaybackVolume] skipped - invalid player or volume");
+			return;
+		}
 		safeSetPlayerVolume(player, nextVolume / 100);
 	}
 	//#endregion
@@ -22360,7 +22386,9 @@ var vot = (function(exports) {
 		return handler.data?.enabledSmartDucking ?? true ? "smart" : "classic";
 	}
 	function getSmartDuckingAudioContext(handler) {
-		return handler.audioPlayer?.audioContext ?? handler.audioContext;
+		const ctx = handler.audioPlayer?.audioContext ?? handler.audioContext;
+		debug.log("[getSmartDuckingAudioContext] audioContext state:", ctx?.state, "fromPlayer:", !!handler.audioPlayer?.audioContext, "fromHandler:", !!handler.audioContext);
+		return ctx;
 	}
 	function disconnectSmartDuckingAnalyser(state) {
 		if (state.connectedInputNode && state.analyser) try {
@@ -22383,11 +22411,14 @@ var vot = (function(exports) {
 	}
 	function releaseSmartDuckingAnalyser(handler) {
 		const state = smartDuckingAnalyserState.get(handler);
+		debug.log("[releaseSmartDuckingAnalyser] hasState:", !!state);
 		if (!state) return;
 		disconnectSmartDuckingAnalyser(state);
 		smartDuckingAnalyserState.delete(handler);
+		debug.log("[releaseSmartDuckingAnalyser] analyser released");
 	}
 	function resolveSmartDuckingInputNode(player, media, audioContext, state) {
+		debug.log("[resolveSmartDuckingInputNode] checking player nodes - gainNode:", isAudioNode(player?.gainNode), "audioSource:", isAudioNode(player?.audioSource), "mediaElementSource:", isAudioNode(player?.mediaElementSource));
 		if (isAudioNode(player?.gainNode)) return player.gainNode;
 		if (isAudioNode(player?.audioSource)) return player.audioSource;
 		if (isAudioNode(player?.mediaElementSource)) return player.mediaElementSource;
@@ -22397,6 +22428,7 @@ var vot = (function(exports) {
 			const source = audioContext.createMediaElementSource(media);
 			state.createdMediaSource = source;
 			state.mediaSourceCreationFailed = false;
+			debug.log("[resolveSmartDuckingInputNode] created MediaElementSource");
 			return source;
 		} catch (err) {
 			state.mediaSourceCreationFailed = true;
@@ -22593,16 +22625,24 @@ var vot = (function(exports) {
 		}
 	}
 	function setupAudioSettings() {
+		debug.log("[setupAudioSettings] defaultVolume:", this.data?.defaultVolume, "enabledAutoVolume:", this.data?.enabledAutoVolume, "enabledSmartDucking:", this.data?.enabledSmartDucking, "syncVolume:", this.data?.syncVolume, "hasActiveSource:", this.hasActiveSource());
 		if (typeof this.data?.defaultVolume === "number") safeSetPlayerVolume(this.audioPlayer.player, this.data.defaultVolume / 100);
 		const autoVolumeMode = getAutoVolumeMode(this);
+		debug.log("[setupAudioSettings] autoVolumeMode:", autoVolumeMode);
 		if (autoVolumeMode === "off") {
+			debug.log("[setupAudioSettings] stopping smart ducking (mode=off)");
 			stopSmartVolumeDucking(this, { restoreVolume: this.smartVolumeDuckingBaseline ?? this.volumeOnStart });
 			return;
 		}
 		const targetVolume = clamp(this.data.autoVolume ?? 15, 0, 100) / 100;
 		this.smartVolumeDuckingTarget = targetVolume;
-		if (!this.hasActiveSource()) return;
+		debug.log("[setupAudioSettings] targetVolume:", targetVolume);
+		if (!this.hasActiveSource()) {
+			debug.log("[setupAudioSettings] no active source, skipping");
+			return;
+		}
 		if (autoVolumeMode === "smart") {
+			debug.log("[setupAudioSettings] starting smart ducking");
 			startSmartVolumeDucking(this);
 			return;
 		}
@@ -22612,7 +22652,9 @@ var vot = (function(exports) {
 		}
 		if (typeof this.smartVolumeDuckingBaseline !== "number") this.smartVolumeDuckingBaseline = this.getVideoVolume();
 		const baseline = this.smartVolumeDuckingBaseline ?? this.getVideoVolume();
-		this.setVideoVolume(Math.min(baseline, targetVolume));
+		const nextVolume = Math.min(baseline, targetVolume);
+		debug.log("[setupAudioSettings] classic mode - baseline:", baseline, "nextVolume:", nextVolume);
+		this.setVideoVolume(nextVolume);
 		writeSmartDuckingRuntime(this, initSmartDuckingRuntime(this.smartVolumeDuckingBaseline));
 		this.smartVolumeIsDucked = true;
 	}
@@ -22998,14 +23040,20 @@ var vot = (function(exports) {
 		return handler.proxifyAudio(handler.unproxifyAudio(url));
 	}
 	async function applyTranslationSource(handler, sourceUrl, actionContext) {
-		const didSetSource = handler.audioPlayer.player.src !== sourceUrl;
+		const currentSrc = handler.audioPlayer.player.src;
+		const didSetSource = currentSrc !== sourceUrl;
 		let appliedSourceUrl = null;
+		debug.log("[applyTranslationSource] currentSrc:", currentSrc, "newSrc:", sourceUrl, "didSetSource:", didSetSource, "audioContext state:", handler.audioPlayer.audioContext?.state);
 		if (didSetSource) {
 			handler.audioPlayer.player.src = sourceUrl;
 			appliedSourceUrl = sourceUrl;
 		}
 		try {
-			if (didSetSource) await handler.audioPlayer.init();
+			if (didSetSource) {
+				debug.log("[applyTranslationSource] initializing player");
+				await handler.audioPlayer.init();
+				debug.log("[applyTranslationSource] player initialized");
+			}
 			if (handler.isActionStale(actionContext)) {
 				await rollbackStaleAppliedSourceIfStillCurrent(handler, appliedSourceUrl);
 				return {
@@ -23025,13 +23073,18 @@ var vot = (function(exports) {
 					appliedSourceUrl
 				};
 			}
-			if (!handler.video.paused && handler.audioPlayer.player.src) handler.audioPlayer.player.lipSync("play");
+			if (!handler.video.paused && handler.audioPlayer.player.src) {
+				debug.log("[applyTranslationSource] triggering lipSync play");
+				handler.audioPlayer.player.lipSync("play");
+			}
+			debug.log("[applyTranslationSource] success - didSetSource:", didSetSource, "player volume:", handler.audioPlayer.player.volume, "has gainNode:", !!handler.audioPlayer.player.gainNode);
 			return {
 				status: "success",
 				didSetSource,
 				appliedSourceUrl
 			};
 		} catch (error) {
+			debug.log("[applyTranslationSource] error:", error);
 			return {
 				status: "error",
 				didSetSource,
@@ -23072,6 +23125,7 @@ var vot = (function(exports) {
 	function syncTranslationPlaybackVolume() {
 		const player = this.audioPlayer?.player;
 		const nextVolume = this.uiManager.votOverlayView?.translationVolumeSlider?.value;
+		debug.log("[syncTranslationPlaybackVolume] slider value:", nextVolume, "defaultVolume:", this.data?.defaultVolume, "player has gainNode:", !!player?.gainNode);
 		applyTranslationPlaybackVolume(player, nextVolume, this.data?.defaultVolume);
 	}
 	async function applyTranslationWithDirectFallback(handler, audioUrl, actionContext) {
@@ -24935,12 +24989,29 @@ var vot = (function(exports) {
 		* @returns {boolean} True if audio is preferred.
 		*/
 		getPreferAudio() {
-			if (!this.getAudioContext()) return true;
-			if (!this.data) return true;
-			if (!this.data.newAudioPlayer) return true;
-			if (this.videoData?.isStream) return true;
-			if (this.data.newAudioPlayer && !this.data.onlyBypassMediaCSP) return false;
-			return !this.site.needBypassCSP;
+			if (!this.getAudioContext()) {
+				debug.log("[getPreferAudio] no AudioContext, preferring legacy audio path");
+				return true;
+			}
+			if (!this.data) {
+				debug.log("[getPreferAudio] no data, preferring legacy audio path");
+				return true;
+			}
+			if (!this.data.newAudioPlayer) {
+				debug.log("[getPreferAudio] newAudioPlayer disabled, preferring legacy audio path");
+				return true;
+			}
+			if (this.videoData?.isStream) {
+				debug.log("[getPreferAudio] stream video, preferring legacy audio path");
+				return true;
+			}
+			if (this.data.newAudioPlayer && !this.data.onlyBypassMediaCSP) {
+				debug.log("[getPreferAudio] using new audio player (ChaimuPlayer)");
+				return false;
+			}
+			const result = !this.site.needBypassCSP;
+			debug.log("[getPreferAudio] site.needBypassCSP:", this.site.needBypassCSP, "preferAudio:", result);
+			return result;
 		}
 		/**
 		* Creates the audio player.
@@ -24948,7 +25019,8 @@ var vot = (function(exports) {
 		*/
 		createPlayer() {
 			const preferAudio = this.getPreferAudio();
-			debug.log("preferAudio:", preferAudio);
+			const audioContext = this.getAudioContext();
+			debug.log("[createPlayer] preferAudio:", preferAudio, "hasAudioContext:", !!audioContext, "creating Chaimu player");
 			this.audioPlayer = new Chaimu({
 				video: this.video,
 				debug: Boolean(false),
@@ -24956,6 +25028,11 @@ var vot = (function(exports) {
 				fetchOpts: { timeout: 0 },
 				preferAudio
 			});
+			if (preferAudio && audioContext) {
+				debug.log("[createPlayer] assigning AudioContext for audioBooster support");
+				this.audioPlayer.audioContext = audioContext;
+			}
+			debug.log("[createPlayer] player created - has audioContext:", !!this.audioPlayer.audioContext, "audioContext state:", this.audioPlayer.audioContext?.state, "player type:", this.audioPlayer.player.constructor?.name);
 			return this;
 		}
 		/**
