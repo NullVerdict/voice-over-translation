@@ -17511,31 +17511,26 @@ var vot = (function(exports) {
 	}
 	//#endregion
 	//#region src/utils/translationVolume.ts
-	function safeSetPlayerVolume(player, volume, audioBooster) {
+	function safeSetPlayerVolume(player, volume) {
 		const gainNode = player.gainNode;
-		const clampedVolume = Math.max(0, Math.min(1, audioBooster ? volume : Math.min(1, volume)));
-		if (audioBooster && volume > 1) {
-			if (!player.gainNode && player._originalGainNode) {
-				player.gainNode = player._originalGainNode;
-				player._originalGainNode = void 0;
-			}
-			if (player.gainNode?.gain) try {
-				player.volume = 1;
-				player.gainNode.gain.value = volume;
-				return;
-			} catch {}
+		if (volume > 1 && gainNode?.gain) try {
+			player.volume = 1;
+			gainNode.gain.value = volume;
+			return;
+		} catch {}
+		try {
+			player.volume = volume;
+		} catch {
+			player.volume = Math.max(0, Math.min(1, volume));
 		}
-		if (gainNode?.gain) {
-			gainNode.gain.value = 1;
-			player._originalGainNode = gainNode;
-			player.gainNode = void 0;
-		}
-		player.volume = clampedVolume;
+		if (gainNode?.gain && volume <= 1) try {
+			gainNode.gain.value = void 0;
+		} catch {}
 	}
-	function applyTranslationPlaybackVolume(player, volumePercent, fallbackVolumePercent, audioBooster) {
+	function applyTranslationPlaybackVolume(player, volumePercent, fallbackVolumePercent) {
 		const nextVolume = typeof volumePercent === "number" && Number.isFinite(volumePercent) ? volumePercent : fallbackVolumePercent;
 		if (!player || typeof nextVolume !== "number" || !Number.isFinite(nextVolume)) return;
-		safeSetPlayerVolume(player, nextVolume / 100, audioBooster);
+		safeSetPlayerVolume(player, nextVolume / 100);
 	}
 	//#endregion
 	//#region src/ui/mount.ts
@@ -21105,7 +21100,7 @@ var vot = (function(exports) {
 					const nextVolume = clamp(currentVolume, 0, maxVolume);
 					overlayView.translationVolumeSlider.value = nextVolume;
 					this.videoHandler?.onTranslationVolumeSliderSynced(nextVolume);
-					this.videoHandler?.syncTranslationPlaybackVolume();
+					if (this.videoHandler?.audioPlayer?.player) safeSetPlayerVolume(this.videoHandler.audioPlayer.player, nextVolume / 100, this.data.audioBooster);
 				});
 			}).addEventListener("change:syncVolume", (checked) => {
 				if (!this.videoHandler) return;
@@ -22438,8 +22433,7 @@ var vot = (function(exports) {
 		disconnectSmartDuckingAnalyser(state);
 		smartDuckingAnalyserState.delete(handler);
 	}
-	function resolveSmartDuckingInputNode(handler, player, media, audioContext, state) {
-		if ((handler.data?.audioBooster && (player?.audio?.volume ?? 0) > 1 || handler.data?.onlyBypassMediaCSP) && isAudioNode(player?.gainNode)) return player.gainNode;
+	function resolveSmartDuckingInputNode(player, media, audioContext, state) {
 		if (isAudioNode(player?.audioSource)) return player.audioSource;
 		if (isAudioNode(player?.mediaElementSource)) return player.mediaElementSource;
 		if (state.mediaSourceCreationFailed && state.mediaElement === media && state.audioContext === audioContext) return;
@@ -22471,7 +22465,7 @@ var vot = (function(exports) {
 			analyser.fftSize = 512;
 			state.analyser = analyser;
 		}
-		const inputNode = resolveSmartDuckingInputNode(handler, player, media, audioContext, state);
+		const inputNode = resolveSmartDuckingInputNode(player, media, audioContext, state);
 		const analyser = state.analyser;
 		if (!inputNode || !analyser) return void 0;
 		if (state.connectedInputNode !== inputNode) {
