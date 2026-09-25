@@ -316,18 +316,22 @@ function findJsonStringEnd(source: string, start: number): number {
 
 function findJsonCompositeEnd(source: string, start: number): number {
   let depth = 0;
-  for (let index = start; index < source.length; index++) {
-    const char = source[index];
+  let cursor = start;
+  while (cursor < source.length) {
+    const char = source[cursor];
     if (char === '"') {
-      const stringEnd = findJsonStringEnd(source, index);
+      const stringEnd = findJsonStringEnd(source, cursor);
       if (stringEnd < 0) return -1;
-      index = stringEnd - 1;
-    } else if (char === "{" || char === "[") {
+      cursor = stringEnd;
+      continue;
+    }
+    if (char === "{" || char === "[") {
       depth++;
     } else if (char === "}" || char === "]") {
       depth--;
-      if (depth === 0) return index + 1;
+      if (depth === 0) return cursor + 1;
     }
+    cursor++;
   }
   return -1;
 }

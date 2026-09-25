@@ -40,41 +40,69 @@ const LEADING_WHITESPACE_RE = /^\s+/u;
 const getLeadingPunctuation = (value: string): string =>
   LEADING_PUNCTUATION_RE.exec(value)?.[0] ?? "";
 
-const TRAILING_PUNCTUATION_RE = /[\p{P}\p{S}]+$/u;
-const SHORT_SUBTITLE_TEXT_LIMIT = 256;
+const TRAILING_PUNCTUATION_CHUNK_LIMIT = 256;
+const TRAILING_PUNCTUATION_CHUNK_RE = /[\p{P}\p{S}]{1,256}$/u;
+const LONG_SUBTITLE_TEXT_LIMIT = 256;
+
+function previousCodePointStart(value: string, end: number): number {
+  let start = end - 1;
+  const lastCodeUnit = value.charCodeAt(start);
+  if (lastCodeUnit >= 0xdc00 && lastCodeUnit <= 0xdfff && start > 0) {
+    const previousCodeUnit = value.charCodeAt(start - 1);
+    if (previousCodeUnit >= 0xd800 && previousCodeUnit <= 0xdbff) {
+      start -= 1;
+    }
+  }
+  return start;
+}
 
 function trailingPunctuationStart(value: string): number {
   const valueLength = value.length;
 
-  // The anchored regex is fastest for normal subtitle-sized tokens. For long
-  // input, avoid scanning the entire string when its final code point cannot
-  // be punctuation; only use the regex when a trailing match is possible.
-  if (valueLength <= SHORT_SUBTITLE_TEXT_LIMIT) {
-    return TRAILING_PUNCTUATION_RE.exec(value)?.index ?? valueLength;
-  }
-
-  let codePointStart = valueLength - 1;
-  const lastCodeUnit = value.charCodeAt(codePointStart);
-  if (
-    lastCodeUnit >= 0xdc00 &&
-    lastCodeUnit <= 0xdfff &&
-    codePointStart > 0
-  ) {
-    const previousCodeUnit = value.charCodeAt(codePointStart - 1);
-    if (previousCodeUnit >= 0xd800 && previousCodeUnit <= 0xdbff) {
-      codePointStart -= 1;
+  // Skip long text in constant time when its final code point cannot match.
+  if (valueLength > LONG_SUBTITLE_TEXT_LIMIT) {
+    const lastCodePointStart = previousCodePointStart(value, valueLength);
+    if (
+      !PUNCTUATION_CODE_POINT_RE.test(
+        value.slice(lastCodePointStart, valueLength),
+      )
+    ) {
+      return valueLength;
     }
   }
-  if (!PUNCTUATION_CODE_POINT_RE.test(value.slice(codePointStart, valueLength))) {
-    return valueLength;
-  }
 
-  return TRAILING_PUNCTUATION_RE.exec(value)?.index ?? valueLength;
+  // Inspect bounded chunks from the end. The regex input and repeat count are
+  // capped, so punctuation-heavy text has linear work without unbounded
+  // backtracking or a per-code-point string allocation.
+  let end = valueLength;
+  while (end > 0) {
+    let chunkStart = Math.max(0, end - TRAILING_PUNCTUATION_CHUNK_LIMIT);
+    if (chunkStart > 0) {
+      const firstCodeUnit = value.charCodeAt(chunkStart);
+      const previousCodeUnit = value.charCodeAt(chunkStart - 1);
+      if (
+        firstCodeUnit >= 0xdc00 &&
+        firstCodeUnit <= 0xdfff &&
+        previousCodeUnit >= 0xd800 &&
+        previousCodeUnit <= 0xdbff
+      ) {
+        chunkStart -= 1;
+      }
+    }
+
+    const trailingRun = TRAILING_PUNCTUATION_CHUNK_RE.exec(
+      value.slice(chunkStart, end),
+    );
+    if (!trailingRun) return end;
+    end = chunkStart + trailingRun.index;
+    if (trailingRun.index > 0) return end;
+  }
+  return 0;
 }
 
 /**
- * Scans by Unicode code point from the end to avoid a backtracking regex on
- * arbitrary subtitle text while preserving the previous `\p{P}`/`\p{S}` rule.
+ * Finds the trailing Unicode punctuation/symbol run with bounded chunks while
+ * preserving the previous `\p{P}`/`\p{S}` behavior.
  */
 const getTrailingPunctuation = (value: string): string =>
   value.slice(trailingPunctuationStart(value));
