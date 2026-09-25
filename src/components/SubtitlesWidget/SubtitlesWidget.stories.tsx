@@ -124,12 +124,18 @@ export const TrackReplacement: Story = {
     const NativeResizeObserver = globalThis.ResizeObserver;
     const observed: Element[] = [];
     const unobserved: Element[] = [];
+    const activeTargets = new Set<Element>();
     class TrackingResizeObserver implements ResizeObserver {
-      disconnect(): void {}
+      disconnect(): void {
+        for (const target of activeTargets) unobserved.push(target);
+        activeTargets.clear();
+      }
       observe(target: Element): void {
+        activeTargets.add(target);
         observed.push(target);
       }
       unobserve(target: Element): void {
+        activeTargets.delete(target);
         unobserved.push(target);
       }
     }

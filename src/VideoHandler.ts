@@ -727,7 +727,7 @@ export class VideoHandler {
 
   /** Initializes the VOT client. */
   async initVOTClient() {
-    while (this.votClientInitPromise) {
+    while (this.votClientInitPromise !== undefined) {
       await this.votClientInitPromise.catch(() => undefined);
     }
 

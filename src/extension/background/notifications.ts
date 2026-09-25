@@ -1,5 +1,6 @@
 import { EXT_NAME_FALLBACK } from "../../config/config";
 import debug from "../../utils/debug";
+import { createSecureRandomId } from "../../utils/utils";
 import { BG_MSG_NOTIFICATION } from "../shared/constants";
 import { asErrorMessage, sendBridgeResponse } from "../shared/utils";
 import {
@@ -61,10 +62,7 @@ function createBridgeNotificationId(sender: GmNotificationSender): string {
   const safeTab = typeof tabId === "number" ? tabId : -1;
   const safeWin = typeof windowId === "number" ? windowId : -1;
 
-  const nonce =
-    typeof crypto !== "undefined" && "randomUUID" in crypto
-      ? crypto.randomUUID()
-      : `${Date.now()}:${Math.random().toString(36).slice(2)}`;
+  const nonce = createSecureRandomId();
 
   return `vot:${safeTab}:${safeWin}:${nonce}`;
 }

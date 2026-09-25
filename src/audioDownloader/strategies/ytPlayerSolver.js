@@ -9,29 +9,37 @@ import * as meriyah from "meriyah";
 
 export const preprocessYouTubePlayer = (function (meriyah, astring) {
   "use strict";
-  function matchesStructure(obj, structure) {
-    if (Array.isArray(structure)) {
-      if (!Array.isArray(obj)) return false;
-      return (
-        structure.length === obj.length &&
-        structure.every((value, index) => matchesStructure(obj[index], value))
+  function matchesArrayStructure(obj, structure) {
+    return (
+      Array.isArray(obj) &&
+      structure.length === obj.length &&
+      structure.every((value, index) => matchesStructure(obj[index], value))
+    );
+  }
+
+  function matchesObjectStructure(obj, structure) {
+    if (!obj) return !structure;
+    if ("or" in structure) {
+      return structure.or.some((node) => matchesStructure(obj, node));
+    }
+    if ("anykey" in structure && Array.isArray(structure.anykey)) {
+      const haystack = Array.isArray(obj) ? obj : Object.values(obj);
+      return structure.anykey.every((value) =>
+        haystack.some((element) => matchesStructure(element, value)),
       );
     }
+    for (const [key, value] of Object.entries(structure)) {
+      if (!matchesStructure(obj[key], value)) return false;
+    }
+    return true;
+  }
+
+  function matchesStructure(obj, structure) {
+    if (Array.isArray(structure)) {
+      return matchesArrayStructure(obj, structure);
+    }
     if (typeof structure === "object") {
-      if (!obj) return !structure;
-      if ("or" in structure) {
-        return structure.or.some((node) => matchesStructure(obj, node));
-      }
-      if ("anykey" in structure && Array.isArray(structure.anykey)) {
-        const haystack = Array.isArray(obj) ? obj : Object.values(obj);
-        return structure.anykey.every((value) =>
-          haystack.some((element) => matchesStructure(element, value)),
-        );
-      }
-      for (const [key, value] of Object.entries(structure)) {
-        if (!matchesStructure(obj[key], value)) return false;
-      }
-      return true;
+      return matchesObjectStructure(obj, structure);
     }
     return structure === obj;
   }
@@ -83,8 +91,7 @@ export const preprocessYouTubePlayer = (function (meriyah, astring) {
     },
   };
 
-  function extract(node) {
-    if (!matchesStructure(node, identifier)) return null;
+  function getExtractOptions(node) {
     const options = [];
     if (node.type === "FunctionDeclaration") {
       const statements = node.body?.body;
@@ -101,6 +108,12 @@ export const preprocessYouTubePlayer = (function (meriyah, astring) {
         if (name && body) options.push({ name, statements: body });
       }
     }
+    return options;
+  }
+
+  function extract(node) {
+    if (!matchesStructure(node, identifier)) return null;
+    const options = getExtractOptions(node);
     for (const { name, statements } of options) {
       if (matchesStructure(statements, { anykey: [markerCall] })) {
         return createSolver(name);

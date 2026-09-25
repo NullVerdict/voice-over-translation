@@ -41,13 +41,11 @@ async function handleCommonAudioDownloadRequest({
   const { getMediaBuffers, fileId } = audioData;
   throwIfAborted(signal);
 
-  // One-item lookahead: hold each real chunk until the next item (or clean
-  // EOF) confirms it, so a terminal zero-byte marker is absorbed and the
-  // last real chunk is sent as terminal with amount = total. Nothing held is
-  // dispatched if iteration throws before clean EOF.
-  let index = 0;
-  let pending: AudioChunk | undefined;
-  let sawTerminal = false;
+  const state: AudioChunkStreamState = {
+    index: 0,
+    pending: undefined,
+    sawTerminal: false,
+  };
   const dispatchChunk = async (chunk: Uint8Array, isLastChunk: boolean) => {
     await audioDownloader.onDownloadedPartialAudio.dispatchAsync(
       translationId,
@@ -56,50 +54,79 @@ async function handleCommonAudioDownloadRequest({
         fileId,
         audioData: chunk,
         version: 1,
-        index,
-        amount: isLastChunk ? index + 1 : 0,
+        index: state.index,
+        amount: isLastChunk ? state.index + 1 : 0,
       },
     );
     // Upload handlers may abort the run.
     throwIfAborted(signal);
-    index++;
+    state.index++;
   };
 
   for await (const raw of getMediaBuffers()) {
-    throwIfAborted(signal);
-    if (sawTerminal) {
-      // A real last chunk is final; only trailing empty markers are allowed.
-      if (raw.buffer.byteLength === 0 && raw.isLastChunk) continue;
-      throw new Error(
-        "Audio downloader. Malformed audio stream after last chunk",
-      );
-    }
-    if (raw.isLastChunk) {
-      if (raw.buffer.byteLength === 0) {
-        // Terminal marker: promote the held chunk to terminal.
-        if (!pending) throw new Error("Audio downloader. Empty audio");
-        await dispatchChunk(pending.buffer, true);
-        pending = undefined;
-      } else {
-        if (pending) await dispatchChunk(pending.buffer, false);
-        pending = raw;
-      }
-      sawTerminal = true;
-      continue;
-    }
+    await processAudioChunk(raw, state, signal, dispatchChunk);
+  }
+  await finishAudioChunkStream(state, dispatchChunk);
+}
+
+type AudioChunkStreamState = {
+  index: number;
+  pending: AudioChunk | undefined;
+  sawTerminal: boolean;
+};
+
+type DispatchAudioChunk = (
+  bytes: Uint8Array,
+  isLastChunk: boolean,
+) => Promise<void>;
+
+async function processAudioChunk(
+  raw: AudioChunk,
+  state: AudioChunkStreamState,
+  signal: AbortSignal,
+  dispatchChunk: DispatchAudioChunk,
+): Promise<void> {
+  throwIfAborted(signal);
+  if (state.sawTerminal) {
+    // A real last chunk is final; only trailing empty markers are allowed.
+    if (raw.buffer.byteLength === 0 && raw.isLastChunk) return;
+    throw new Error(
+      "Audio downloader. Malformed audio stream after last chunk",
+    );
+  }
+  if (!raw.isLastChunk) {
     if (raw.buffer.byteLength === 0) {
       throw new Error("Audio downloader. Empty audio");
     }
-    if (pending) await dispatchChunk(pending.buffer, false);
-    pending = raw;
+    if (state.pending) {
+      await dispatchChunk(state.pending.buffer, false);
+    }
+    state.pending = raw;
+    return;
   }
 
-  if (pending) {
-    if (!pending.isLastChunk) {
+  if (raw.buffer.byteLength === 0) {
+    // Terminal marker: promote the held chunk to terminal.
+    if (!state.pending) throw new Error("Audio downloader. Empty audio");
+    await dispatchChunk(state.pending.buffer, true);
+    state.pending = undefined;
+  } else {
+    if (state.pending) await dispatchChunk(state.pending.buffer, false);
+    state.pending = raw;
+  }
+  state.sawTerminal = true;
+}
+
+async function finishAudioChunkStream(
+  state: AudioChunkStreamState,
+  dispatchChunk: DispatchAudioChunk,
+): Promise<void> {
+  if (state.pending) {
+    if (!state.pending.isLastChunk) {
       throw new Error("Audio downloader. Stream ended without a last chunk");
     }
-    await dispatchChunk(pending.buffer, true);
-  } else if (!sawTerminal) {
+    await dispatchChunk(state.pending.buffer, true);
+  } else if (!state.sawTerminal) {
     throw new Error("Audio downloader. Stream ended without a last chunk");
   }
 }
@@ -244,6 +271,50 @@ export class AudioDownloader {
     return true;
   }
 
+  private async runStrategyFallback(
+    videoId: string,
+    translationId: string,
+    signal: AbortSignal,
+    sourceLanguage: string | undefined,
+  ): Promise<"success" | "aborted" | "failed"> {
+    const attempts: AvailableAudioDownloadType[] =
+      this.strategy === WEB_ABR_STRATEGY
+        ? [WEB_ABR_STRATEGY, WEB_MSE_PROXY_STRATEGY]
+        : [this.strategy];
+    for (const attemptedStrategy of attempts) {
+      try {
+        await handleCommonAudioDownloadRequest({
+          audioDownloader: this,
+          attemptedStrategy,
+          translationId,
+          videoId,
+          signal,
+          sourceLanguage,
+        });
+        debug.log("Audio downloader. Audio download finished", {
+          videoId,
+          sourceLanguage,
+          audioDownloadType: attemptedStrategy,
+        });
+        return "success";
+      } catch (error) {
+        if (signal.aborted || isAbortError(error)) {
+          debug.log("Audio downloader. Audio download aborted", {
+            videoId,
+            audioDownloadType: attemptedStrategy,
+          });
+          return "aborted";
+        }
+        debug.error("Audio downloader. Strategy failed", {
+          videoId,
+          audioDownloadType: attemptedStrategy,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
+    }
+    return "failed";
+  }
+
   async runAudioDownload(
     videoId: string,
     translationId: string,
@@ -282,46 +353,18 @@ export class AudioDownloader {
       // collection when an overlapping predecessor cleans up.
       collecting = [];
       this.collectingChunks.set(videoId, collecting);
-      const attempts: AvailableAudioDownloadType[] =
-        this.strategy === WEB_ABR_STRATEGY
-          ? [WEB_ABR_STRATEGY, WEB_MSE_PROXY_STRATEGY]
-          : [this.strategy];
-      for (const attemptedStrategy of attempts) {
-        try {
-          await handleCommonAudioDownloadRequest({
-            audioDownloader: this,
-            attemptedStrategy,
-            translationId,
-            videoId,
-            signal,
-            sourceLanguage,
-          });
-          debug.log("Audio downloader. Audio download finished", {
-            videoId,
-            sourceLanguage,
-            audioDownloadType: attemptedStrategy,
-          });
-          return;
-        } catch (error) {
-          if (signal.aborted || isAbortError(error)) {
-            debug.log("Audio downloader. Audio download aborted", {
-              videoId,
-              audioDownloadType: attemptedStrategy,
-            });
-            return;
-          }
-          debug.error("Audio downloader. Strategy failed", {
-            videoId,
-            audioDownloadType: attemptedStrategy,
-            error: error instanceof Error ? error.message : String(error),
-          });
-        }
-      }
-
-      debug.error("Audio downloader. All audio download strategies failed", {
+      const result = await this.runStrategyFallback(
         videoId,
-      });
-      this.onDownloadAudioError.dispatch(translationId, videoId);
+        translationId,
+        signal,
+        sourceLanguage,
+      );
+      if (result === "failed") {
+        debug.error("Audio downloader. All audio download strategies failed", {
+          videoId,
+        });
+        this.onDownloadAudioError.dispatch(translationId, videoId);
+      }
     } finally {
       if (collecting && this.collectingChunks.get(videoId) === collecting) {
         this.collectingChunks.delete(videoId);

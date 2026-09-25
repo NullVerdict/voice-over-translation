@@ -3,6 +3,7 @@ import type { AudioDownloadType } from "@vot.js/core/types/providers/yandex";
 import type { GetAudioFromAPIOptions } from "../../types/audioDownloader";
 import debug from "../../utils/debug";
 import { makeAbortError } from "../../utils/errors";
+import { createSecureRandomId } from "../../utils/utils";
 import type { AudioChunk } from "./audioChunks";
 
 const MESSAGE_TYPE = "get-audio-chunks-by-mse-in-main-world";
@@ -18,14 +19,14 @@ function parseAudioBridgeChunk(payload: unknown): AudioChunk {
     buffer: unknown;
     isLastChunk?: unknown;
   };
-  const bytes =
-    buffer instanceof Uint8Array
-      ? buffer
-      : buffer instanceof ArrayBuffer
-        ? new Uint8Array(buffer)
-        : ArrayBuffer.isView(buffer)
-          ? new Uint8Array(buffer.buffer, buffer.byteOffset, buffer.byteLength)
-          : null;
+  let bytes: Uint8Array | null = null;
+  if (buffer instanceof Uint8Array) {
+    bytes = buffer;
+  } else if (buffer instanceof ArrayBuffer) {
+    bytes = new Uint8Array(buffer);
+  } else if (ArrayBuffer.isView(buffer)) {
+    bytes = new Uint8Array(buffer.buffer, buffer.byteOffset, buffer.byteLength);
+  }
 
   if (!bytes || typeof isLastChunk !== "boolean") {
     throw new Error("Audio downloader. Invalid audio bridge chunk");
@@ -43,8 +44,12 @@ async function* getAudioBridgeChunks(
   sourceLanguage?: string,
 ): AsyncGenerator<AudioChunk> {
   if (signal.aborted) throw makeAbortError(signal.reason);
+  const targetOrigin = globalThis.location.origin;
+  if (!targetOrigin || targetOrigin === "null") {
+    throw new Error("Audio bridge requires a non-opaque page origin");
+  }
 
-  const messageId = `stream-message-id-${performance.now()}-${Math.random()}`;
+  const messageId = `stream-message-id-${createSecureRandomId()}`;
   const chunks: AudioChunk[] = [];
   let wake: (() => void) | undefined;
   let streamFinished = false;
@@ -104,17 +109,21 @@ async function* getAudioBridgeChunks(
         isStreamFinished: true,
         isAborted: true,
       },
-      "*",
+      targetOrigin,
     );
   const onMessage = (event: MessageEvent) => {
     const message = event.data;
     const iframe = document.getElementById(
       `vot-mse-proxy-${messageId}`,
     ) as HTMLIFrameElement | null;
+    const fromPage =
+      event.source === globalThis.window && event.origin === targetOrigin;
+    const fromProxy =
+      event.source === iframe?.contentWindow &&
+      event.origin === "https://www.youtube.com";
     if (
       !message ||
-      (event.source !== (globalThis as unknown as Window) &&
-        event.source !== iframe?.contentWindow) ||
+      (!fromPage && !fromProxy) ||
       message.messageId !== messageId ||
       message.messageType !== MESSAGE_TYPE ||
       message.messageDirection !== "response"
@@ -203,7 +212,7 @@ async function* getAudioBridgeChunks(
             sourceLanguage,
           },
         },
-        "*",
+        targetOrigin,
       );
     }
 

@@ -69,12 +69,12 @@ export function selectSmallestAudioFormat<
     let bestValue = Number.POSITIVE_INFINITY;
     for (const candidate of candidates) {
       const raw = candidate[key];
-      const value =
-        raw == null
-          ? Number.NaN
-          : typeof raw === "number"
-            ? raw
-            : Number(String(raw));
+      let value = Number.NaN;
+      if (typeof raw === "number") {
+        value = raw;
+      } else if (typeof raw === "string") {
+        value = Number(raw);
+      }
       if (Number.isFinite(value) && value > 0 && value < bestValue) {
         best = candidate;
         bestValue = value;

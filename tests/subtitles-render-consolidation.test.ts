@@ -18,7 +18,10 @@ import {
   sanitizeSubtitleInlineStyle,
   subtitleInlineStylesEqual,
 } from "../src/subtitles/inlineStyle";
-import { buildSubtitleRenderPlan } from "../src/subtitles/renderPlan";
+import {
+  buildSubtitleRenderPlan,
+  stripTrailingPunctuation,
+} from "../src/subtitles/renderPlan";
 import type { SubtitleLine, SubtitleToken } from "../src/types/subtitles";
 
 const word = (text: string, startMs = 0, durationMs = 100): SubtitleToken => ({
@@ -67,8 +70,17 @@ const makeSpans = (count: number, offset = 0) =>
   })) as unknown as (HighlightTokenElement & { classList: FakeClassList })[];
 
 describe("render plan (consolidated punctuation scanning)", () => {
+  test("trailing punctuation scan handles supplementary symbols and line endings", () => {
+    expect(stripTrailingPunctuation("word!🙂")).toBe("word");
+    expect(stripTrailingPunctuation("word🙂\n")).toBe("word🙂\n");
+  });
+
   test("keeps leading punctuation attached to the following word highlight", () => {
-    const plan = buildSubtitleRenderPlan([word('"hello"'), word(" world")], 1, null);
+    const plan = buildSubtitleRenderPlan(
+      [word('"hello"'), word(" world")],
+      1,
+      null,
+    );
     expect(plan).toEqual([
       { kind: "text", text: '"', style: undefined, highlightIndex: 0 },
       { kind: "word", text: "hello", style: undefined, highlightIndex: 0 },
@@ -110,10 +122,18 @@ describe("render plan (consolidated punctuation scanning)", () => {
   });
 
   test("explicit newline tokens and break sets both emit break parts", () => {
-    const withNewline = buildSubtitleRenderPlan([word("a"), raw("\n"), word("b")], 2, null);
+    const withNewline = buildSubtitleRenderPlan(
+      [word("a"), raw("\n"), word("b")],
+      2,
+      null,
+    );
     expect(withNewline.filter((p) => p.kind === "break")).toHaveLength(1);
 
-    const withBreakSet = buildSubtitleRenderPlan([word("a"), word(" b")], 1, new Set([0]));
+    const withBreakSet = buildSubtitleRenderPlan(
+      [word("a"), word(" b")],
+      1,
+      new Set([0]),
+    );
     expect(withBreakSet.filter((p) => p.kind === "break")).toHaveLength(1);
   });
 
@@ -126,9 +146,13 @@ describe("render plan (consolidated punctuation scanning)", () => {
   });
 
   test("stress: 500 tokens keeps word indices dense and monotonic", () => {
-    const tokens = Array.from({ length: 500 }, (_, i) => word(`${i === 0 ? "" : " "}w${i},`));
+    const tokens = Array.from({ length: 500 }, (_, i) =>
+      word(`${i === 0 ? "" : " "}w${i},`),
+    );
     const plan = buildSubtitleRenderPlan(tokens, 499, null);
-    const indices = plan.filter((p) => p.kind === "word").map((p) => p.highlightIndex);
+    const indices = plan
+      .filter((p) => p.kind === "word")
+      .map((p) => p.highlightIndex);
     expect(indices).toHaveLength(500);
     expect(indices[0]).toBe(0);
     expect(indices.at(-1)).toBe(499);
@@ -150,7 +174,9 @@ describe("active cue dedupe (grouped, single key computation)", () => {
       line("same", 0, 2000, "0", [word("same")]),
       line("same", 100, 2000, "1", [word("same")]),
     ];
-    expect(buildActiveSubtitleRenderLine(500, list, 30000)?.lineKey).toBe("0,1");
+    expect(buildActiveSubtitleRenderLine(500, list, 30000)?.lineKey).toBe(
+      "0,1",
+    );
   });
 
   test("collapses identical overlapping cues but keeps disjoint repeats", () => {
@@ -160,7 +186,9 @@ describe("active cue dedupe (grouped, single key computation)", () => {
       line("same", 200, 5000, "0", [word("same")]),
     ];
     // cues 1 and 2 overlap and read the same => a single rendered cue
-    expect(buildActiveSubtitleRenderLine(300, overlapping, 30000)?.lineKey).toBe("1");
+    expect(
+      buildActiveSubtitleRenderLine(300, overlapping, 30000)?.lineKey,
+    ).toBe("1");
 
     // a repeat that does NOT overlap the kept cue must survive dedupe
     const disjoint = [
@@ -168,7 +196,9 @@ describe("active cue dedupe (grouped, single key computation)", () => {
       line("other", 50, 5000, "0", [word("other")]),
       line("same", 150, 5000, "0", [word("same")]),
     ];
-    expect(buildActiveSubtitleRenderLine(200, disjoint, 30000)?.lineKey).toBe("1,2");
+    expect(buildActiveSubtitleRenderLine(200, disjoint, 30000)?.lineKey).toBe(
+      "1,2",
+    );
   });
 
   test("returns null when nothing is active and honors maxCueDurationMs", () => {
@@ -181,7 +211,10 @@ describe("active cue dedupe (grouped, single key computation)", () => {
     const list = Array.from({ length: 200 }, () =>
       line("dup", 0, 10000, "0", [word("dup")]),
     );
-    expect(buildActiveSubtitleRenderLine(500, list, Number.POSITIVE_INFINITY)?.lineKey).toBe("0");
+    expect(
+      buildActiveSubtitleRenderLine(500, list, Number.POSITIVE_INFINITY)
+        ?.lineKey,
+    ).toBe("0");
   });
 });
 
@@ -190,7 +223,11 @@ describe("inline style memoization", () => {
     const style = { color: "#FFCC00", classes: ["b", "a", "a"], italic: true };
     const first = normalizeSubtitleInlineStyle(style);
     const second = normalizeSubtitleInlineStyle(style);
-    expect(first).toEqual({ italic: true, color: "#ffcc00", classes: ["a", "b"] });
+    expect(first).toEqual({
+      italic: true,
+      color: "#ffcc00",
+      classes: ["a", "b"],
+    });
     expect(second).toBe(first);
   });
 
@@ -207,7 +244,13 @@ describe("inline style memoization", () => {
   });
 
   test("unsafe colors are rejected (cache must not weaken sanitization)", () => {
-    for (const bad of ["url(x)", "red;background:url(x)", "#12", "expression(1)", ""]) {
+    for (const bad of [
+      "url(x)",
+      "red;background:url(x)",
+      "#12",
+      "expression(1)",
+      "",
+    ]) {
       expect(normalizeCssColorValue(bad)).toBeUndefined();
       expect(buildSubtitleInlineStyleCssText({ color: bad })).toBe("");
     }
@@ -219,16 +262,26 @@ describe("inline style memoization", () => {
     expect(sanitizeSubtitleInlineStyle(null)).toBeUndefined();
     expect(sanitizeSubtitleInlineStyle("red")).toBeUndefined();
     expect(
-      sanitizeSubtitleInlineStyle({ classes: ["ok", 5, "bad class"], bold: true }),
+      sanitizeSubtitleInlineStyle({
+        classes: ["ok", 5, "bad class"],
+        bold: true,
+      }),
     ).toEqual({ bold: true, classes: ["ok"] });
   });
 
   test("equality is unchanged by memoization", () => {
     expect(subtitleInlineStylesEqual(undefined, undefined)).toBe(true);
-    expect(subtitleInlineStylesEqual({ bold: true }, { bold: true })).toBe(true);
-    expect(subtitleInlineStylesEqual({ bold: true }, { italic: true })).toBe(false);
+    expect(subtitleInlineStylesEqual({ bold: true }, { bold: true })).toBe(
+      true,
+    );
+    expect(subtitleInlineStylesEqual({ bold: true }, { italic: true })).toBe(
+      false,
+    );
     expect(
-      subtitleInlineStylesEqual({ classes: ["a", "b"] }, { classes: ["b", "a"] }),
+      subtitleInlineStylesEqual(
+        { classes: ["a", "b"] },
+        { classes: ["b", "a"] },
+      ),
     ).toBe(true);
   });
 });
@@ -240,15 +293,19 @@ describe("highlight state diffing", () => {
     expect(applyPassedState(state, spans, [true, false, false, false])).toBe(1);
     expect(applyPassedState(state, spans, [true, false, false, false])).toBe(0);
     expect(applyPassedState(state, spans, [true, true, false, false])).toBe(1);
-    expect(applyPassedState(state, spans, [false, false, false, false])).toBe(2);
+    expect(applyPassedState(state, spans, [false, false, false, false])).toBe(
+      2,
+    );
   });
 
   test("tolerates short flag arrays, missing and invalid indices", () => {
     const spans = makeSpans(3);
-    (spans[1] as unknown as { dataset: { votHighlightIndex?: string } }).dataset.votHighlightIndex =
-      undefined;
-    (spans[2] as unknown as { dataset: { votHighlightIndex?: string } }).dataset.votHighlightIndex =
-      "not-a-number";
+    (
+      spans[1] as unknown as { dataset: { votHighlightIndex?: string } }
+    ).dataset.votHighlightIndex = undefined;
+    (
+      spans[2] as unknown as { dataset: { votHighlightIndex?: string } }
+    ).dataset.votHighlightIndex = "not-a-number";
     const state = syncHighlightState(createHighlightState(), spans);
     expect(state.indices[1]).toBe(-1);
     expect(state.indices[2]).toBe(-1);
@@ -277,6 +334,8 @@ describe("highlight state diffing", () => {
       total += applyPassedState(state, spans, flags);
     }
     expect(total).toBe(1000);
-    expect(spans.reduce((sum, span) => sum + span.classList.writes, 0)).toBe(1000);
+    expect(spans.reduce((sum, span) => sum + span.classList.writes, 0)).toBe(
+      1000,
+    );
   });
 });

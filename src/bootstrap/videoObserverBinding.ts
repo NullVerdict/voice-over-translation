@@ -163,6 +163,22 @@ export function bindObserverListeners(
     await handleVideoAdded(pendingVideo);
   };
 
+  const resolveActiveVideoConflict = async (
+    video: HTMLVideoElement,
+    container: HTMLElement,
+  ): Promise<boolean> => {
+    const activeVideo = containerOwners.get(container);
+    if (!activeVideo || activeVideo === video) return false;
+    if (activeVideo.isConnected) {
+      pendingVideoByContainer.set(container, video);
+      return true;
+    }
+    if (await tryReplaceVideo(activeVideo, video, container)) return true;
+    await releaseVideoHandler(activeVideo, "stale container");
+    clearContainerOwner(activeVideo);
+    return false;
+  };
+
   const handleVideoAdded = async (video: HTMLVideoElement) => {
     if (videosWrappers.has(video) || initializingVideos.has(video)) return;
     initializingVideos.add(video);
@@ -177,20 +193,7 @@ export function bindObserverListeners(
       }
       const { site, container } = match;
 
-      const activeVideoForContainer = containerOwners.get(container);
-      if (activeVideoForContainer && activeVideoForContainer !== video) {
-        if (activeVideoForContainer.isConnected) {
-          pendingVideoByContainer.set(container, video);
-          return;
-        }
-
-        if (await tryReplaceVideo(activeVideoForContainer, video, container)) {
-          return;
-        }
-
-        await releaseVideoHandler(activeVideoForContainer, "stale container");
-        clearContainerOwner(activeVideoForContainer);
-      }
+      if (await resolveActiveVideoConflict(video, container)) return;
 
       const videoHandler = createVideoHandler(
         video,

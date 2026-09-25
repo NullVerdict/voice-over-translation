@@ -33,7 +33,7 @@ function normalizeBase64Input(input: string): string {
 function bytesToBinaryString(bytes: Uint8Array): string {
   let binary = "";
   for (const byte of bytes) {
-    binary += String.fromCharCode(byte);
+    binary += String.fromCodePoint(byte);
   }
   return binary;
 }
@@ -89,7 +89,7 @@ export function base64ToBytes(input: string): Uint8Array {
   const binary = atobFn(normalizedStandard);
   const out = new Uint8Array(binary.length);
   for (let i = 0; i < binary.length; i += 1) {
-    out[i] = binary.charCodeAt(i);
+    out[i] = binary.codePointAt(i) ?? 0;
   }
   return out;
 }

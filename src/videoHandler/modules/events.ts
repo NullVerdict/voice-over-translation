@@ -386,11 +386,12 @@ function bindGlobalDismissAndHotkeys(ctx: ExtraEventsContext): void {
   const eventContainer = self.getEventContainer();
   if (eventContainer) {
     const useWindowEvents = isIframe() && globalThis.window !== undefined;
-    const interactionTarget = useWindowEvents
-      ? globalThis.window
-      : platformConfig.useDocumentInteractionTarget
-        ? document
-        : eventContainer;
+    let interactionTarget: Window | Document | HTMLElement = eventContainer;
+    if (useWindowEvents) {
+      interactionTarget = globalThis.window;
+    } else if (platformConfig.useDocumentInteractionTarget) {
+      interactionTarget = document;
+    }
 
     if (useWindowEvents) {
       addMany(

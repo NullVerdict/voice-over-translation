@@ -97,8 +97,13 @@ const getPreviousChar = (
   if (index <= 0) return null;
 
   let start = index - 1;
-  const lastCodeUnit = text.charCodeAt(start);
-  if (lastCodeUnit >= 0xdc00 && lastCodeUnit <= 0xdfff && start > 0) {
+  const lastCodePoint = text.codePointAt(start);
+  if (
+    lastCodePoint !== undefined &&
+    lastCodePoint >= 0xdc00 &&
+    lastCodePoint <= 0xdfff &&
+    start > 0
+  ) {
     start -= 1;
   }
 

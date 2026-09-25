@@ -27,9 +27,9 @@ export type SubtitleRenderPlanPart =
   | SubtitleRenderPlanPartBreak;
 
 export const LEADING_PUNCTUATION_RE = /^[\p{P}\p{S}]+/u;
-export const TRAILING_PUNCTUATION_RE = /[\p{P}\p{S}]+$/u;
 const TEXT_TOKEN_SLICE_RE = /\s+|[\p{P}\p{S}]+|[^\s\p{P}\p{S}]+/gu;
 const PUNCTUATION_ONLY_RE = /^[\p{P}\p{S}]+$/u;
+const PUNCTUATION_CODE_POINT_RE = /^[\p{P}\p{S}]$/u;
 const LEADING_WHITESPACE_RE = /^\s+/u;
 
 /**
@@ -40,12 +40,48 @@ const LEADING_WHITESPACE_RE = /^\s+/u;
 const getLeadingPunctuation = (value: string): string =>
   LEADING_PUNCTUATION_RE.exec(value)?.[0] ?? "";
 
+const TRAILING_PUNCTUATION_RE = /[\p{P}\p{S}]+$/u;
+const SHORT_SUBTITLE_TEXT_LIMIT = 256;
+
+function trailingPunctuationStart(value: string): number {
+  const valueLength = value.length;
+
+  // The anchored regex is fastest for normal subtitle-sized tokens. For long
+  // input, avoid scanning the entire string when its final code point cannot
+  // be punctuation; only use the regex when a trailing match is possible.
+  if (valueLength <= SHORT_SUBTITLE_TEXT_LIMIT) {
+    return TRAILING_PUNCTUATION_RE.exec(value)?.index ?? valueLength;
+  }
+
+  let codePointStart = valueLength - 1;
+  const lastCodeUnit = value.charCodeAt(codePointStart);
+  if (
+    lastCodeUnit >= 0xdc00 &&
+    lastCodeUnit <= 0xdfff &&
+    codePointStart > 0
+  ) {
+    const previousCodeUnit = value.charCodeAt(codePointStart - 1);
+    if (previousCodeUnit >= 0xd800 && previousCodeUnit <= 0xdbff) {
+      codePointStart -= 1;
+    }
+  }
+  if (!PUNCTUATION_CODE_POINT_RE.test(value.slice(codePointStart, valueLength))) {
+    return valueLength;
+  }
+
+  return TRAILING_PUNCTUATION_RE.exec(value)?.index ?? valueLength;
+}
+
 /**
- * Consolidated from `Array.from(value)` + reverse scan, which allocated a code
- * point array for every word token on every render.
+ * Scans by Unicode code point from the end to avoid a backtracking regex on
+ * arbitrary subtitle text while preserving the previous `\p{P}`/`\p{S}` rule.
  */
 const getTrailingPunctuation = (value: string): string =>
-  TRAILING_PUNCTUATION_RE.exec(value)?.[0] ?? "";
+  value.slice(trailingPunctuationStart(value));
+
+export function stripTrailingPunctuation(value: string): string {
+  return value.slice(0, trailingPunctuationStart(value));
+}
 
 const isPunctuationOnly = (value: string): boolean =>
   value.length > 0 && PUNCTUATION_ONLY_RE.test(value);

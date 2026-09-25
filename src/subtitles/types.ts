@@ -1,6 +1,6 @@
-import type { SubtitleDescriptor } from "../types/subtitles";
 import {
   type BuiltInSubtitleFontFamily,
+  type SubtitleDescriptor,
   type SubtitleFormat,
   subtitleFontFamilies,
   subtitleFormats,

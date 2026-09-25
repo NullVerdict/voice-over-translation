@@ -54,6 +54,42 @@ async function prepareAuthStateForTranslation(
   throw new VOTLocalizedError("VOTYandexTokenExpired");
 }
 
+function resetAutoLanguageOverride(
+  videoHandler: VideoHandler,
+  videoId: string,
+  responseLanguage: string,
+): void {
+  if (
+    !videoHandler.autoSourceLanguageOverrideVideoId ||
+    videoHandler.autoSourceLanguageOverrideVideoId === videoId
+  ) {
+    return;
+  }
+  videoHandler.translateFromLang = "auto";
+  videoHandler.autoSourceLanguageOverrideVideoId = undefined;
+  videoHandler.setSelectMenuValues("auto", responseLanguage);
+}
+
+function handleTranslationError(
+  deps: TranslationButtonCommandDeps,
+  error: unknown,
+): void {
+  if (isAbortError(error)) {
+    deps.transformBtn("none", t("translateVideo"));
+    return;
+  }
+  console.error("[VOT]", error);
+  if (!(error instanceof Error)) {
+    deps.transformBtn("error", String(error));
+    return;
+  }
+  const message =
+    error.name === "VOTLocalizedError"
+      ? (error as VOTLocalizedError).localizedMessage
+      : error.message;
+  deps.transformBtn("error", message);
+}
+
 export async function handleTranslationButtonCommand(
   deps: TranslationButtonCommandDeps,
 ) {
@@ -92,14 +128,11 @@ export async function handleTranslationButtonCommand(
 
     // Automatic fallback belongs only to the video where it was selected.
     // Reset it before resolving the language of a newly opened video.
-    if (
-      videoHandler.autoSourceLanguageOverrideVideoId &&
-      videoHandler.autoSourceLanguageOverrideVideoId !== videoData.videoId
-    ) {
-      videoHandler.translateFromLang = "auto";
-      videoHandler.autoSourceLanguageOverrideVideoId = undefined;
-      videoHandler.setSelectMenuValues("auto", videoData.responseLanguage);
-    }
+    resetAutoLanguageOverride(
+      videoHandler,
+      videoData.videoId,
+      videoData.responseLanguage,
+    );
 
     await videoHandler.videoManager.ensureDetectedLanguageForTranslation(
       videoData,
@@ -122,21 +155,6 @@ export async function handleTranslationButtonCommand(
       videoData.translationHelp,
     );
   } catch (err) {
-    if (isAbortError(err)) {
-      deps.transformBtn("none", t("translateVideo"));
-      return;
-    }
-
-    console.error("[VOT]", err);
-    if (!(err instanceof Error)) {
-      deps.transformBtn("error", String(err));
-      return;
-    }
-
-    const message =
-      err.name === "VOTLocalizedError"
-        ? (err as VOTLocalizedError).localizedMessage
-        : err.message;
-    deps.transformBtn("error", message);
+    handleTranslationError(deps, err);
   }
 }

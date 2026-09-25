@@ -145,10 +145,6 @@
       background: rgba(var(--vot-helper-theme-rgb), 0.04);
     }
 
-    // &[hidden] {
-    //   display: none !important;
-    // }
-
     &::before,
     &::after {
       display: none;

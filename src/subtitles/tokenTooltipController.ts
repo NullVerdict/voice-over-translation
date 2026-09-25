@@ -12,7 +12,7 @@ import {
   type ShadowMount,
 } from "../ui/shadowMount";
 import { votStorage } from "../utils/storage";
-import { LEADING_PUNCTUATION_RE, TRAILING_PUNCTUATION_RE } from "./renderPlan";
+import { LEADING_PUNCTUATION_RE, stripTrailingPunctuation } from "./renderPlan";
 
 export type TokenTooltipContext = {
   container: HTMLElement | ShadowRoot;
@@ -31,10 +31,7 @@ export type TokenTooltipControllerOptions = {
 };
 
 const trimEdgePunctuation = (value: string): string =>
-  value
-    .trim()
-    .replace(LEADING_PUNCTUATION_RE, "")
-    .replace(TRAILING_PUNCTUATION_RE, "");
+  stripTrailingPunctuation(value.trim().replace(LEADING_PUNCTUATION_RE, ""));
 
 export class TokenTooltipController {
   private readonly getContext: () => TokenTooltipContext;

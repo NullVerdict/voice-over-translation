@@ -97,10 +97,10 @@ export function applyPassedState(
 /** Removes the `passed` class from every span and resets the diff state. */
 export function clearPassedState(
   state: HighlightState,
-  elements: ArrayLike<HighlightTokenElement>,
+  elements: readonly HighlightTokenElement[],
 ): void {
   state.applied.fill(0);
-  for (let i = 0; i < elements.length; i += 1) {
-    elements[i].classList.remove(PASSED_CLASS);
+  for (const element of elements) {
+    element.classList.remove(PASSED_CLASS);
   }
 }

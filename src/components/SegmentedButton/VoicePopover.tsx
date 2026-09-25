@@ -4,6 +4,7 @@ import {
   createUniqueId,
   type JSX,
   mergeProps,
+  on,
   onCleanup,
 } from "solid-js";
 
@@ -51,6 +52,66 @@ const POPOVER_GAP = 8;
 const MIN_POPOVER_WIDTH = 160;
 const MAX_POPOVER_WIDTH = 310;
 const MIN_POPOVER_HEIGHT = 96;
+
+function positionColumnPopover(
+  element: HTMLElement,
+  rootRect: DOMRect,
+  containerRect: DOMRect,
+  position: string,
+): { placement: Placement; left: number; top: number } {
+  const spaceLeft = containerRect.left - rootRect.left - POPOVER_GAP;
+  const spaceRight = rootRect.right - containerRect.right - POPOVER_GAP;
+  const preferLeft = position === "right" || position === "rightCenter";
+  const placement: Placement =
+    (preferLeft && spaceLeft >= MIN_POPOVER_WIDTH) || spaceLeft >= spaceRight
+      ? "left"
+      : "right";
+  const availableWidth = placement === "left" ? spaceLeft : spaceRight;
+  element.style.setProperty(
+    "--vot-voice-popover-max-width",
+    `${Math.max(
+      MIN_POPOVER_WIDTH,
+      Math.min(MAX_POPOVER_WIDTH, availableWidth),
+    )}px`,
+  );
+  const popoverRect = element.getBoundingClientRect();
+  return {
+    placement,
+    top: containerRect.top + containerRect.height / 2 - popoverRect.height / 2,
+    left:
+      placement === "left"
+        ? containerRect.left - popoverRect.width - POPOVER_GAP
+        : containerRect.right + POPOVER_GAP,
+  };
+}
+
+function positionRowPopover(
+  element: HTMLElement,
+  rootRect: DOMRect,
+  containerRect: DOMRect,
+): { placement: Placement; left: number; top: number } {
+  const spaceAbove = containerRect.top - rootRect.top - POPOVER_GAP;
+  const spaceBelow = rootRect.bottom - containerRect.bottom - POPOVER_GAP;
+  const popoverHeight = element.getBoundingClientRect().height;
+  const placement: Placement =
+    spaceBelow >= popoverHeight || spaceBelow >= spaceAbove ? "bottom" : "top";
+  element.style.setProperty(
+    "--vot-voice-popover-max-height",
+    `${Math.max(
+      MIN_POPOVER_HEIGHT,
+      placement === "top" ? spaceAbove : spaceBelow,
+    )}px`,
+  );
+  const popoverRect = element.getBoundingClientRect();
+  return {
+    placement,
+    left: containerRect.left + containerRect.width / 2 - popoverRect.width / 2,
+    top:
+      placement === "top"
+        ? containerRect.top - popoverRect.height - POPOVER_GAP
+        : containerRect.bottom + POPOVER_GAP,
+  };
+}
 
 export function VoicePopover(props: VoicePopoverProps): JSX.Element {
   const finalProps = mergeProps(
@@ -194,59 +255,16 @@ export function VoicePopover(props: VoicePopoverProps): JSX.Element {
       `${maxRootHeight}px`,
     );
 
-    const direction = container.dataset.direction ?? "row";
-    const position = container.dataset.position ?? "default";
-    let placement: Placement;
-    let left: number;
-    let top: number;
-
-    if (direction === "column") {
-      const spaceLeft = containerRect.left - rootRect.left - POPOVER_GAP;
-      const spaceRight = rootRect.right - containerRect.right - POPOVER_GAP;
-      const preferLeft = position === "right" || position === "rightCenter";
-      placement =
-        (preferLeft && spaceLeft >= MIN_POPOVER_WIDTH) ||
-        spaceLeft >= spaceRight
-          ? "left"
-          : "right";
-      const availableWidth = placement === "left" ? spaceLeft : spaceRight;
-      element.style.setProperty(
-        "--vot-voice-popover-max-width",
-        `${Math.max(
-          MIN_POPOVER_WIDTH,
-          Math.min(MAX_POPOVER_WIDTH, availableWidth),
-        )}px`,
-      );
-      const popoverRect = element.getBoundingClientRect();
-      top =
-        containerRect.top + containerRect.height / 2 - popoverRect.height / 2;
-      left =
-        placement === "left"
-          ? containerRect.left - popoverRect.width - POPOVER_GAP
-          : containerRect.right + POPOVER_GAP;
-    } else {
-      const spaceAbove = containerRect.top - rootRect.top - POPOVER_GAP;
-      const spaceBelow = rootRect.bottom - containerRect.bottom - POPOVER_GAP;
-      const popoverHeight = element.getBoundingClientRect().height;
-      placement =
-        spaceBelow >= popoverHeight || spaceBelow >= spaceAbove
-          ? "bottom"
-          : "top";
-      element.style.setProperty(
-        "--vot-voice-popover-max-height",
-        `${Math.max(
-          MIN_POPOVER_HEIGHT,
-          placement === "top" ? spaceAbove : spaceBelow,
-        )}px`,
-      );
-      const popoverRect = element.getBoundingClientRect();
-      left =
-        containerRect.left + containerRect.width / 2 - popoverRect.width / 2;
-      top =
-        placement === "top"
-          ? containerRect.top - popoverRect.height - POPOVER_GAP
-          : containerRect.bottom + POPOVER_GAP;
-    }
+    const placement =
+      container.dataset.direction === "column"
+        ? positionColumnPopover(
+            element,
+            rootRect,
+            containerRect,
+            container.dataset.position ?? "default",
+          )
+        : positionRowPopover(element, rootRect, containerRect);
+    let { placement: placementName, left, top } = placement;
 
     const popoverRect = element.getBoundingClientRect();
     const minLeft = rootRect.left + POPOVER_GAP;
@@ -262,7 +280,7 @@ export function VoicePopover(props: VoicePopoverProps): JSX.Element {
     left = Math.min(Math.max(left, minLeft), maxLeft) - rootRect.left;
     top = Math.min(Math.max(top, minTop), maxTop) - rootRect.top;
 
-    element.dataset.placement = placement;
+    element.dataset.placement = placementName;
     element.style.left = `${left}px`;
     element.style.top = `${top}px`;
   }
@@ -366,15 +384,19 @@ export function VoicePopover(props: VoicePopoverProps): JSX.Element {
     });
   });
 
-  createEffect(() => {
-    // Reading layout props keeps the floating position in sync with prop changes.
-    finalProps.activeVoice;
-    finalProps.anchor;
-    finalProps.layoutRoot;
-    if (isOpen()) {
-      floatingPosition.update();
-    }
-  });
+  createEffect(
+    on(
+      () => [
+        finalProps.activeVoice,
+        finalProps.anchor,
+        finalProps.layoutRoot,
+        isOpen(),
+      ],
+      () => {
+        if (isOpen()) floatingPosition.update();
+      },
+    ),
+  );
 
   onCleanup(() => {
     clearShowTimer();

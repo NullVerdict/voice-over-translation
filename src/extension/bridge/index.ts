@@ -9,7 +9,7 @@ import {
   TYPE_XHR_ABORT,
   TYPE_XHR_START,
 } from "../shared/constants";
-import { isSameWindowBridgeEvent, postToPage } from "../shared/transport";
+import { postToPage } from "../shared/transport";
 import { asErrorMessage } from "../shared/utils";
 import { ext, runtimeSendMessage } from "../shared/webext";
 import { handleBridgeRequest } from "./request-handler";
@@ -70,7 +70,12 @@ function bootstrapExtensionBridge(): void {
   }
 
   globalThis.addEventListener("message", async (event) => {
-    if (!isSameWindowBridgeEvent(event)) return;
+    if (
+      event.source !== globalThis.window ||
+      event.origin !== globalThis.location.origin
+    ) {
+      return;
+    }
     const data = event.data as BridgeWireMessage;
     if (!isOurMessage(data)) return;
 

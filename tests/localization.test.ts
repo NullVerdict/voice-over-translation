@@ -21,59 +21,49 @@ function secsToStrTime(secs: number) {
 }
 
 describe("secs to str time", () => {
-  test("30 sec", () => {
-    const result = secsToStrTime(30);
-    const expected = t("translationTakeAboutMinute");
-    expect(result).toBe(expected);
-  });
-  test("60 sec", () => {
-    const result = secsToStrTime(60);
-    const expected = t("translationTakeAboutMinute");
-    expect(result).toBe(expected);
-  });
-  test("90 sec", () => {
-    const result = secsToStrTime(90);
-    const expected = t("translationTakeAboutMinute");
-    expect(result).toBe(expected);
-  });
-  test("100 sec", () => {
-    const result = secsToStrTime(100);
-    const expected = localizationProvider
-      .get("translationTakeApproximatelyMinute")
-      .replace("{0}", "2");
-    expect(result).toBe(expected);
-  });
-  test("120 sec", () => {
-    const result = secsToStrTime(120);
-    const expected = localizationProvider
-      .get("translationTakeApproximatelyMinute")
-      .replace("{0}", "2");
-    expect(result).toBe(expected);
-  });
-  test("280 sec", () => {
-    const result = secsToStrTime(280);
-    const expected = localizationProvider
-      .get("translationTakeApproximatelyMinutes")
-      .replace("{0}", "5");
-    expect(result).toBe(expected);
-  });
-  test("300 sec", () => {
-    const result = secsToStrTime(300);
-    const expected = localizationProvider
-      .get("translationTakeApproximatelyMinutes")
-      .replace("{0}", "5");
-    expect(result).toBe(expected);
-  });
-  test("3587 sec", () => {
-    const result = secsToStrTime(3587);
-    const expected = t("translationTakeMoreThanHour");
-    expect(result).toBe(expected);
-  });
-  test("1240 sec", () => {
-    const result = secsToStrTime(1240);
-    const expected = localizationProvider
-      .get("translationTakeApproximatelyMinute2")
-      .replace("{0}", "21");
-    expect(result).toBe(expected);
+  const cases: Array<[string, number, string]> = [
+    ["30 sec", 30, t("translationTakeAboutMinute")],
+    ["60 sec", 60, t("translationTakeAboutMinute")],
+    ["90 sec", 90, t("translationTakeAboutMinute")],
+    [
+      "100 sec",
+      100,
+      localizationProvider
+        .get("translationTakeApproximatelyMinute")
+        .replace("{0}", "2"),
+    ],
+    [
+      "120 sec",
+      120,
+      localizationProvider
+        .get("translationTakeApproximatelyMinute")
+        .replace("{0}", "2"),
+    ],
+    [
+      "280 sec",
+      280,
+      localizationProvider
+        .get("translationTakeApproximatelyMinutes")
+        .replace("{0}", "5"),
+    ],
+    [
+      "300 sec",
+      300,
+      localizationProvider
+        .get("translationTakeApproximatelyMinutes")
+        .replace("{0}", "5"),
+    ],
+    ["3587 sec", 3587, t("translationTakeMoreThanHour")],
+    [
+      "1240 sec",
+      1240,
+      localizationProvider
+        .get("translationTakeApproximatelyMinute2")
+        .replace("{0}", "21"),
+    ],
+  ];
+
+  test.each(cases)("%s", (_label, seconds, expected) => {
+    expect(secsToStrTime(seconds)).toBe(expected);
   });
 });

@@ -1,4 +1,5 @@
 import { config } from "@vot.js/shared";
+import * as meriyah from "meriyah";
 import { createAbortableDelay } from "../../utils/abort";
 import debug from "../../utils/debug";
 import {
@@ -152,11 +153,7 @@ export function buildMediaRanges(
   return ranges;
 }
 
-export async function mintPagePoToken(
-  pageWindow: WebAbrWindow,
-  binding: string,
-  signal: AbortSignal,
-): Promise<string | undefined> {
+function getPoTokenRealms(pageWindow: WebAbrWindow): Set<WebAbrWindow> {
   const realms = new Set<WebAbrWindow>([pageWindow]);
   try {
     realms.add(pageWindow.parent as WebAbrWindow);
@@ -164,43 +161,82 @@ export async function mintPagePoToken(
   } catch {
     // Cross-origin access is denied.
   }
-  for (const realm of realms) {
-    let keys: string[];
+  return realms;
+}
+
+function getPoTokenMinters(realm: WebAbrWindow): Array<{
+  bevasrs: { wpc: (...args: unknown[]) => unknown };
+}> {
+  let keys: string[];
+  try {
+    keys = Object.getOwnPropertyNames(realm).filter(
+      (key) => key === "bevasrsg" || key.startsWith("havuokmhhs-"),
+    );
+  } catch {
+    return [];
+  }
+  const minters: Array<{
+    bevasrs: { wpc: (...args: unknown[]) => unknown };
+  }> = [];
+  for (const key of keys) {
     try {
-      keys = Object.getOwnPropertyNames(realm).filter(
-        (key) => key === "bevasrsg" || key.startsWith("havuokmhhs-"),
-      );
-    } catch {
-      continue;
-    }
-    for (const key of keys) {
-      let bevasrs: { wpc?: unknown } | undefined;
-      try {
-        bevasrs = (
-          (realm as unknown as Record<string, unknown>)[key] as {
-            bevasrs?: { wpc?: unknown };
-          }
-        )?.bevasrs;
-      } catch {
-        continue;
-      }
-      const wpc = bevasrs?.wpc;
-      if (typeof wpc !== "function") continue;
-      for (let attempt = 0; attempt < 10; attempt++) {
-        if (signal.aborted) throw signal.reason;
-        try {
-          const minter = await wpc.call(bevasrs);
-          const token = await minter?.mws?.({
-            c: binding,
-            mc: false,
-            me: false,
-          });
-          if (typeof token === "string" && token) return token;
-        } catch (error) {
-          if (!String(error).includes("SDF:notready")) break;
+      const bevasrs = (
+        (realm as unknown as Record<string, unknown>)[key] as {
+          bevasrs?: { wpc?: unknown };
         }
-        await createAbortableDelay(500, signal);
+      )?.bevasrs;
+      if (typeof bevasrs?.wpc === "function") {
+        minters.push({
+          bevasrs: bevasrs as {
+            wpc: (...args: unknown[]) => unknown;
+          },
+        });
       }
+    } catch {
+      // A page-owned getter may throw; try the next candidate.
+    }
+  }
+  return minters;
+}
+
+async function mintTokenWithRetry(
+  bevasrs: { wpc: (...args: unknown[]) => unknown },
+  binding: string,
+  signal: AbortSignal,
+): Promise<string | undefined> {
+  for (let attempt = 0; attempt < 10; attempt++) {
+    if (signal.aborted) throw signal.reason;
+    try {
+      const minter = (await bevasrs.wpc.call(bevasrs)) as {
+        mws?: (options: {
+          c: string;
+          mc: boolean;
+          me: boolean;
+        }) => Promise<unknown> | unknown;
+      } | null;
+      const token = await minter?.mws?.({
+        c: binding,
+        mc: false,
+        me: false,
+      });
+      if (typeof token === "string" && token) return token;
+    } catch (error) {
+      if (!String(error).includes("SDF:notready")) break;
+    }
+    await createAbortableDelay(500, signal);
+  }
+}
+
+export async function mintPagePoToken(
+  pageWindow: WebAbrWindow,
+  binding: string,
+  signal: AbortSignal,
+): Promise<string | undefined> {
+  const realms = getPoTokenRealms(pageWindow);
+  for (const realm of realms) {
+    for (const { bevasrs } of getPoTokenMinters(realm)) {
+      const token = await mintTokenWithRetry(bevasrs, binding, signal);
+      if (token) return token;
     }
   }
 }
@@ -248,7 +284,7 @@ function cloneInnertubeContext(
   if (!rawContext || typeof rawContext !== "object") {
     throw new Error(unavailableMessage);
   }
-  const context = JSON.parse(JSON.stringify(rawContext)) as {
+  const context = structuredClone(rawContext) as {
     client?: Record<string, unknown>;
     thirdParty?: Record<string, unknown>;
   };
@@ -269,26 +305,38 @@ function buildContentPlaybackContext(
   return context;
 }
 
-function findJsonValueEnd(source: string, start: number): number {
-  const first = source[start];
-  if (first !== "{" && first !== "[" && first !== '"') return -1;
+function findJsonStringEnd(source: string, start: number): number {
+  for (let index = start + 1; index < source.length; index++) {
+    const char = source[index];
+    if (char === "\\") index++;
+    else if (char === '"') return index + 1;
+  }
+  return -1;
+}
+
+function findJsonCompositeEnd(source: string, start: number): number {
   let depth = 0;
-  let inString = false;
-  let escaped = false;
   for (let index = start; index < source.length; index++) {
     const char = source[index];
-    if (inString) {
-      if (escaped) escaped = false;
-      else if (char === "\\") escaped = true;
-      else if (char === '"') {
-        inString = false;
-        if (depth === 0) return index + 1;
-      }
-      continue;
+    if (char === '"') {
+      const stringEnd = findJsonStringEnd(source, index);
+      if (stringEnd < 0) return -1;
+      index = stringEnd - 1;
+    } else if (char === "{" || char === "[") {
+      depth++;
+    } else if (char === "}" || char === "]") {
+      depth--;
+      if (depth === 0) return index + 1;
     }
-    if (char === '"') inString = true;
-    else if (char === "{" || char === "[") depth++;
-    else if ((char === "}" || char === "]") && --depth === 0) return index + 1;
+  }
+  return -1;
+}
+
+function findJsonValueEnd(source: string, start: number): number {
+  const first = source[start];
+  if (first === '"') return findJsonStringEnd(source, start);
+  if (first === "{" || first === "[") {
+    return findJsonCompositeEnd(source, start);
   }
   return -1;
 }
@@ -296,42 +344,53 @@ function findJsonValueEnd(source: string, start: number): number {
 // The page keeps its config in the ytcfg global, which a sandboxed userscript
 // realm cannot read. Both calling forms carry plain JSON, so the same inline
 // script that builds ytcfg can be replayed from its source text instead.
+function skipWhitespace(source: string, start: number): number {
+  let index = start;
+  while (index < source.length && /\s/.test(source[index] ?? "")) index++;
+  return index;
+}
+
+function applyYtcfgSetCall(
+  source: string,
+  data: Record<string, unknown>,
+  argumentStart: number,
+): number {
+  const start = skipWhitespace(source, argumentStart);
+  const end = findJsonValueEnd(source, start);
+  if (end < 0) return argumentStart;
+  try {
+    const argument = JSON.parse(source.slice(start, end)) as unknown;
+    if (argument && typeof argument === "object") {
+      if (!Array.isArray(argument)) Object.assign(data, argument);
+      return end;
+    }
+    if (typeof argument !== "string") return argumentStart;
+
+    const separator = skipWhitespace(source, end);
+    if (source[separator] !== ",") return argumentStart;
+    const valueStart = skipWhitespace(source, separator + 1);
+    const jsonEnd = findJsonValueEnd(source, valueStart);
+    const valueEnd = jsonEnd < 0 ? source.indexOf(")", valueStart) : jsonEnd;
+    if (valueEnd < 0) return argumentStart;
+    data[argument] = JSON.parse(source.slice(valueStart, valueEnd).trim());
+    return valueEnd;
+  } catch {
+    // Calls with non-JSON arguments are page code we cannot replay.
+    return argumentStart;
+  }
+}
+
 function parseYtcfgData(source: string): Record<string, unknown> {
   const data: Record<string, unknown> = {};
   const pattern = /ytcfg\s*\.\s*set\s*\(/g;
-  const skipSpaces = (index: number) => {
-    while (index < source.length && /\s/.test(source[index] ?? "")) index++;
-    return index;
-  };
-  for (let cursor = 0; cursor <= source.length; ) {
+  let cursor = 0;
+  while (cursor <= source.length) {
     pattern.lastIndex = cursor;
     const match = pattern.exec(source);
     if (!match) break;
-    cursor = match.index + match[0].length;
-    const start = skipSpaces(cursor);
-    const end = findJsonValueEnd(source, start);
-    if (end < 0) continue;
-    try {
-      const argument = JSON.parse(source.slice(start, end)) as unknown;
-      if (argument && typeof argument === "object") {
-        if (Array.isArray(argument)) continue;
-        Object.assign(data, argument);
-        cursor = end;
-        continue;
-      }
-      if (typeof argument !== "string") continue;
-      // ytcfg.set("KEY", value) assigns a single entry.
-      const separator = skipSpaces(end);
-      if (source[separator] !== ",") continue;
-      const valueStart = skipSpaces(separator + 1);
-      const jsonEnd = findJsonValueEnd(source, valueStart);
-      const valueEnd = jsonEnd < 0 ? source.indexOf(")", valueStart) : jsonEnd;
-      if (valueEnd < 0) continue;
-      data[argument] = JSON.parse(source.slice(valueStart, valueEnd).trim());
-      cursor = valueEnd;
-    } catch {
-      // Calls with non-JSON arguments are page code we cannot replay.
-    }
+    const argumentStart = match.index + match[0].length;
+    const parsedEnd = applyYtcfgSetCall(source, data, argumentStart);
+    cursor = parsedEnd > argumentStart ? parsedEnd : argumentStart;
   }
   return data;
 }
@@ -389,7 +448,7 @@ async function resolveYtcfg(
     }
   }
   if (typeof data.INNERTUBE_API_KEY !== "string") {
-    throw new Error("Audio downloader. web ABR config is unavailable");
+    throw new TypeError("Audio downloader. web ABR config is unavailable");
   }
   debug.log("Audio downloader. web ABR config recovered", {
     source,
@@ -492,27 +551,28 @@ export function selectWebEmbeddedAudioFormat(
             getAudioFormatLanguage(format) === normalizedRequestedLanguage,
         )
       : [];
-  const requestedLanguageCandidates =
-    exactLanguageCandidates.length > 0
-      ? exactLanguageCandidates
-      : normalizedRequestedLanguage && normalizedRequestedLanguage !== "auto"
-        ? audioOnly.filter((format) =>
-            audioLanguageMatches(
-              getAudioFormatLanguage(format),
-              normalizedRequestedLanguage,
-            ),
-          )
-        : [];
+  let requestedLanguageCandidates = exactLanguageCandidates;
+  if (
+    requestedLanguageCandidates.length === 0 &&
+    normalizedRequestedLanguage &&
+    normalizedRequestedLanguage !== "auto"
+  ) {
+    requestedLanguageCandidates = audioOnly.filter((format) =>
+      audioLanguageMatches(
+        getAudioFormatLanguage(format),
+        normalizedRequestedLanguage,
+      ),
+    );
+  }
 
   const defaultAudioOnly = audioOnly.filter(
     ({ audioTrack }) => audioTrack?.audioIsDefault === true,
   );
-  const trackCandidates =
-    requestedLanguageCandidates.length > 0
-      ? requestedLanguageCandidates
-      : defaultAudioOnly.length > 0
-        ? defaultAudioOnly
-        : audioOnly;
+  let trackCandidates = audioOnly;
+  if (defaultAudioOnly.length > 0) trackCandidates = defaultAudioOnly;
+  if (requestedLanguageCandidates.length > 0) {
+    trackCandidates = requestedLanguageCandidates;
+  }
   const nonDrcCandidates = trackCandidates.filter(
     (format) => !isDrcAudioFormat(format),
   );
@@ -529,6 +589,8 @@ export function selectWebEmbeddedAudioFormat(
   return selected;
 }
 
+// YouTube's SAPISIDHASH authorization format specifies this SHA-1 digest.
+// A different digest would make authenticated Innertube requests incompatible.
 async function sha1(value: string): Promise<string> {
   const digest = await crypto.subtle.digest(
     "SHA-1",
@@ -729,8 +791,6 @@ function listPageFunctions(pageWindow: WebAbrWindow): SigFactory[] {
 }
 
 // Media URL builders may set alr too; require the decipher factory's URL wiring.
-const SIG_FACTORY_NEW_PATTERN =
-  /([A-Za-z_$][\w$]*)\s*=\s*new\s+[A-Za-z_$][\w$]*\.[A-Za-z_$][\w$]*\s*\(\s*\1\s*,\s*(?:!\s*0|true)\s*\)\s*;\s*\1\.set\(\s*["']alr["']\s*,\s*["']yes["']\s*\)/;
 const EJS_MOCK_URL = "https://youtube.com/watch?v=yt-dlp-wins";
 
 type SigFactory = {
@@ -738,9 +798,128 @@ type SigFactory = {
   path: string;
 };
 
+type DynamicAstNode = {
+  type?: string;
+  [key: string]: any;
+};
+
+function getFunctionStatements(source: string): DynamicAstNode[] | undefined {
+  if (
+    !source.includes(".set") ||
+    !source.includes("alr") ||
+    !source.includes("yes")
+  ) {
+    return;
+  }
+  try {
+    const program = meriyah.parse(`(${source})`) as unknown as DynamicAstNode;
+    const body = program.body?.[0]?.expression?.body?.body;
+    if (Array.isArray(body)) return body;
+  } catch {
+    // Method shorthand needs an object-literal parse context.
+  }
+
+  try {
+    const program = meriyah.parse(`({${source}})`) as unknown as DynamicAstNode;
+    const body =
+      program.body?.[0]?.expression?.properties?.[0]?.value?.body?.body;
+    return Array.isArray(body) ? body : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function getIdentifierName(
+  node: DynamicAstNode | undefined,
+): string | undefined {
+  return node?.type === "Identifier" ? node.name : undefined;
+}
+
+function isTrueExpression(node: DynamicAstNode | undefined): boolean {
+  if (node?.type === "Literal") return node.value === true;
+  return (
+    node?.type === "UnaryExpression" &&
+    node.operator === "!" &&
+    node.argument?.type === "Literal" &&
+    node.argument.value === 0
+  );
+}
+
+function getFactoryVariableName(
+  node: DynamicAstNode | undefined,
+): string | undefined {
+  const expression = node?.expression;
+  if (
+    expression?.type !== "AssignmentExpression" ||
+    expression.operator !== "="
+  ) {
+    return;
+  }
+
+  const variableName = getIdentifierName(expression.left);
+  const constructorExpression = expression.right;
+  const callee = constructorExpression?.callee;
+  if (
+    !variableName ||
+    constructorExpression?.type !== "NewExpression" ||
+    callee?.type !== "MemberExpression" ||
+    callee.computed ||
+    !getIdentifierName(callee.object) ||
+    !getIdentifierName(callee.property)
+  ) {
+    return;
+  }
+
+  const args = constructorExpression.arguments;
+  if (
+    !Array.isArray(args) ||
+    args.length !== 2 ||
+    getIdentifierName(args[0]) !== variableName ||
+    !isTrueExpression(args[1])
+  ) {
+    return;
+  }
+  return variableName;
+}
+
+function isAlrMarkerCall(
+  node: DynamicAstNode | undefined,
+  variableName: string,
+): boolean {
+  const expression = node?.expression;
+  const callee = expression?.callee;
+  const args = expression?.arguments;
+  return (
+    expression?.type === "CallExpression" &&
+    callee?.type === "MemberExpression" &&
+    !callee.computed &&
+    getIdentifierName(callee.object) === variableName &&
+    getIdentifierName(callee.property) === "set" &&
+    Array.isArray(args) &&
+    args.length === 2 &&
+    args[0]?.type === "Literal" &&
+    args[0].value === "alr" &&
+    args[1]?.type === "Literal" &&
+    args[1].value === "yes"
+  );
+}
+
 function isSigFactory({ fn }: SigFactory): boolean {
   try {
-    return SIG_FACTORY_NEW_PATTERN.test(Function.prototype.toString.call(fn));
+    const statements = getFunctionStatements(
+      Function.prototype.toString.call(fn),
+    );
+    if (!statements) return false;
+    for (let index = 0; index + 1 < statements.length; index += 1) {
+      const variableName = getFactoryVariableName(statements[index]);
+      if (
+        variableName &&
+        isAlrMarkerCall(statements[index + 1], variableName)
+      ) {
+        return true;
+      }
+    }
+    return false;
   } catch {
     return false;
   }
@@ -781,6 +960,7 @@ function pageUrlMethods(proto: object | null) {
 
 type PageSolution = { signature?: string; n?: string };
 type PageChallenge = PageSolution & { url: string; sp?: string };
+type PageUrlMethods = NonNullable<ReturnType<typeof pageUrlMethods>>;
 
 function validPageValue(
   value: unknown,
@@ -799,118 +979,133 @@ function validPageValue(
   return decoded !== input && pattern.test(decoded) ? decoded : undefined;
 }
 
-export function collectPageSolutions(
-  pageWindow: WebAbrWindow,
+function collectPageSolution(
+  instance: PageUrlInstance,
+  methods: PageUrlMethods,
   challenge: PageChallenge,
-): PageSolution[] {
-  const realms = new Set<WebAbrWindow>([pageWindow]);
-  for (const relation of ["parent", "top"] as const) {
+  transform: ((this: PageUrlInstance) => void) | undefined,
+  factory: boolean,
+  solutions: PageSolution[],
+): void {
+  const solution: PageSolution = {};
+  const readSignature = () => {
+    if (!challenge.signature) return;
+    const keys = factory ? ["s"] : ["s", challenge.sp];
+    for (const key of keys) {
+      if (!key) continue;
+      const value = validPageValue(
+        methods.get.call(instance, key),
+        challenge.signature,
+        SIG_PATTERN,
+      );
+      if (value) return value;
+    }
+  };
+  if (challenge.signature) {
     try {
-      const other = pageWindow[relation] as WebAbrWindow | null;
-      if (other) realms.add(other);
+      solution.signature = readSignature();
     } catch {
-      // Cross-origin access is denied.
+      // A bad signature must not discard an independently valid n.
     }
   }
-  const solutions: PageSolution[] = [];
-  const seen = new Set<SigFactory["fn"]>();
-  const collect = (
-    instance: PageUrlInstance,
-    methods: NonNullable<ReturnType<typeof pageUrlMethods>>,
-    transform: ((this: PageUrlInstance) => void) | undefined,
-    factory: boolean,
-  ): void => {
-    const solution: PageSolution = {};
-    const readSignature = () => {
-      if (!challenge.signature) return;
-      const keys = factory ? ["s"] : ["s", challenge.sp];
-      for (const key of keys) {
-        if (!key) continue;
-        const value = validPageValue(
-          methods.get.call(instance, key),
-          challenge.signature,
-          SIG_PATTERN,
-        );
-        if (value) return value;
-      }
-    };
-    if (challenge.signature) {
-      try {
-        solution.signature = readSignature();
-      } catch {
-        // A bad signature must not discard an independently valid n.
-      }
-    }
-    if (challenge.n && transform) {
-      try {
-        if (factory) methods.set.call(instance, "n", challenge.n);
+  if (challenge.n && transform) {
+    try {
+      if (factory) methods.set.call(instance, "n", challenge.n);
+      solution.n = validPageValue(
+        methods.get.call(instance, "n"),
+        challenge.n,
+        N_PATTERN,
+      );
+      if (!solution.n) {
+        transform.call(instance);
         solution.n = validPageValue(
           methods.get.call(instance, "n"),
           challenge.n,
           N_PATTERN,
         );
-        if (!solution.n) {
-          transform.call(instance);
-          solution.n = validPageValue(
-            methods.get.call(instance, "n"),
-            challenge.n,
-            N_PATTERN,
-          );
-          if (!solution.signature) solution.signature = readSignature();
-        }
-      } catch {
-        // Keep the signature even if the n transform fails.
+        if (!solution.signature) solution.signature = readSignature();
       }
-    }
-    if (solution.signature || solution.n) solutions.push(solution);
-  };
-  for (const realm of realms) {
-    for (const entry of listPageFunctions(realm)) {
-      const { fn, path } = entry;
-      if (seen.has(fn)) continue;
-      seen.add(fn);
-      try {
-        if (isSigFactory(entry)) {
-          const make = () =>
-            fn(
-              EJS_MOCK_URL,
-              "s",
-              encodeURIComponent(challenge.signature ?? ""),
-            );
-          const instance = make();
-          if (!instance || typeof instance !== "object") continue;
-          const methods = pageUrlMethods(Object.getPrototypeOf(instance));
-          if (!methods) continue;
-          collect(instance, methods, methods.transforms[0], true);
-          if (challenge.n) {
-            for (const transform of methods.transforms.slice(1)) {
-              collect(make(), methods, transform, true);
-            }
-          }
-        } else if (challenge.n && path.startsWith("_yt_player.")) {
-          const proto = Object.getOwnPropertyDescriptor(fn, "prototype")?.value;
-          const methods = pageUrlMethods(proto);
-          if (!methods?.transforms.length) continue;
-          // Vet the interface and n fingerprint before constructing anything.
-          const UrlCtor = fn as unknown as PageUrlClass;
-          for (const transform of methods.transforms) {
-            try {
-              collect(
-                new UrlCtor(challenge.url, true),
-                methods,
-                transform,
-                false,
-              );
-            } catch {
-              // One failed construction does not invalidate other candidates.
-            }
-          }
-        }
-      } catch {
-        // Inaccessible or incompatible page functions are not solutions.
-      }
+    } catch {
+      // Keep the signature even if the n transform fails.
     }
   }
+  if (solution.signature || solution.n) solutions.push(solution);
+}
+
+function collectFactorySolutions(
+  entry: SigFactory,
+  challenge: PageChallenge,
+  solutions: PageSolution[],
+): void {
+  const make = () =>
+    entry.fn(EJS_MOCK_URL, "s", encodeURIComponent(challenge.signature ?? ""));
+  const instance = make();
+  if (!instance || typeof instance !== "object") return;
+  const methods = pageUrlMethods(Object.getPrototypeOf(instance));
+  if (!methods) return;
+  collectPageSolution(
+    instance,
+    methods,
+    challenge,
+    methods.transforms[0],
+    true,
+    solutions,
+  );
+  if (!challenge.n) return;
+  for (const transform of methods.transforms.slice(1)) {
+    collectPageSolution(make(), methods, challenge, transform, true, solutions);
+  }
+}
+
+function collectUrlConstructorSolutions(
+  fn: SigFactory["fn"],
+  challenge: PageChallenge,
+  solutions: PageSolution[],
+): void {
+  if (!challenge.n) return;
+  const proto = Object.getOwnPropertyDescriptor(fn, "prototype")?.value;
+  const methods = pageUrlMethods(proto);
+  if (!methods?.transforms.length) return;
+  // Vet the interface and n fingerprint before constructing anything.
+  const UrlCtor = fn as unknown as PageUrlClass;
+  for (const transform of methods.transforms) {
+    try {
+      collectPageSolution(
+        new UrlCtor(challenge.url, true),
+        methods,
+        challenge,
+        transform,
+        false,
+        solutions,
+      );
+    } catch {
+      // One failed construction does not invalidate other candidates.
+    }
+  }
+}
+
+function collectRealmSolutions(
+  realm: WebAbrWindow,
+  challenge: PageChallenge,
+  seen: Set<SigFactory["fn"]>,
+  solutions: PageSolution[],
+): void {
+  for (const entry of listPageFunctions(realm)) {
+    if (seen.has(entry.fn)) continue;
+    seen.add(entry.fn);
+    try {
+      if (isSigFactory(entry)) {
+        collectFactorySolutions(entry, challenge, solutions);
+      } else if (challenge.n && entry.path.startsWith("_yt_player.")) {
+        collectUrlConstructorSolutions(entry.fn, challenge, solutions);
+      }
+    } catch {
+      // Inaccessible or incompatible page functions are not solutions.
+    }
+  }
+}
+
+function mergePageSolutions(solutions: PageSolution[]): PageSolution[] {
   const consensus: PageSolution = {};
   for (const field of ["signature", "n"] as const) {
     const values = new Set(
@@ -927,6 +1122,27 @@ export function collectPageSolutions(
     merged.set(JSON.stringify(candidate), candidate);
   }
   return [...merged.values()];
+}
+
+export function collectPageSolutions(
+  pageWindow: WebAbrWindow,
+  challenge: PageChallenge,
+): PageSolution[] {
+  const realms = new Set<WebAbrWindow>([pageWindow]);
+  for (const relation of ["parent", "top"] as const) {
+    try {
+      const other = pageWindow[relation] as WebAbrWindow | null;
+      if (other) realms.add(other);
+    } catch {
+      // Cross-origin access is denied.
+    }
+  }
+  const seen = new Set<SigFactory["fn"]>();
+  const solutions: PageSolution[] = [];
+  for (const realm of realms) {
+    collectRealmSolutions(realm, challenge, seen, solutions);
+  }
+  return mergePageSolutions(solutions);
 }
 
 function solveYouTubeChallenges(
@@ -976,6 +1192,61 @@ function buildSolvedUrl(
     url.searchParams.set(sp ?? "signature", solved.signature);
   if (solved.n) url.searchParams.set("n", solved.n);
   return url.toString();
+}
+
+async function completePageCandidate(
+  candidate: PageSolution,
+  rawUrl: string,
+  signature: string | undefined,
+  n: string | undefined,
+  sp: string | undefined,
+  complete: (solution: PageSolution) => boolean,
+  solve: (signature?: string, n?: string) => Promise<PageSolution>,
+  signal: AbortSignal,
+  errors: string[],
+): Promise<string | undefined> {
+  signal.throwIfAborted();
+  let solved = candidate;
+  try {
+    if (!complete(candidate)) {
+      const missing = await solve(
+        candidate.signature ? undefined : signature,
+        candidate.n ? undefined : n,
+      );
+      solved = {
+        signature: candidate.signature ?? missing.signature,
+        n: candidate.n ?? missing.n,
+      };
+    }
+  } catch (error) {
+    signal.throwIfAborted();
+    errors.push(error instanceof Error ? error.message : String(error));
+    return;
+  }
+  signal.throwIfAborted();
+  return buildSolvedUrl(rawUrl, sp, solved);
+}
+
+async function solveFallbackUrl(
+  rawUrl: string,
+  sp: string | undefined,
+  signature: string | undefined,
+  n: string | undefined,
+  solve: (signature?: string, n?: string) => Promise<PageSolution>,
+  signal: AbortSignal,
+  errors: string[],
+): Promise<string> {
+  try {
+    const solved = await solve(signature, n);
+    signal.throwIfAborted();
+    return buildSolvedUrl(rawUrl, sp, solved);
+  } catch (error) {
+    signal.throwIfAborted();
+    errors.push(error instanceof Error ? error.message : String(error));
+    throw new Error(
+      `Audio downloader. challenge solve failed (${errors.join(" | ")})`,
+    );
+  }
 }
 
 async function* resolveWebEmbeddedFormatUrl(
@@ -1042,45 +1313,33 @@ async function* resolveWebEmbeddedFormatUrl(
   const yielded = new Set<string>();
   const errors: string[] = [];
   for (const candidate of candidates) {
-    signal.throwIfAborted();
-    let solved = candidate;
-    try {
-      if (!complete(candidate)) {
-        const missing = await solve(
-          candidate.signature ? undefined : signature,
-          candidate.n ? undefined : n,
-        );
-        solved = {
-          signature: candidate.signature ?? missing.signature,
-          n: candidate.n ?? missing.n,
-        };
-      }
-    } catch (error) {
-      signal.throwIfAborted();
-      errors.push(error instanceof Error ? error.message : String(error));
-      continue;
-    }
-    signal.throwIfAborted();
-    const candidateUrl = buildSolvedUrl(rawUrl, challenge.sp, solved);
-    if (!yielded.has(candidateUrl)) {
+    const candidateUrl = await completePageCandidate(
+      candidate,
+      rawUrl,
+      signature,
+      n,
+      challenge.sp,
+      complete,
+      solve,
+      signal,
+      errors,
+    );
+    if (candidateUrl && !yielded.has(candidateUrl)) {
       yielded.add(candidateUrl);
       yield candidateUrl;
     }
   }
   // Resume only after the consumer has tried downloading the page candidates.
   signal.throwIfAborted();
-  let solved: PageSolution;
-  try {
-    solved = await solve(signature, n);
-  } catch (error) {
-    signal.throwIfAborted();
-    errors.push(error instanceof Error ? error.message : String(error));
-    throw new Error(
-      `Audio downloader. challenge solve failed (${errors.join(" | ")})`,
-    );
-  }
-  signal.throwIfAborted();
-  const fallbackUrl = buildSolvedUrl(rawUrl, challenge.sp, solved);
+  const fallbackUrl = await solveFallbackUrl(
+    rawUrl,
+    challenge.sp,
+    signature,
+    n,
+    solve,
+    signal,
+    errors,
+  );
   if (!yielded.has(fallbackUrl)) yield fallbackUrl;
   signal.throwIfAborted();
 }
@@ -1257,7 +1516,7 @@ async function probeContentLength(
   const total = Number(
     /\/(\d+)\s*$/.exec(response.headers.get("content-range") ?? "")?.[1],
   );
-  if (!(total > 0)) {
+  if (!Number.isFinite(total) || total <= 0) {
     throw new Error("Audio downloader. web ABR content length unknown");
   }
   return total;
@@ -1338,7 +1597,7 @@ async function refreshMediaUrl(
   refreshUrl: () => Promise<string>,
   reason: unknown = null,
 ): Promise<string> {
-  if (!urlState.refreshPromise) {
+  if (urlState.refreshPromise === null) {
     const previousUrl = urlState.value;
     const previousVersion = urlState.version ?? 0;
     urlState.refreshPromise = Promise.resolve()
@@ -1363,6 +1622,136 @@ async function refreshMediaUrl(
   return await urlState.refreshPromise;
 }
 
+type MediaRangeAttemptResult =
+  | { type: "data"; bytes: Uint8Array; urlVersion: number }
+  | { type: "redirect"; urlVersion: number; bytesLength: number };
+
+async function requestMediaRange(
+  targetWindow: Window,
+  urlState: MediaUrlState,
+  start: number,
+  end: number,
+  signal: AbortSignal,
+  requestNumberRef: RequestNumberRef,
+): Promise<MediaRangeAttemptResult> {
+  const urlVersion = urlState.version ?? 0;
+  const url = new URL(urlState.value);
+  url.searchParams.set("range", `${start}-${end}`);
+  url.searchParams.set("rn", String(++requestNumberRef.value));
+  url.searchParams.delete("ump");
+  const response = await targetWindow.fetch(url, {
+    signal,
+    cache: "no-store",
+  });
+  if (!response.ok) {
+    throw new MediaHttpError(
+      response.status,
+      `Audio downloader. Media request failed (${response.status}, range ${start}-${end})`,
+    );
+  }
+  const bytes = new Uint8Array(await response.arrayBuffer());
+  signal.throwIfAborted();
+  if (bytes.byteLength === end - start + 1) {
+    return { type: "data", bytes, urlVersion };
+  }
+
+  const redirect = /^\s*(https:\/\/\S+)\s*$/.exec(
+    new TextDecoder("ascii").decode(bytes),
+  )?.[1];
+  if (redirect) {
+    const next = new URL(redirect);
+    if (!/(?:^|\.)googlevideo\.com$/.test(next.hostname)) {
+      throw new Error("Audio downloader. Invalid media redirect");
+    }
+    urlState.value = next.toString();
+    return { type: "redirect", urlVersion, bytesLength: bytes.byteLength };
+  }
+  throw new Error(
+    `Audio downloader. Incomplete web ABR chunk (${bytes.byteLength}/${end - start + 1}, range ${start}-${end})`,
+  );
+}
+
+type MediaRangeRecovery = {
+  stop: boolean;
+  refreshedFatal: boolean;
+  lastError: unknown;
+};
+
+async function recoverMediaRangeFailure(
+  error: unknown,
+  refreshedFatal: boolean,
+  attempt: number,
+  start: number,
+  end: number,
+  signal: AbortSignal,
+  urlState: MediaUrlState,
+  refreshUrl: () => Promise<string>,
+): Promise<MediaRangeRecovery> {
+  signal.throwIfAborted();
+  const failedAttempt = attempt + 1;
+  const fatal = isFatalMediaError(error);
+  const hasMoreAttempts = failedAttempt < WEB_ABR_RANGE_MAX_ATTEMPTS;
+  const shouldRefreshUrl =
+    hasMoreAttempts &&
+    (fatal || failedAttempt % WEB_ABR_RANGE_REFRESH_EVERY_FAILURES === 0);
+  debug.log("Audio downloader. web ABR range request failed", {
+    range: `${start}-${end}`,
+    attempt: failedAttempt,
+    maxAttempts: WEB_ABR_RANGE_MAX_ATTEMPTS,
+    fatal,
+    refreshUrl: shouldRefreshUrl,
+    error: error instanceof Error ? error.message : String(error),
+  });
+
+  if (!hasMoreAttempts || (fatal && refreshedFatal)) {
+    return { stop: true, refreshedFatal, lastError: error };
+  }
+
+  await createAbortableDelay(
+    Math.min(
+      WEB_ABR_RANGE_RETRY_BASE_DELAY_MS * failedAttempt,
+      WEB_ABR_RANGE_RETRY_MAX_DELAY_MS,
+    ),
+    signal,
+  );
+  if (!shouldRefreshUrl) {
+    return { stop: false, refreshedFatal, lastError: error };
+  }
+
+  try {
+    await refreshMediaUrl(urlState, refreshUrl, {
+      range: `${start}-${end}`,
+      failedAttempt,
+    });
+    const nextRefreshedFatal = fatal || refreshedFatal;
+    debug.log("Audio downloader. web ABR media URL refreshed for range retry", {
+      range: `${start}-${end}`,
+      nextAttempt: failedAttempt + 1,
+      urlVersion: urlState.version ?? 0,
+    });
+    return {
+      stop: false,
+      refreshedFatal: nextRefreshedFatal,
+      lastError: error,
+    };
+  } catch (refreshError) {
+    signal.throwIfAborted();
+    debug.log("Audio downloader. web ABR media URL refresh failed", {
+      range: `${start}-${end}`,
+      nextAttempt: failedAttempt + 1,
+      error:
+        refreshError instanceof Error
+          ? refreshError.message
+          : String(refreshError),
+    });
+    return {
+      stop: fatal,
+      refreshedFatal,
+      lastError: fatal ? error : refreshError,
+    };
+  }
+}
+
 async function fetchMediaRange(
   targetWindow: Window,
   urlState: MediaUrlState,
@@ -1379,114 +1768,47 @@ async function fetchMediaRange(
     // If another failed range is already refreshing the signed media URL,
     // wait for that refresh before starting this retry. This keeps every retry
     // on the newest URL without restarting ranges that already succeeded.
-    if (attempt > 0 && urlState.refreshPromise) {
+    if (attempt > 0 && urlState.refreshPromise !== null) {
       await urlState.refreshPromise;
     }
     try {
-      const urlVersion = urlState.version ?? 0;
-      const url = new URL(urlState.value);
-      url.searchParams.set("range", `${start}-${end}`);
-      url.searchParams.set("rn", String(++requestNumberRef.value));
-      url.searchParams.delete("ump");
-      const response = await targetWindow.fetch(url, {
+      const result = await requestMediaRange(
+        targetWindow,
+        urlState,
+        start,
+        end,
         signal,
-        cache: "no-store",
-      });
-      if (!response.ok)
-        throw new MediaHttpError(
-          response.status,
-          `Audio downloader. Media request failed (${response.status}, range ${start}-${end})`,
-        );
-      const bytes = new Uint8Array(await response.arrayBuffer());
-      signal.throwIfAborted();
-      if (bytes.byteLength === end - start + 1) {
-        if (attempt > 0) {
-          debug.log("Audio downloader. web ABR range recovered", {
-            range: `${start}-${end}`,
-            attempt: attempt + 1,
-            maxAttempts: WEB_ABR_RANGE_MAX_ATTEMPTS,
-            urlVersion,
-          });
-        }
-        return bytes;
-      }
-      const redirect = new TextDecoder("ascii")
-        .decode(bytes)
-        .match(/^\s*(https:\/\/\S+)\s*$/)?.[1];
-      if (redirect) {
-        const next = new URL(redirect);
-        if (!/(?:^|\.)googlevideo\.com$/.test(next.hostname))
-          throw new Error("Audio downloader. Invalid media redirect");
-        urlState.value = next.toString();
+        requestNumberRef,
+      );
+      if (result.type === "redirect") {
         if (attempt + 1 < WEB_ABR_RANGE_MAX_ATTEMPTS) continue;
+        throw new Error(
+          `Audio downloader. Incomplete web ABR chunk (${result.bytesLength}/${end - start + 1}, range ${start}-${end})`,
+        );
       }
-      throw new Error(
-        `Audio downloader. Incomplete web ABR chunk (${bytes.byteLength}/${end - start + 1}, range ${start}-${end})`,
-      );
+      if (attempt > 0) {
+        debug.log("Audio downloader. web ABR range recovered", {
+          range: `${start}-${end}`,
+          attempt: attempt + 1,
+          maxAttempts: WEB_ABR_RANGE_MAX_ATTEMPTS,
+          urlVersion: result.urlVersion,
+        });
+      }
+      return result.bytes;
     } catch (error) {
-      signal.throwIfAborted();
-      lastError = error;
-      const failedAttempt = attempt + 1;
-      const fatal = isFatalMediaError(error);
-      const hasMoreAttempts = failedAttempt < WEB_ABR_RANGE_MAX_ATTEMPTS;
-      // A permanent status still gets one URL refresh (expired signatures look
-      // like 403), but a second fatal failure or a failed refresh ends this
-      // range so the transport matrix can abort.
-      const shouldRefreshUrl =
-        hasMoreAttempts &&
-        (fatal || failedAttempt % WEB_ABR_RANGE_REFRESH_EVERY_FAILURES === 0);
-
-      debug.log("Audio downloader. web ABR range request failed", {
-        range: `${start}-${end}`,
-        attempt: failedAttempt,
-        maxAttempts: WEB_ABR_RANGE_MAX_ATTEMPTS,
-        fatal,
-        refreshUrl: shouldRefreshUrl,
-        error: error instanceof Error ? error.message : String(error),
-      });
-
-      if (!hasMoreAttempts) break;
-      if (fatal && refreshedFatal) break;
-
-      await createAbortableDelay(
-        Math.min(
-          WEB_ABR_RANGE_RETRY_BASE_DELAY_MS * failedAttempt,
-          WEB_ABR_RANGE_RETRY_MAX_DELAY_MS,
-        ),
+      const recovery = await recoverMediaRangeFailure(
+        error,
+        refreshedFatal,
+        attempt,
+        start,
+        end,
         signal,
+        urlState,
+        refreshUrl,
       );
-
-      if (shouldRefreshUrl) {
-        try {
-          await refreshMediaUrl(urlState, refreshUrl, {
-            range: `${start}-${end}`,
-            failedAttempt,
-          });
-          if (fatal) refreshedFatal = true;
-          debug.log(
-            "Audio downloader. web ABR media URL refreshed for range retry",
-            {
-              range: `${start}-${end}`,
-              nextAttempt: failedAttempt + 1,
-              urlVersion: urlState.version ?? 0,
-            },
-          );
-        } catch (refreshError) {
-          signal.throwIfAborted();
-          debug.log("Audio downloader. web ABR media URL refresh failed", {
-            range: `${start}-${end}`,
-            nextAttempt: failedAttempt + 1,
-            error:
-              refreshError instanceof Error
-                ? refreshError.message
-                : String(refreshError),
-          });
-          // Keep the fatal HTTP error as lastError so the transport matrix
-          // aborts instead of retrying a permanent failure.
-          if (fatal) break;
-          lastError = refreshError;
-        }
-      }
+      refreshedFatal = recovery.refreshedFatal;
+      lastError = recovery.lastError;
+      if (recovery.stop) break;
     }
   }
   throw lastError instanceof Error
@@ -1605,6 +1927,45 @@ async function* downloadRangesParallel(
   }
 }
 
+type StreamChunkBuffer = {
+  pending: Uint8Array[];
+  pendingSize: number;
+  readyChunk: Uint8Array | null;
+};
+
+function appendStreamBytes(
+  state: StreamChunkBuffer,
+  bytes: Uint8Array,
+): Uint8Array | undefined {
+  state.pending.push(bytes);
+  state.pendingSize += bytes.byteLength;
+  if (state.pendingSize < config.minChunkSize) return;
+  const nextChunk = concatBuffers(state.pending);
+  state.pending.length = 0;
+  state.pendingSize = 0;
+  const completedChunk = state.readyChunk ?? undefined;
+  state.readyChunk = nextChunk;
+  return completedChunk;
+}
+
+function finishStreamChunks(state: StreamChunkBuffer): AudioChunk[] {
+  if (state.pendingSize > 0) {
+    const chunks: AudioChunk[] = [];
+    if (state.readyChunk) {
+      chunks.push({ buffer: state.readyChunk, isLastChunk: false });
+    }
+    chunks.push({
+      buffer: concatBuffers(state.pending),
+      isLastChunk: true,
+    });
+    return chunks;
+  }
+  if (!state.readyChunk?.byteLength) {
+    throw new Error("Audio downloader. Stream ended without audio data");
+  }
+  return [{ buffer: state.readyChunk, isLastChunk: true }];
+}
+
 async function* downloadStream(
   targetWindow: Window,
   streamUrl: string,
@@ -1623,9 +1984,11 @@ async function* downloadStream(
     throw new Error("Audio downloader. Stream body is unavailable");
 
   const reader = response.body.getReader();
-  const pending: Uint8Array[] = [];
-  let pendingSize = 0;
-  let readyChunk: Uint8Array | null = null;
+  const state: StreamChunkBuffer = {
+    pending: [],
+    pendingSize: 0,
+    readyChunk: null,
+  };
   try {
     for (;;) {
       signal.throwIfAborted();
@@ -1633,20 +1996,9 @@ async function* downloadStream(
       if (done) break;
       if (!value?.byteLength) continue;
       const bytes = value instanceof Uint8Array ? value : new Uint8Array(value);
-      pending.push(bytes);
-      pendingSize += bytes.byteLength;
-      if (pendingSize >= config.minChunkSize) {
-        const nextChunk = concatBuffers(pending);
-        pending.length = 0;
-        pendingSize = 0;
-
-        if (readyChunk) {
-          yield {
-            buffer: readyChunk,
-            isLastChunk: false,
-          };
-        }
-        readyChunk = nextChunk;
+      const completedChunk = appendStreamBytes(state, bytes);
+      if (completedChunk) {
+        yield { buffer: completedChunk, isLastChunk: false };
       }
     }
   } finally {
@@ -1655,27 +2007,7 @@ async function* downloadStream(
     } catch {}
   }
 
-  if (pendingSize > 0) {
-    if (readyChunk) {
-      yield {
-        buffer: readyChunk,
-        isLastChunk: false,
-      };
-    }
-    yield {
-      buffer: concatBuffers(pending),
-      isLastChunk: true,
-    };
-    return;
-  }
-
-  if (!readyChunk?.byteLength) {
-    throw new Error("Audio downloader. Stream ended without audio data");
-  }
-  yield {
-    buffer: readyChunk,
-    isLastChunk: true,
-  };
+  for (const chunk of finishStreamChunks(state)) yield chunk;
 }
 
 async function* downloadWithTransport(
@@ -1767,6 +2099,66 @@ async function* downloadWithTransport(
   }
 }
 
+async function downloadCompleteTransport(
+  targetWindow: Window,
+  transport: WebAbrTransport,
+  streamUrl: string,
+  contentLength: number,
+  signal: AbortSignal,
+  refreshUrl: () => Promise<string>,
+  startedAt: number,
+): Promise<{ chunks: AudioChunk[]; startedAt: number }> {
+  debug.log("Audio downloader. web ABR transport started", {
+    transport,
+    contentLength,
+    bufferBeforeEmit: true,
+  });
+
+  const bufferedChunks: AudioChunk[] = [];
+  let downloadedBytes = 0;
+  for await (const chunk of downloadWithTransport(
+    targetWindow,
+    transport,
+    streamUrl,
+    contentLength,
+    signal,
+    refreshUrl,
+  )) {
+    if (!chunk?.buffer?.byteLength) {
+      throw new Error(
+        "Audio downloader. Web ABR transport produced an empty chunk",
+      );
+    }
+    bufferedChunks.push(chunk);
+    downloadedBytes += chunk.buffer.byteLength;
+  }
+
+  if (downloadedBytes !== contentLength) {
+    throw new Error(
+      `Audio downloader. Incomplete web ABR download (${downloadedBytes}/${contentLength} bytes)`,
+    );
+  }
+  if (bufferedChunks.length < 1) {
+    throw new Error(
+      "Audio downloader. Web ABR transport returned no audio chunks",
+    );
+  }
+
+  for (let index = 0; index < bufferedChunks.length; index++) {
+    bufferedChunks[index] = {
+      ...bufferedChunks[index],
+      isLastChunk: index === bufferedChunks.length - 1,
+    };
+  }
+  debug.log("Audio downloader. web ABR transport fully buffered", {
+    transport,
+    chunks: bufferedChunks.length,
+    downloadedBytes,
+    elapsedMs: Math.round(performance.now() - startedAt),
+  });
+  return { chunks: bufferedChunks, startedAt };
+}
+
 export async function* downloadMediaRanges(
   targetWindow: Window,
   streamUrl: string,
@@ -1789,66 +2181,22 @@ export async function* downloadMediaRanges(
     signal.throwIfAborted();
     const startedAt = performance.now();
     try {
-      debug.log("Audio downloader. web ABR transport started", {
-        transport,
-        contentLength,
-        bufferBeforeEmit: true,
-      });
-
-      // Do not expose any audio to the outer uploader until the selected
-      // transport has downloaded the complete source audio successfully.
-      // This makes fallback safe even if a transport fails near the end.
-      const bufferedChunks: AudioChunk[] = [];
-      let downloadedBytes = 0;
-      for await (const chunk of downloadWithTransport(
+      const result = await downloadCompleteTransport(
         targetWindow,
         transport,
         streamUrl,
         contentLength,
         signal,
         refreshUrl,
-      )) {
-        if (!chunk?.buffer?.byteLength) {
-          throw new Error(
-            "Audio downloader. Web ABR transport produced an empty chunk",
-          );
-        }
-        bufferedChunks.push(chunk);
-        downloadedBytes += chunk.buffer.byteLength;
-      }
-
-      if (downloadedBytes !== contentLength) {
-        throw new Error(
-          `Audio downloader. Incomplete web ABR download (${downloadedBytes}/${contentLength} bytes)`,
-        );
-      }
-      if (bufferedChunks.length < 1) {
-        throw new Error(
-          "Audio downloader. Web ABR transport returned no audio chunks",
-        );
-      }
-
-      // Normalize finalization after the full download is verified.
-      for (let index = 0; index < bufferedChunks.length; index++) {
-        bufferedChunks[index] = {
-          ...bufferedChunks[index],
-          isLastChunk: index === bufferedChunks.length - 1,
-        };
-      }
-
-      debug.log("Audio downloader. web ABR transport fully buffered", {
-        transport,
-        chunks: bufferedChunks.length,
-        downloadedBytes,
-        elapsedMs: Math.round(performance.now() - startedAt),
-      });
+        startedAt,
+      );
 
       // Only now make the chunks visible to AudioDownloader/Yandex upload.
-      for (const chunk of bufferedChunks) yield chunk;
+      for (const chunk of result.chunks) yield chunk;
 
       debug.log("Audio downloader. web ABR transport finished", {
         transport,
-        elapsedMs: Math.round(performance.now() - startedAt),
+        elapsedMs: Math.round(performance.now() - result.startedAt),
         bufferBeforeEmit: true,
       });
       return;
@@ -1876,24 +2224,78 @@ export async function* downloadMediaRanges(
     : new Error("Audio downloader. All web ABR transports failed");
 }
 
-async function* getWebAbrAudioChunksImpl(
+type WebAbrClientName =
+  | "web_embedded"
+  | "tv_downgraded"
+  | "web"
+  | "web_creator";
+type PlayerRequestResult = {
+  response: WebEmbeddedPlayerResponse;
+  authenticated: boolean;
+};
+type WebAbrContext = {
+  targetWindow: WebAbrWindow;
+  videoId: string;
+  signal: AbortSignal;
+  config: YouTubeConfig;
+  apiKey: string;
+  signatureTimestamp: number;
+  embeddedBody: Record<string, unknown>;
+  clientVersion: string;
+  visitorData: unknown;
+  dataSyncId: unknown;
+  authorization?: string;
+  sessionIndex: unknown;
+  delegatedSessionId: unknown;
+  authenticatedAuth: {
+    authorization?: string;
+    sessionIndex: unknown;
+    delegatedSessionId: unknown;
+  };
+  pageExperimentFlags: string[];
+  fetchPlayerCode: (url?: string) => Promise<string | undefined>;
+};
+type WebAbrPlayerClient = {
+  name: WebAbrClientName;
+  fetchedConfig?: FetchedClientConfig;
+  candidateBody: Record<string, unknown>;
+  candidateClient: Record<string, unknown>;
+  requestPlayer: (authenticated?: boolean) => Promise<PlayerRequestResult>;
+  getCode: () => Promise<string | undefined>;
+};
+
+const WEB_ABR_CLIENTS: WebAbrClientName[] = [
+  "web_embedded",
+  "tv_downgraded",
+  "web",
+  "web_creator",
+];
+const WEB_ABR_CLIENT_IDS: Record<WebAbrClientName, string> = {
+  web_embedded: "56",
+  tv_downgraded: "7",
+  web: "1",
+  web_creator: "62",
+};
+
+async function createWebAbrContext(
   targetWindow: WebAbrWindow,
   videoId: string,
   signal: AbortSignal,
-  sourceLanguage?: string,
-): AsyncGenerator<AudioChunk> {
+): Promise<WebAbrContext> {
   const config = await resolveYtcfg(targetWindow, signal);
   const apiKey = getConfigValue(config, "INNERTUBE_API_KEY");
   if (typeof apiKey !== "string") {
-    throw new Error("Audio downloader. web ABR config is unavailable");
+    throw new TypeError("Audio downloader. web ABR config is unavailable");
   }
 
   const playerCodes = new Map<string, Promise<string>>();
-  const fetchPlayerCode = (url = getPlayerUrl(config)) => {
-    if (!url) return Promise.resolve(undefined);
-    let code = playerCodes.get(url);
+  const fetchPlayerCode = async (
+    playerUrl = getPlayerUrl(config),
+  ): Promise<string | undefined> => {
+    if (!playerUrl) return undefined;
+    let code = playerCodes.get(playerUrl);
     if (!code) {
-      code = targetWindow.fetch(url, { signal }).then((response) => {
+      code = targetWindow.fetch(playerUrl, { signal }).then((response) => {
         if (!response.ok) {
           throw new Error(
             `Audio downloader. YouTube player request failed (${response.status})`,
@@ -1901,27 +2303,40 @@ async function* getWebAbrAudioChunksImpl(
         }
         return response.text();
       });
-      playerCodes.set(url, code);
+      playerCodes.set(playerUrl, code);
     }
-    return code;
+    return await code;
   };
-  let sts = Number(getConfigValue(config, "STS"));
-  if (!(sts > 0)) {
-    sts = Number(
-      (await fetchPlayerCode())?.match(
-        /(?:signatureTimestamp|sts)\s*:\s*([0-9]{5})/,
-      )?.[1],
+  let signatureTimestamp = Number(getConfigValue(config, "STS"));
+  if (!Number.isFinite(signatureTimestamp) || signatureTimestamp <= 0) {
+    const playerCode = await fetchPlayerCode();
+    signatureTimestamp = Number(
+      /(?:signatureTimestamp|sts)\s*:\s*(\d{5})/.exec(playerCode ?? "")?.[1],
     );
   }
-  const body = buildWebEmbeddedPlayerRequest(config, videoId, sts);
-  const context = body.context as { client: Record<string, unknown> };
-  const clientVersion = String(context.client.clientVersion ?? "");
+  const embeddedBody = buildWebEmbeddedPlayerRequest(
+    config,
+    videoId,
+    signatureTimestamp,
+  );
+  const embeddedClient = (
+    embeddedBody.context as { client: Record<string, unknown> }
+  ).client;
+  const clientVersion =
+    typeof embeddedClient.clientVersion === "string"
+      ? embeddedClient.clientVersion
+      : "";
   const visitorData =
-    context.client.visitorData ?? getConfigValue(config, "VISITOR_DATA");
-  if (typeof visitorData === "string") context.client.visitorData = visitorData;
+    embeddedClient.visitorData ?? getConfigValue(config, "VISITOR_DATA");
+  if (typeof visitorData === "string") embeddedClient.visitorData = visitorData;
   const dataSyncId = getConfigValue(config, "DATASYNC_ID");
   const [firstSyncId, secondSyncId] =
     typeof dataSyncId === "string" ? dataSyncId.split("||") : [];
+  const rawUserSessionId = getConfigValue(config, "USER_SESSION_ID");
+  const userSessionId =
+    typeof rawUserSessionId === "string"
+      ? rawUserSessionId
+      : secondSyncId || firstSyncId;
   const delegatedSessionId =
     getConfigValue(config, "DELEGATED_SESSION_ID") ??
     (secondSyncId ? firstSyncId : undefined);
@@ -1929,19 +2344,10 @@ async function* getWebAbrAudioChunksImpl(
   // for videos that YouTube itself exposes only to the signed-in account.
   const authorization = await getYouTubeAuthorization(
     targetWindow,
-    String(
-      getConfigValue(config, "USER_SESSION_ID") ??
-        (secondSyncId || firstSyncId) ??
-        "",
-    ) || undefined,
+    userSessionId || undefined,
   );
   const loggedIn = getConfigValue(config, "LOGGED_IN") === true;
   const sessionIndex = getConfigValue(config, "SESSION_INDEX");
-  const authenticatedAuth = {
-    authorization,
-    sessionIndex,
-    delegatedSessionId,
-  };
   const playerContexts = getConfigValue(config, "WEB_PLAYER_CONTEXT_CONFIGS");
   const pageExperimentFlags = Object.values(
     playerContexts && typeof playerContexts === "object" ? playerContexts : {},
@@ -1950,6 +2356,11 @@ async function* getWebAbrAudioChunksImpl(
       ? [entry.serializedExperimentFlags]
       : [],
   );
+  const authenticatedAuth = {
+    authorization,
+    sessionIndex,
+    delegatedSessionId,
+  };
   debug.log("Audio downloader. player auth state", {
     videoId,
     host: targetWindow.location.hostname,
@@ -1959,185 +2370,264 @@ async function* getWebAbrAudioChunksImpl(
     hasDelegatedSession: Boolean(delegatedSessionId),
     loggedIn,
   });
-  let lastError: unknown;
-  let emitted = false;
-  for (const name of ["web_embedded", "tv_downgraded", "web", "web_creator"]) {
-    signal.throwIfAborted();
-    debug.log("Audio downloader. trying player client", {
+  return {
+    targetWindow,
+    videoId,
+    signal,
+    config,
+    apiKey,
+    signatureTimestamp,
+    embeddedBody,
+    clientVersion,
+    visitorData,
+    dataSyncId,
+    authorization,
+    sessionIndex,
+    delegatedSessionId,
+    authenticatedAuth,
+    pageExperimentFlags,
+    fetchPlayerCode,
+  };
+}
+
+async function createWebAbrPlayerClient(
+  context: WebAbrContext,
+  name: WebAbrClientName,
+): Promise<WebAbrPlayerClient> {
+  const { targetWindow, signal, videoId } = context;
+  const fetchedConfig =
+    name === "tv_downgraded"
+      ? await fetchTvConfig(targetWindow, signal, videoId)
+      : undefined;
+  const options = {
+    visitorData: fetchedConfig?.visitorData ?? context.visitorData,
+    signatureTimestamp:
+      fetchedConfig?.signatureTimestamp ?? context.signatureTimestamp,
+    clientVersion: fetchedConfig?.clientVersion,
+  };
+  let candidateBody: Record<string, unknown>;
+  if (name === "web_embedded") {
+    candidateBody = context.embeddedBody;
+  } else if (name === "tv_downgraded") {
+    candidateBody = buildTvDowngradedPlayerRequest(videoId, options);
+  } else if (name === "web") {
+    candidateBody = buildWebPlayerRequest(
+      context.config,
       videoId,
-      client: name,
-    });
-    const fetchedConfig =
-      name === "tv_downgraded"
-        ? await fetchTvConfig(targetWindow, signal, videoId)
-        : undefined;
-    const options = {
-      visitorData: fetchedConfig?.visitorData ?? visitorData,
-      signatureTimestamp: fetchedConfig?.signatureTimestamp ?? sts,
-      clientVersion: fetchedConfig?.clientVersion,
-    };
-    // Studio cannot be fetched from the embed realm without CORS permission.
-    const candidateBody =
-      name === "web_embedded"
-        ? body
-        : name === "tv_downgraded"
-          ? buildTvDowngradedPlayerRequest(videoId, options)
-          : name === "web"
-            ? buildWebPlayerRequest(config, videoId, sts)
-            : buildWebCreatorPlayerRequest(videoId, options);
-    const candidateContext = candidateBody.context as {
-      client: Record<string, unknown>;
-    };
-    if (typeof options.visitorData === "string") {
-      candidateContext.client.visitorData = options.visitorData;
-    }
-    const postPlayer = (authenticated: boolean) =>
-      postInnertubePlayer(
-        targetWindow,
-        signal,
-        fetchedConfig?.apiKey ?? apiKey,
-        candidateBody,
-        name === "web_embedded"
-          ? "56"
-          : name === "tv_downgraded"
-            ? "7"
-            : name === "web"
-              ? "1"
-              : "62",
-        String(candidateContext.client.clientVersion ?? clientVersion),
-        authenticated ? authenticatedAuth : {},
-      );
-    const requestPlayer = async (authenticated = false) => {
-      const response = await postPlayer(authenticated);
-      const status = response.playabilityStatus?.status ?? "";
-      if (
-        !authenticated &&
-        authorization &&
-        /LOGIN_REQUIRED|AGE_CHECK_REQUIRED|CONTENT_CHECK_REQUIRED/.test(status)
-      ) {
-        debug.log("Audio downloader. retrying player with YouTube session", {
-          videoId,
-          client: name,
-          status,
-        });
-        return { response: await postPlayer(true), authenticated: true };
-      }
-      return { response, authenticated };
-    };
-    const getCode = () => fetchPlayerCode(fetchedConfig?.playerUrl);
-    try {
-      const initialPlayer = await requestPlayer();
-      const playerResponse = initialPlayer.response;
-      const requestAuthenticated = initialPlayer.authenticated;
-      const formats = [
-        ...(playerResponse.streamingData?.adaptiveFormats ?? []),
-        ...(playerResponse.streamingData?.formats ?? []),
-      ];
-      if (!formats.length) {
-        const status = playerResponse.playabilityStatus;
-        throw new Error(
-          `Audio downloader. ${name} ${status?.status ?? "failed"}: ${
-            status?.reason ?? status?.messages?.join(" ") ?? "no streaming data"
-          }`,
-        );
-      }
-      const format = selectWebEmbeddedAudioFormat(formats, sourceLanguage);
-      const fetchedFlags = fetchedConfig?.experimentFlags;
-      const poTokenBinding = selectGvsPoTokenBinding(videoId, {
-        loggedIn: requestAuthenticated,
-        dataSyncId:
-          playerResponse.responseContext?.mainAppWebResponseContext
-            ?.datasyncId ||
-          dataSyncId ||
-          fetchedConfig?.dataSyncId,
-        visitorData: candidateContext.client.visitorData ?? visitorData,
-        experimentFlags: fetchedFlags?.length
-          ? fetchedFlags
-          : pageExperimentFlags,
-      });
-      let poToken: Promise<string | undefined> | undefined;
-      const authorizeUrl = async (streamUrl: string) => {
-        const url = new URL(streamUrl);
-        if (!url.searchParams.has("pot") && poTokenBinding) {
-          poToken ??= mintPagePoToken(
-            targetWindow,
-            poTokenBinding.value,
-            signal,
-          );
-          const token = await poToken;
-          if (token) url.searchParams.set("pot", token);
-        }
-        return url.toString();
-      };
-      for await (const solvedUrl of resolveWebEmbeddedFormatUrl(
-        targetWindow,
-        format,
-        getCode,
-        signal,
-      )) {
-        try {
-          const streamUrl = await authorizeUrl(solvedUrl);
-          const contentLength =
-            Number(format.contentLength) ||
-            (await probeContentLength(targetWindow, streamUrl, signal));
-          const refreshUrl = async () => {
-            const refreshedPlayer = await requestPlayer(requestAuthenticated);
-            const response = refreshedPlayer.response;
-            const refreshed = [
-              ...(response.streamingData?.adaptiveFormats ?? []),
-              ...(response.streamingData?.formats ?? []),
-            ].find(
-              (entry) =>
-                entry.itag === format.itag &&
-                entry.mimeType === format.mimeType &&
-                Number(entry.contentLength) === contentLength &&
-                entry.lastModified === format.lastModified,
-            );
-            if (!refreshed)
-              throw new Error(
-                "Audio downloader. Refreshed audio format changed",
-              );
-            for await (const url of resolveWebEmbeddedFormatUrl(
-              targetWindow,
-              refreshed,
-              getCode,
-              signal,
-            )) {
-              return await authorizeUrl(url);
-            }
-            throw new Error(
-              "Audio downloader. Refreshed audio URL unavailable",
-            );
-          };
-          for await (const chunk of downloadMediaRanges(
-            targetWindow,
-            streamUrl,
-            contentLength,
-            signal,
-            refreshUrl,
-          )) {
-            emitted = true;
-            yield chunk;
-          }
-          return;
-        } catch (error) {
-          signal.throwIfAborted();
-          if (emitted) throw error;
-          lastError = error;
-          // Nothing escaped this candidate: try another solve or client from byte zero.
-        }
-      }
-    } catch (error) {
-      signal.throwIfAborted();
-      if (emitted) throw error;
-      debug.log("Audio downloader. player client format failed", {
+      context.signatureTimestamp,
+    );
+  } else {
+    candidateBody = buildWebCreatorPlayerRequest(videoId, options);
+  }
+  const candidateClient = (
+    candidateBody.context as { client: Record<string, unknown> }
+  ).client;
+  if (typeof options.visitorData === "string") {
+    candidateClient.visitorData = options.visitorData;
+  }
+  const postPlayer = (authenticated: boolean) =>
+    postInnertubePlayer(
+      targetWindow,
+      signal,
+      fetchedConfig?.apiKey ?? context.apiKey,
+      candidateBody,
+      WEB_ABR_CLIENT_IDS[name],
+      typeof candidateClient.clientVersion === "string"
+        ? candidateClient.clientVersion
+        : context.clientVersion,
+      authenticated ? context.authenticatedAuth : {},
+    );
+  const requestPlayer = async (
+    authenticated = false,
+  ): Promise<PlayerRequestResult> => {
+    const response = await postPlayer(authenticated);
+    const status = response.playabilityStatus?.status ?? "";
+    if (
+      !authenticated &&
+      context.authorization &&
+      /LOGIN_REQUIRED|AGE_CHECK_REQUIRED|CONTENT_CHECK_REQUIRED/.test(status)
+    ) {
+      debug.log("Audio downloader. retrying player with YouTube session", {
         videoId,
         client: name,
-        error: error instanceof Error ? error.message : String(error),
+        status,
       });
+      return { response: await postPlayer(true), authenticated: true };
+    }
+    return { response, authenticated };
+  };
+  return {
+    name,
+    fetchedConfig,
+    candidateBody,
+    candidateClient,
+    requestPlayer,
+    getCode: () => context.fetchPlayerCode(fetchedConfig?.playerUrl),
+  };
+}
+
+function getClientAudioFormats(
+  name: WebAbrClientName,
+  response: WebEmbeddedPlayerResponse,
+): WebEmbeddedFormat[] {
+  const formats = [
+    ...(response.streamingData?.adaptiveFormats ?? []),
+    ...(response.streamingData?.formats ?? []),
+  ];
+  if (formats.length > 0) return formats;
+  const status = response.playabilityStatus;
+  throw new Error(
+    `Audio downloader. ${name} ${status?.status ?? "failed"}: ${
+      status?.reason ?? status?.messages?.join(" ") ?? "no streaming data"
+    }`,
+  );
+}
+
+function createStreamUrlAuthorizer(
+  context: WebAbrContext,
+  binding:
+    | { kind: "video" | "datasync" | "visitor"; value: string }
+    | undefined,
+): (streamUrl: string) => Promise<string> {
+  let poToken: Promise<string | undefined> | undefined;
+  return async (streamUrl: string) => {
+    const url = new URL(streamUrl);
+    if (!url.searchParams.has("pot") && binding) {
+      poToken ??= mintPagePoToken(
+        context.targetWindow,
+        binding.value,
+        context.signal,
+      );
+      const token = await poToken;
+      if (token) url.searchParams.set("pot", token);
+    }
+    return url.toString();
+  };
+}
+
+async function getRefreshedFormatUrl(
+  context: WebAbrContext,
+  client: WebAbrPlayerClient,
+  format: WebEmbeddedFormat,
+  contentLength: number,
+  authenticated: boolean,
+  authorizeUrl: (streamUrl: string) => Promise<string>,
+): Promise<string> {
+  const refreshedPlayer = await client.requestPlayer(authenticated);
+  const response = refreshedPlayer.response;
+  const refreshed = [
+    ...(response.streamingData?.adaptiveFormats ?? []),
+    ...(response.streamingData?.formats ?? []),
+  ].find(
+    (entry) =>
+      entry.itag === format.itag &&
+      entry.mimeType === format.mimeType &&
+      Number(entry.contentLength) === contentLength &&
+      entry.lastModified === format.lastModified,
+  );
+  if (!refreshed) {
+    throw new Error("Audio downloader. Refreshed audio format changed");
+  }
+  const urlIterator = resolveWebEmbeddedFormatUrl(
+    context.targetWindow,
+    refreshed,
+    client.getCode,
+    context.signal,
+  );
+  try {
+    const nextUrl = await urlIterator.next();
+    if (!nextUrl.done) return await authorizeUrl(nextUrl.value);
+    throw new Error("Audio downloader. Refreshed audio URL unavailable");
+  } finally {
+    await urlIterator.return(undefined);
+  }
+}
+
+async function* downloadResolvedFormatCandidate(
+  context: WebAbrContext,
+  client: WebAbrPlayerClient,
+  format: WebEmbeddedFormat,
+  solvedUrl: string,
+  authenticated: boolean,
+  authorizeUrl: (streamUrl: string) => Promise<string>,
+): AsyncGenerator<AudioChunk> {
+  const streamUrl = await authorizeUrl(solvedUrl);
+  const contentLength =
+    Number(format.contentLength) ||
+    (await probeContentLength(context.targetWindow, streamUrl, context.signal));
+  const refreshUrl = () =>
+    getRefreshedFormatUrl(
+      context,
+      client,
+      format,
+      contentLength,
+      authenticated,
+      authorizeUrl,
+    );
+  yield* downloadMediaRanges(
+    context.targetWindow,
+    streamUrl,
+    contentLength,
+    context.signal,
+    refreshUrl,
+  );
+}
+
+async function* downloadWebAbrPlayerClient(
+  context: WebAbrContext,
+  client: WebAbrPlayerClient,
+  sourceLanguage?: string,
+): AsyncGenerator<AudioChunk> {
+  const initialPlayer = await client.requestPlayer();
+  const requestAuthenticated = initialPlayer.authenticated;
+  const playerResponse = initialPlayer.response;
+  const formats = getClientAudioFormats(client.name, playerResponse);
+  const format = selectWebEmbeddedAudioFormat(formats, sourceLanguage);
+  const fetchedFlags = client.fetchedConfig?.experimentFlags;
+  const poTokenBinding = selectGvsPoTokenBinding(context.videoId, {
+    loggedIn: requestAuthenticated,
+    dataSyncId:
+      playerResponse.responseContext?.mainAppWebResponseContext?.datasyncId ||
+      context.dataSyncId ||
+      client.fetchedConfig?.dataSyncId,
+    visitorData: client.candidateClient.visitorData ?? context.visitorData,
+    experimentFlags: fetchedFlags?.length
+      ? fetchedFlags
+      : context.pageExperimentFlags,
+  });
+  const authorizeUrl = createStreamUrlAuthorizer(context, poTokenBinding);
+  let emitted = false;
+  let lastError: unknown;
+  for await (const solvedUrl of resolveWebEmbeddedFormatUrl(
+    context.targetWindow,
+    format,
+    client.getCode,
+    context.signal,
+  )) {
+    try {
+      for await (const chunk of downloadResolvedFormatCandidate(
+        context,
+        client,
+        format,
+        solvedUrl,
+        requestAuthenticated,
+        authorizeUrl,
+      )) {
+        emitted = true;
+        yield chunk;
+      }
+      return;
+    } catch (error) {
+      context.signal.throwIfAborted();
+      if (emitted) throw error;
       lastError = error;
+      // Nothing escaped this candidate; try another solved URL from byte zero.
     }
   }
+  if (lastError) throw lastError;
+}
+
+function throwWebAbrFailure(lastError: unknown): never {
   const fallbackError =
     lastError instanceof Error
       ? lastError
@@ -2149,6 +2639,46 @@ async function* getWebAbrAudioChunksImpl(
     );
   }
   throw fallbackError;
+}
+
+async function* getWebAbrAudioChunksImpl(
+  targetWindow: WebAbrWindow,
+  videoId: string,
+  signal: AbortSignal,
+  sourceLanguage?: string,
+): AsyncGenerator<AudioChunk> {
+  const context = await createWebAbrContext(targetWindow, videoId, signal);
+  let lastError: unknown;
+  let emitted = false;
+  for (const name of WEB_ABR_CLIENTS) {
+    signal.throwIfAborted();
+    debug.log("Audio downloader. trying player client", {
+      videoId,
+      client: name,
+    });
+    try {
+      const client = await createWebAbrPlayerClient(context, name);
+      for await (const chunk of downloadWebAbrPlayerClient(
+        context,
+        client,
+        sourceLanguage,
+      )) {
+        emitted = true;
+        yield chunk;
+      }
+      return;
+    } catch (error) {
+      signal.throwIfAborted();
+      if (emitted) throw error;
+      debug.log("Audio downloader. player client format failed", {
+        videoId,
+        client: name,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      lastError = error;
+    }
+  }
+  throwWebAbrFailure(lastError);
 }
 
 const WEB_ABR_DOWNLOAD_QUEUE = new Map<string, Promise<void>>();

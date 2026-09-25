@@ -121,8 +121,7 @@ export function isAbortError(err: unknown): boolean {
  */
 export function makeAbortError(reason: unknown = "Aborted"): Error {
   if (reason instanceof Error && isAbortError(reason)) return reason;
-  const message =
-    reason instanceof Error ? reason.message : String(reason ?? "Aborted");
+  const message = getAbortReasonMessage(reason);
   try {
     return new DOMException(message, "AbortError");
   } catch {
@@ -130,6 +129,29 @@ export function makeAbortError(reason: unknown = "Aborted"): Error {
     (err as any).name = "AbortError";
     return err;
   }
+}
+
+function getAbortReasonMessage(reason: unknown): string {
+  if (reason instanceof Error) return reason.message;
+  if (typeof reason === "string") return reason;
+  if (reason == null) return "Aborted";
+  if (
+    typeof reason === "number" ||
+    typeof reason === "boolean" ||
+    typeof reason === "bigint" ||
+    typeof reason === "symbol"
+  ) {
+    return String(reason);
+  }
+  if (typeof reason === "object") {
+    try {
+      const message = (reason as { message?: unknown }).message;
+      if (typeof message === "string") return message;
+    } catch {
+      // A proxy may throw while exposing its message property.
+    }
+  }
+  return "Aborted";
 }
 
 /**

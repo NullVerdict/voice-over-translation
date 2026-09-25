@@ -173,13 +173,12 @@ function setEvent(element: Element, property: string, value: unknown): void {
   element.addEventListener(eventName, listener, capture);
 }
 
-function setProperty<T>(
-  node: Node,
+function setSpecialProperty<T>(
+  node: Element,
   name: string,
   value: T,
-  previous?: T,
-): void {
-  if (!(node instanceof Element)) return;
+  previous: T | undefined,
+): boolean {
   if (name === "innerHTML") {
     throw new TypeError(
       "[VOT] innerHTML is not supported by the CSP-safe renderer",
@@ -190,32 +189,40 @@ function setProperty<T>(
     (node instanceof HTMLElement || node instanceof SVGElement)
   ) {
     setStyle(node, value as never, previous as never);
-    return;
+    return true;
   }
   if (name === "classList") {
     setClassList(node, value as never, previous as never);
-    return;
+    return true;
   }
   if (name.startsWith("on")) {
     setEvent(node, name, value);
-    return;
-  }
-  if (name.startsWith("attr:")) name = name.slice(5);
-  if (name === "class" || name === "className") {
-    if (value == null) node.removeAttribute("class");
-    else node.setAttribute("class", String(value));
-    return;
-  }
-  if (name === "textContent") {
-    node.textContent = value == null ? "" : String(value);
-    return;
-  }
-  if (node instanceof SVGElement) {
-    if (value == null) node.removeAttribute(name);
-    else node.setAttribute(name, String(value));
-    return;
+    return true;
   }
 
+  const attributeName = name.startsWith("attr:") ? name.slice(5) : name;
+  if (attributeName === "class" || attributeName === "className") {
+    if (value == null) node.removeAttribute("class");
+    else node.setAttribute("class", String(value));
+    return true;
+  }
+  if (attributeName === "textContent") {
+    node.textContent = value == null ? "" : String(value);
+    return true;
+  }
+  if (node instanceof SVGElement) {
+    if (value == null) node.removeAttribute(attributeName);
+    else node.setAttribute(attributeName, String(value));
+    return true;
+  }
+  return false;
+}
+
+function setDomPropertyOrAttribute<T>(
+  node: Element,
+  name: string,
+  value: T,
+): void {
   const propertyName = propertyAliases[name] ?? name;
   if (
     propertyName in node &&
@@ -223,15 +230,28 @@ function setProperty<T>(
     !name.startsWith("data-")
   ) {
     Reflect.set(node, propertyName, value);
-    return;
-  }
-  if (value == null || (value === false && booleanAttributes.has(name))) {
+  } else if (
+    value == null ||
+    (value === false && booleanAttributes.has(name))
+  ) {
     node.removeAttribute(name);
   } else if (value === true && booleanAttributes.has(name)) {
     node.setAttribute(name, "");
   } else {
     node.setAttribute(name, String(value));
   }
+}
+
+function setProperty<T>(
+  node: Node,
+  name: string,
+  value: T,
+  previous?: T,
+): void {
+  if (!(node instanceof Element)) return;
+  if (setSpecialProperty(node, name, value, previous)) return;
+  const attributeName = name.startsWith("attr:") ? name.slice(5) : name;
+  setDomPropertyOrAttribute(node, attributeName, value);
 }
 
 export const {
@@ -266,8 +286,8 @@ export const {
   insertNode(parent, node, anchor) {
     parent.insertBefore(node, anchor ?? null);
   },
-  removeNode(parent, node) {
-    parent.removeChild(node);
+  removeNode(_parent, node) {
+    (node as ChildNode).remove();
   },
   getParentNode(node) {
     return node.parentNode ?? undefined;

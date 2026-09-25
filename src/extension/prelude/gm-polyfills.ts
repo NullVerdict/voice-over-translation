@@ -1,5 +1,6 @@
 import debug from "../../utils/debug";
 import { toErrorMessage } from "../../utils/errors";
+import { createSecureRandomId } from "../../utils/utils";
 import { summarizeBodyForDebug } from "../shared/bodySerialization";
 import {
   type AnyObject,
@@ -16,10 +17,7 @@ import { callXhrCallback } from "../shared/utils";
 
 const XHR_FALLBACK_TIMEOUT_GRACE_MS = 1_000;
 const BRIDGE_REQUEST_TIMEOUT_MS = 15_000;
-const REQUEST_ID_PREFIX =
-  typeof crypto !== "undefined" && "randomUUID" in crypto
-    ? crypto.randomUUID()
-    : `${Date.now().toString(36)}_${Math.random().toString(36).slice(2)}`;
+const REQUEST_ID_PREFIX = createSecureRandomId();
 
 type UnknownRecord = Record<string, unknown>;
 export type PendingRequest = {

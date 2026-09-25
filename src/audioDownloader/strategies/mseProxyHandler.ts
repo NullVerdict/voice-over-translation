@@ -12,6 +12,21 @@ const IFRAME_HASH = "ya_iframe";
 const BOOT_KEY = "__VOT_MSE_PROXY_HANDLER__";
 const STORE_KEY = "__VOT_MSE_CAPTURE_STORE__";
 
+function getParentOrigin(targetWindow: Window): string | undefined {
+  try {
+    const origin = new URL(targetWindow.document.referrer).origin;
+    return origin === "null" ? undefined : origin;
+  } catch {
+    return undefined;
+  }
+}
+
+function getPlayErrorName(error: unknown): string {
+  if (error instanceof Error) return error.name;
+  if (typeof error === "string") return error;
+  return "Unknown playback error";
+}
+
 type YouTubePlayer = Element & {
   loadVideoById?: (videoId: string) => void;
   playVideo: () => void;
@@ -84,7 +99,7 @@ async function getEncryptedEmbedConfig(
   bytes[0] = 10;
   bytes[1] = videoId.length;
   for (let index = 0; index < videoId.length; index++) {
-    bytes[index + 2] = videoId.charCodeAt(index);
+    bytes[index + 2] = videoId.codePointAt(index) ?? 0;
   }
 
   try {
@@ -100,13 +115,13 @@ async function getEncryptedEmbedConfig(
             },
           },
           serializedSharedEntity: encodeURIComponent(
-            targetWindow.btoa(String.fromCharCode(...bytes)),
+            targetWindow.btoa(String.fromCodePoint(...bytes)),
           ),
         }),
       },
     );
-    const match = (await response.text()).match(
-      /"encryptedEmbedConfig"\s*:\s*("[^"]+")/,
+    const match = /"encryptedEmbedConfig"\s*:\s*("[^"]+")/.exec(
+      await response.text(),
     );
     return match ? `{"enc":${match[1]}}` : undefined;
   } catch {
@@ -313,6 +328,44 @@ async function getPlayer(
   );
 }
 
+function retryMutedPlayback(
+  player: YouTubePlayer,
+  videoId: string,
+  videos: HTMLVideoElement[],
+  state: number | null,
+  onRejected: (error: unknown) => void,
+): void {
+  if (!videos.length || (state !== 5 && state !== 2 && state !== -1)) return;
+  try {
+    if (state === -1) player.loadVideoById?.(videoId);
+    player.playVideo();
+  } catch {
+    // Play retries are best-effort only.
+  }
+
+  const element = videos[0];
+  if (!element) return;
+  try {
+    element.muted = true;
+    const attempt = element.play();
+    if (typeof attempt?.catch === "function") {
+      attempt.catch(onRejected);
+    }
+  } catch (error) {
+    onRejected(error);
+  }
+}
+
+function findReadyVideo(
+  videos: HTMLVideoElement[],
+  state: number | null,
+): HTMLVideoElement | null {
+  return (
+    videos.find((video) => video.readyState >= 3) ??
+    (state === 1 && videos.length > 0 ? (videos[0] ?? null) : null)
+  );
+}
+
 function createAudioChunkStream(
   targetWindow: MseWindow,
   videoId: string,
@@ -380,41 +433,16 @@ function createAudioChunkStream(
               // is ready or blocked without user activation.
               const videos = listVideos();
               const state = getPlayerState();
-              if (
-                videos.length > 0 &&
-                (state === 5 || state === 2 || state === -1)
-              ) {
-                try {
-                  if (state === -1) player.loadVideoById?.(videoId);
-                  player.playVideo();
-                } catch {
-                  // Play retries are best-effort only.
-                }
-                // Probe the element directly: a rejected play() (e.g.
-                // NotAllowedError) proves autoplay blocking by the browser.
-                const element = videos[0];
-                try {
-                  element.muted = true;
-                  const attempt = element.play();
-                  if (attempt && typeof attempt.catch === "function") {
-                    attempt.catch((playError: unknown) => {
-                      playReject ??=
-                        playError instanceof Error
-                          ? playError.name
-                          : String(playError);
-                    });
-                  }
-                } catch (playError) {
-                  playReject ??=
-                    playError instanceof Error
-                      ? playError.name
-                      : String(playError);
-                }
-              }
-              return (
-                videos.find((video) => video.readyState >= 3) ??
-                (state === 1 && videos.length > 0 ? videos[0] : null)
+              retryMutedPlayback(
+                player,
+                videoId,
+                videos,
+                state,
+                (playError) => {
+                  playReject ??= getPlayErrorName(playError);
+                },
               );
+              return findReadyVideo(videos, state);
             },
             15_000,
             "MSE media wait",
@@ -486,7 +514,7 @@ function createAudioChunkStream(
           if (finished) return;
           if (totalSize === 0) {
             debug.error("Audio downloader. MSE empty stream", { videoId });
-            void onMseError(new Error("Audio downloader. Empty MSE stream"));
+            onMseError(new Error("Audio downloader. Empty MSE stream"));
           } else {
             debug.log("Audio downloader. MSE stream finished", {
               videoId,
@@ -516,7 +544,7 @@ function createAudioChunkStream(
                 videoId,
                 totalSize,
               });
-              void onMseError(new Error("Audio downloader. MSE source closed"));
+              onMseError(new Error("Audio downloader. MSE source closed"));
               return;
             }
 
@@ -560,12 +588,12 @@ function createAudioChunkStream(
                 try {
                   player.seekTo(bufferedEnd, true);
                 } catch (error) {
-                  void onMseError(error);
+                  onMseError(error);
                 }
               }, 1000);
             }
           } catch (error) {
-            void onMseError(error);
+            onMseError(error);
           }
         };
         let stopCapture = () => {};
@@ -588,7 +616,7 @@ function createAudioChunkStream(
             stopCapture = capture.listen(onCapturedEvent);
             if (finished) stopCapture();
           } catch (error) {
-            void onMseError(error);
+            onMseError(error);
           }
         });
         if (finished) removeCaptureListener();
@@ -613,7 +641,8 @@ function postResponse(
   targetOrigin: string,
   message: MseMessage,
 ): void {
-  (target as Window).postMessage(message, targetOrigin || "*");
+  if (!targetOrigin || targetOrigin === "null") return;
+  (target as Window).postMessage(message, targetOrigin);
 }
 
 async function handleIframeRequest(
@@ -737,7 +766,7 @@ async function handleTopRequest(
   if (message.isAborted) {
     const session = topSessions.get(message.messageId);
     if (session?.source === source && session.origin === event.origin) {
-      session.iframe.contentWindow?.postMessage(message, "*");
+      session.iframe.contentWindow?.postMessage(message, "https://www.youtube.com");
       session.cleanup();
     }
     return;
@@ -804,7 +833,12 @@ async function handleTopRequest(
   let ready = false;
   onMessage = (responseEvent: MessageEvent<MseMessage>) => {
     const response = responseEvent.data;
-    if (responseEvent.source !== iframe.contentWindow) return;
+    if (
+      responseEvent.source !== iframe.contentWindow ||
+      responseEvent.origin !== url.origin
+    ) {
+      return;
+    }
     if (response.messageType === READY_MESSAGE_TYPE) {
       if (ready) return;
       ready = true;
@@ -813,7 +847,7 @@ async function handleTopRequest(
         videoId,
         messageId: message.messageId,
       });
-      iframe.contentWindow?.postMessage(message, "*");
+      iframe.contentWindow?.postMessage(message, url.origin);
     } else if (
       response.messageId === message.messageId &&
       (response.error || response.isAborted || response.isStreamFinished)
@@ -859,6 +893,9 @@ function initMseProxyHandler(): void {
       pageWindow.location.hostname,
     ) &&
     pageWindow.location.hash.includes(IFRAME_HASH);
+  const parentOrigin = isServiceIframe
+    ? getParentOrigin(pageWindow)
+    : undefined;
   if (isServiceIframe) installMediaSourceProxy(pageWindow);
 
   pageWindow.addEventListener("message", (event: MessageEvent<MseMessage>) => {
@@ -869,23 +906,33 @@ function initMseProxyHandler(): void {
     ) {
       return;
     }
-    if (!isServiceIframe && event.origin !== pageWindow.location.origin) {
+    if (isServiceIframe) {
+      if (
+        !parentOrigin ||
+        event.source !== pageWindow.parent ||
+        event.origin !== parentOrigin
+      ) {
+        return;
+      }
+      if (!message.isAborted) void handleIframeRequest(event, pageWindow);
       return;
     }
-    if (isServiceIframe) {
-      if (!message.isAborted) void handleIframeRequest(event, pageWindow);
-    } else {
-      void handleTopRequest(event, pageWindow);
+    if (
+      event.source !== pageWindow ||
+      event.origin !== pageWindow.location.origin
+    ) {
+      return;
     }
+    void handleTopRequest(event, pageWindow);
   });
 
-  if (isServiceIframe) {
+  if (isServiceIframe && parentOrigin) {
     pageWindow.parent.postMessage(
       {
         messageType: READY_MESSAGE_TYPE,
         messageDirection: "response",
       },
-      "*",
+      parentOrigin,
     );
   }
 }
