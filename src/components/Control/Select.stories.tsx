@@ -2,6 +2,7 @@ import { createSignal } from "solid-js";
 import { expect, userEvent, waitFor } from "storybook/test";
 import type { Meta, StoryObj } from "storybook-solidjs-vite";
 
+import { Dialog } from "../Dialog/Dialog";
 import { Select, type SelectOption } from "./Select";
 
 const meta = {
@@ -148,11 +149,123 @@ export const SelectNearViewportBottom: Story = {
   },
 };
 
+export const SelectInShadowPortal: Story = {
+  args: {
+    title: "Select something",
+    isOpen: true,
+    options: selectOptions,
+  },
+  render: (args) => {
+    const portalHost = document.createElement("vot-select-portal");
+    const portal = portalHost.attachShadow({ mode: "open" });
+    const style = document.createElement("style");
+    style.textContent = `
+      .vot-select-inner { position: fixed; display: block; padding: 8px; background: white; color: black; }
+      .vot-select-inner__option { display: block; padding: 8px; }
+    `;
+    portal.append(style);
+
+    return (
+      <vot-block style="display: flex; gap: 16px; align-items: start;">
+        <vot-block
+          class="portal-clipped"
+          style="height: 36px; width: 180px; overflow: hidden; contain: paint; border: 1px solid;"
+        >
+          <Select {...args} mount={() => portal} />
+        </vot-block>
+        {portalHost}
+      </vot-block>
+    );
+  },
+  play: async ({ canvasElement }) => {
+    const trigger =
+      canvasElement.querySelector<HTMLElement>(".vot-select-outer");
+    await expect(trigger).not.toBeNull();
+    if (!trigger) return;
+
+    const popupId = trigger.getAttribute("aria-controls");
+    const portal = canvasElement.querySelector("vot-select-portal")?.shadowRoot;
+    const popup = popupId ? portal?.getElementById(popupId) : null;
+    await expect(popup).not.toBeNull();
+    if (!popup) return;
+
+    const option = popup.querySelector<HTMLElement>(
+      ".vot-select-inner__option",
+    );
+    await expect(option).toHaveTextContent("Option 1");
+    const clippedContainer =
+      canvasElement.querySelector<HTMLElement>(".portal-clipped");
+    await expect(clippedContainer).not.toBeNull();
+    if (!option || !clippedContainer) return;
+
+    await waitFor(() => {
+      expect(popup.getRootNode()).toBe(portal);
+      const optionRect = option.getBoundingClientRect();
+      expect(optionRect.height).toBeGreaterThan(0);
+      expect(optionRect.top).toBeGreaterThanOrEqual(0);
+      expect(optionRect.bottom).toBeLessThanOrEqual(window.innerHeight);
+      expect(optionRect.top).toBeGreaterThan(
+        clippedContainer.getBoundingClientRect().bottom,
+      );
+    });
+  },
+};
+
 export const SelectWithSearch: Story = {
   args: {
     title: "Select something",
     options: selectOptions,
     search: true,
+  },
+};
+
+export const SelectEscapeInDialog: Story = {
+  args: {
+    title: "Select something",
+    options: selectOptions,
+  },
+  render: () => {
+    const [isDialogOpen, setIsDialogOpen] = createSignal(true);
+
+    return (
+      <Dialog
+        title="Select Escape regression"
+        isOpen={isDialogOpen()}
+        onClose={() => setIsDialogOpen(false)}
+      >
+        <Select title="Select something" options={selectOptions} search />
+      </Dialog>
+    );
+  },
+  play: async ({ canvasElement }) => {
+    const dialog = canvasElement.querySelector<HTMLElement>(
+      ".vot-dialog-container",
+    );
+    const trigger =
+      canvasElement.querySelector<HTMLElement>(".vot-select-outer");
+    await expect(dialog).not.toBeNull();
+    await expect(trigger).not.toBeNull();
+    if (!dialog || !trigger) return;
+
+    await userEvent.click(trigger);
+    const popup = dialog.querySelector<HTMLElement>(".vot-select-inner");
+    const search = popup?.querySelector<HTMLInputElement>("input");
+    await expect(popup).not.toBeNull();
+    await expect(search).not.toBeNull();
+    if (!popup || !search) return;
+
+    search.focus();
+    await userEvent.keyboard("{Escape}");
+    await waitFor(() => {
+      expect(popup).toHaveAttribute("hidden");
+    });
+    await expect(dialog).not.toHaveAttribute("aria-hidden", "true");
+    await expect(document.activeElement).toBe(trigger);
+
+    await userEvent.keyboard("{Escape}");
+    await waitFor(() => {
+      expect(dialog).toHaveAttribute("aria-hidden", "true");
+    });
   },
 };
 

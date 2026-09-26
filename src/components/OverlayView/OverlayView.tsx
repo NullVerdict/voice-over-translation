@@ -14,7 +14,6 @@ import { setSettings, settings } from "../../stores/settings";
 import type { Position, Status } from "../../types/components/votButton";
 import {
   getButtonDirection,
-  isSideButtonPosition,
   normalizeButtonPosition,
   resolveButtonPositionFromPointer,
 } from "../../ui/buttonPlacement";
@@ -88,13 +87,13 @@ export type OverlayViewControls = {
 
 export type OverlayViewProps = {
   controlsRef?: (controls: OverlayViewControls) => void;
-  isBigContainer?: boolean;
   /**
    * used only for testing purposes, to set the initial opacity of the button overlay
    */
   baseOpacity?: number;
   detectedLanguage?: RequestLang;
   responseLanguage?: ResponseLang;
+  selectMount?: () => HTMLElement | ShadowRoot | undefined;
   onButtonDragActivity?: (source: string) => void;
   onButtonDragEnd?: () => void;
   onButtonDragStart?: () => void;
@@ -125,23 +124,18 @@ export type OverlayViewProps = {
     >
   >;
 
-const BIG_CONTAINER_WIDTH_PX = 550;
 const DRAG_ACTION_SUPPRESS_MS = 350;
 const DRAG_THRESHOLD_PX = 6;
 
 export function OverlayView(props: OverlayViewProps): JSX.Element {
   const finalProps = mergeProps(
     {
-      isBigContainer: false,
       detectedLanguage: "en",
       responseLanguage: "ru",
       status: "none",
       baseOpacity: 0,
     } as Partial<OverlayViewProps>,
     props,
-  );
-  const [isBigContainer, setIsBigContainer] = createSignal(
-    finalProps.isBigContainer,
   );
   const [dockPreviewPosition, setDockPreviewPosition] =
     createSignal<Position>();
@@ -200,12 +194,14 @@ export function OverlayView(props: OverlayViewProps): JSX.Element {
     setButtonHiddenState(hidden);
   };
 
-  const setContainerSize = (width: number, height: number) => {
-    if (width > 0) {
-      setIsBigContainer(width > BIG_CONTAINER_WIDTH_PX);
-    }
+  const setContainerSize = (_width: number, height: number) => {
     const menuHeight = height > 200 ? height : globalThis.innerHeight * 0.75;
     menuOverlay?.style.setProperty("--vot-container-height", `${menuHeight}px`);
+    if (menuHeight > 386) {
+      menuOverlay?.removeAttribute("data-compact");
+    } else {
+      menuOverlay?.setAttribute("data-compact", "");
+    }
   };
 
   finalProps.controlsRef?.({
@@ -335,12 +331,7 @@ export function OverlayView(props: OverlayViewProps): JSX.Element {
       return;
     }
     updateDragTarget(
-      resolveButtonPositionFromPointer(
-        state.clientX,
-        state.clientY,
-        rootRect,
-        isBigContainer(),
-      ),
+      resolveButtonPositionFromPointer(state.clientX, state.clientY, rootRect),
     );
     finalProps.onButtonDragActivity?.("overlay-button-drag-move");
   };
@@ -369,12 +360,7 @@ export function OverlayView(props: OverlayViewProps): JSX.Element {
       return;
     }
     updateDragTarget(
-      resolveButtonPositionFromPointer(
-        state.clientX,
-        state.clientY,
-        rootRect,
-        isBigContainer(),
-      ),
+      resolveButtonPositionFromPointer(state.clientX, state.clientY, rootRect),
     );
   };
 
@@ -538,12 +524,9 @@ export function OverlayView(props: OverlayViewProps): JSX.Element {
     });
   };
 
-  const normalizedPosition = createMemo<Position>(() => {
-    const normalizedPosition = normalizeButtonPosition(settings.buttonPos);
-    return isBigContainer() || !isSideButtonPosition(normalizedPosition)
-      ? normalizedPosition
-      : "default";
-  });
+  const normalizedPosition = createMemo<Position>(() =>
+    normalizeButtonPosition(settings.buttonPos),
+  );
   const direction = createMemo(() => getButtonDirection(normalizedPosition()));
   const tooltipPos = createMemo(() => {
     switch (normalizedPosition()) {
@@ -694,6 +677,7 @@ export function OverlayView(props: OverlayViewProps): JSX.Element {
         subtitlesOptions={subtitlesOptions()}
         selectedSubtitles={selectedSubtitles()}
         subtitlesLoading={subtitlesLoading()}
+        selectMount={finalProps.selectMount}
         onVideoVolumeInput={finalProps.onVideoVolumeInput}
         onTranslationVolumeInput={finalProps.onTranslationVolumeInput}
         onDownloadTranslationClick={finalProps.onDownloadTranslationClick}

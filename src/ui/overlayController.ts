@@ -26,6 +26,7 @@ type OverlayControllerProps = {
   data?: Partial<StorageData>;
   videoHandler?: VideoHandler;
   intervalIdleChecker: IntervalIdleChecker;
+  globalPortal?: HTMLElement;
 };
 
 type OverlayControllerEventMap = {
@@ -44,7 +45,6 @@ type OverlayControllerEventMap = {
 };
 
 export class OverlayController {
-  private static readonly BIG_CONTAINER_WIDTH_PX = 550;
   private resizeObserver?: ResizeObserver;
   private readonly fullscreenHelper: FullscreenHelper;
 
@@ -56,6 +56,7 @@ export class OverlayController {
   private readonly data: Partial<StorageData>;
   private readonly videoHandler?: VideoHandler;
   private readonly intervalIdleChecker: IntervalIdleChecker;
+  private readonly globalPortal?: HTMLElement;
   private overlayMount?: ShadowMount;
   overlayViewControls?: OverlayViewControls;
   private disposeOverlay?: () => void;
@@ -106,11 +107,13 @@ export class OverlayController {
     data = {},
     videoHandler,
     intervalIdleChecker,
+    globalPortal,
   }: OverlayControllerProps) {
     this.mount = mount;
     this.data = data;
     this.videoHandler = videoHandler;
     this.intervalIdleChecker = intervalIdleChecker;
+    this.globalPortal = globalPortal;
 
     this.fullscreenHelper = new FullscreenHelper({
       container: videoHandler?.container || (mount.root as HTMLElement),
@@ -223,10 +226,13 @@ export class OverlayController {
           controlsRef: (controls) => {
             this.overlayViewControls = controls;
           },
-          isBigContainer: this.isBigContainer,
           detectedLanguage: this.videoHandler?.videoData?.detectedLanguage,
           responseLanguage: this.data.responseLanguage,
           videoVolume,
+          selectMount: this.globalPortal
+            ? () =>
+                this.globalPortal?.isConnected ? this.globalPortal : undefined
+            : undefined,
           onButtonDragActivity: (source) =>
             this.intervalIdleChecker.markActivity(source),
           onButtonDragEnd: () => this.queueButtonAutoHideAfterInteraction(),
@@ -494,12 +500,6 @@ export class OverlayController {
 
     this.initialized = false;
     return this;
-  }
-
-  get isBigContainer() {
-    return this.fullscreenHelper.isBigContainer(
-      OverlayController.BIG_CONTAINER_WIDTH_PX,
-    );
   }
 
   private setupResizeObserver(): void {

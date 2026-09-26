@@ -62,6 +62,7 @@ export type BaseSelectProps = {
   controlsRef?: (controls: SelectControls) => void;
   onOpen?: () => void;
   searchItemsProvider?: SearchItemsProvider;
+  mount?: () => HTMLElement | ShadowRoot | undefined;
 };
 
 export type SingleSelectProps = BaseSelectProps & {
@@ -204,6 +205,7 @@ export function Select(props: SelectProps): JSX.Element {
     anchor: () => outerRef,
     popup: () => innerRef,
     isOpen,
+    mount: finalProps.mount,
     onOutsideScroll: () => closeSelect(),
     stablePlacementWhileOpen: Boolean(
       finalProps.search || finalProps.searchItemsProvider,
@@ -223,15 +225,33 @@ export function Select(props: SelectProps): JSX.Element {
         }
       };
 
+      const handleKeyDown = (event: KeyboardEvent) => {
+        if (
+          event.key !== "Escape" ||
+          !event
+            .composedPath()
+            .some((element) => element === innerRef || element === outerRef)
+        ) {
+          return;
+        }
+
+        event.preventDefault();
+        event.stopPropagation();
+        closeSelect();
+        outerRef.focus();
+      };
+
       window.addEventListener("pointerdown", handlePointerDown, {
         capture: true,
         passive: true,
       });
+      window.addEventListener("keydown", handleKeyDown, true);
 
       onCleanup(() => {
         window.removeEventListener("pointerdown", handlePointerDown, {
           capture: true,
         });
+        window.removeEventListener("keydown", handleKeyDown, true);
       });
     });
   });
