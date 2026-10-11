@@ -1353,9 +1353,9 @@ async function fetchMediaRange(
         }
         return bytes;
       }
-      const redirect = new TextDecoder("ascii")
-        .decode(bytes)
-        .match(/^\s*(https:\/\/\S+)\s*$/)?.[1];
+      const redirect = /^\s*(https:\/\/\S+)\s*$/.exec(
+        new TextDecoder("ascii").decode(bytes),
+      )?.[1];
       if (redirect) {
         const next = new URL(redirect);
         if (!/(?:^|\.)googlevideo\.com$/.test(next.hostname))
@@ -1852,7 +1852,7 @@ export async function* getWebAbrAudioChunks(
   if (!(sts > 0)) {
     sts = Number(
       (await fetchPlayerCode())?.match(
-        /(?:signatureTimestamp|sts)\s*:\s*([0-9]{5})/,
+        /(?:signatureTimestamp|sts)\s*:\s*(\d{5})/,
       )?.[1],
     );
   }

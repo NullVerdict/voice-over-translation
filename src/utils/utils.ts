@@ -251,7 +251,7 @@ export function toFlatObj<T extends Record<string, unknown>>(
 
 export function base64UrlEncode(bytes: Uint8Array): string {
   return btoa(String.fromCharCode(...bytes))
-    .replace(/\+/g, "-")
-    .replace(/\//g, "_")
+    .replaceAll("+", "-")
+    .replaceAll("/", "_")
     .replace(/=+$/, "");
 }

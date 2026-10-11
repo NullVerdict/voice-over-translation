@@ -582,7 +582,7 @@ export async function* trySabrAudioChunks(
     const index = ++sabrRequestIndex;
     const RequestCtor = fetchRealm.Request;
     const inputIsRequest =
-      typeof RequestCtor !== "undefined" && input instanceof RequestCtor;
+      RequestCtor !== undefined && input instanceof RequestCtor;
     const requestInput = inputIsRequest ? (input as Request) : undefined;
     // Let SabrStream own the request URL/session sequence.  A native capture
     // belongs to another request pump and must not be grafted onto this one.
@@ -623,11 +623,7 @@ export async function* trySabrAudioChunks(
     // custom SABR body as raw bytes so Firefox cannot re-add that header.
     let transportBody: BodyInit | null = body;
     const BlobCtor = fetchRealm.Blob;
-    if (
-      isSabrRequest &&
-      typeof BlobCtor !== "undefined" &&
-      body instanceof BlobCtor
-    ) {
+    if (isSabrRequest && BlobCtor !== undefined && body instanceof BlobCtor) {
       transportBody = await (body as Blob).arrayBuffer();
     }
 
@@ -640,7 +636,7 @@ export async function* trySabrAudioChunks(
         bytes = new Uint8Array(body);
       } else if (ArrayBuffer.isView(body)) {
         bytes = new Uint8Array(body.buffer, body.byteOffset, body.byteLength);
-      } else if (typeof BlobCtor !== "undefined" && body instanceof BlobCtor) {
+      } else if (BlobCtor !== undefined && body instanceof BlobCtor) {
       }
 
       if (bytes) {
@@ -671,7 +667,7 @@ export async function* trySabrAudioChunks(
     const fetchWithGmFallback = async (): Promise<Response> => {
       try {
         const nativeInit: RequestInit = {
-          ...(init ?? {}),
+          ...init,
           headers,
           body: transportBody,
           credentials: "include",
@@ -733,7 +729,7 @@ export async function* trySabrAudioChunks(
             transportBody.byteOffset + transportBody.byteLength,
           ) as ArrayBuffer;
         } else if (
-          typeof BlobCtor !== "undefined" &&
+          BlobCtor !== undefined &&
           transportBody instanceof BlobCtor
         ) {
           gmBody = await (transportBody as Blob).arrayBuffer();

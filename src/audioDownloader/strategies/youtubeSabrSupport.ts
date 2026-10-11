@@ -646,7 +646,7 @@ export function assertYouTubeAudioIsUsefulForVot(
           audioLanguageMatches(sabrTrackLanguage(id), requested),
         )
       : undefined;
-  const supportedAlternate = runtimeTrackIds.find(isVotSupportedSabrTrack);
+  const supportedAlternate = runtimeTrackIds.some(isVotSupportedSabrTrack);
 
   if (!isVotSupportedAudioLanguage(actual)) {
     // A concrete requested language may only be satisfied by that language.

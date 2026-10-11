@@ -109,8 +109,8 @@ async function getEncryptedEmbedConfig(
         }),
       },
     );
-    const match = (await response.text()).match(
-      /"encryptedEmbedConfig"\s*:\s*("[^"]+")/,
+    const match = /"encryptedEmbedConfig"\s*:\s*("[^"]+")/.exec(
+      await response.text(),
     );
     return match ? `{"enc":${match[1]}}` : undefined;
   } catch {
