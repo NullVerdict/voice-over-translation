@@ -201,7 +201,7 @@ export const TokenTooltipLifecycle: Story = {
         tokenText: "hello world",
         suppressClicksUntil: 0,
       }),
-      getTranslationService: async () => "test",
+      getTranslationService: () => Promise.resolve("test"),
       translateText: async (text) => {
         await new Promise((resolve) => requestAnimationFrame(resolve));
         return Array.isArray(text)

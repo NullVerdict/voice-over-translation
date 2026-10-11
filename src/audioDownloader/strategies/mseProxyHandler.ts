@@ -400,7 +400,7 @@ function createAudioChunkStream(
                 try {
                   element.muted = true;
                   const attempt = element.play();
-                  if (attempt && typeof attempt.catch === "function") {
+                  if (attempt != null && typeof attempt.catch === "function") {
                     attempt.catch((playError: unknown) => {
                       playReject ??=
                         playError instanceof Error

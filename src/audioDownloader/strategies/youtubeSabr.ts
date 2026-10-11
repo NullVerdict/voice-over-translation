@@ -34,77 +34,6 @@ import {
   waitForSabrAudioTrackId,
 } from "./youtubeSabrSupport";
 
-function readProtoVarint(
-  bytes: Uint8Array,
-  start: number,
-): { value: number; next: number } {
-  let value = 0;
-  let shift = 0;
-  let offset = start;
-  while (offset < bytes.length && shift <= 35) {
-    const byte = bytes[offset++];
-    value += (byte & 0x7f) * 2 ** shift;
-    if ((byte & 0x80) === 0) return { value, next: offset };
-    shift += 7;
-  }
-  throw new Error("invalid protobuf varint");
-}
-
-function getGeneratedSabrAudioTrackId(bytes: Uint8Array): string | undefined {
-  try {
-    let offset = 0;
-    while (offset < bytes.length) {
-      const tag = readProtoVarint(bytes, offset);
-      offset = tag.next;
-      const field = Math.floor(tag.value / 8);
-      const wire = tag.value & 7;
-      if (wire !== 2) {
-        if (wire === 0) offset = readProtoVarint(bytes, offset).next;
-        else if (wire === 1) offset += 8;
-        else if (wire === 5) offset += 4;
-        else return undefined;
-        continue;
-      }
-      const length = readProtoVarint(bytes, offset);
-      const start = length.next;
-      const end = start + length.value;
-      if (end > bytes.length) return undefined;
-      if (field === 1) {
-        let inner = start;
-        while (inner < end) {
-          const innerTag = readProtoVarint(bytes, inner);
-          inner = innerTag.next;
-          const innerField = Math.floor(innerTag.value / 8);
-          const innerWire = innerTag.value & 7;
-          if (innerWire === 2) {
-            const innerLength = readProtoVarint(bytes, inner);
-            const valueStart = innerLength.next;
-            const valueEnd = valueStart + innerLength.value;
-            if (valueEnd > end) return undefined;
-            if (innerField === 69) {
-              const trackId = new TextDecoder().decode(
-                bytes.slice(valueStart, valueEnd),
-              );
-              return /^[A-Za-z]{2,3}(?:-[A-Za-z0-9]{2,8})?\.\d{1,3}$/.test(
-                trackId,
-              )
-                ? trackId
-                : undefined;
-            }
-            inner = valueEnd;
-          } else if (innerWire === 0)
-            inner = readProtoVarint(bytes, inner).next;
-          else if (innerWire === 1) inner += 8;
-          else if (innerWire === 5) inner += 4;
-          else return undefined;
-        }
-      }
-      offset = end;
-    }
-  } catch {}
-  return undefined;
-}
-
 export async function* trySabrAudioChunks(
   targetWindow: WebAbrWindow,
   videoId: string,
@@ -644,9 +573,6 @@ export async function* trySabrAudioChunks(
 
       if (bytes) {
         const protobuf = inspectSabrProto(bytes);
-        const encodedAudioTrackId = getGeneratedSabrAudioTrackId(bytes);
-        if (index <= 3 || encodedAudioTrackId !== sabrAudioTrackId) {
-        }
 
         // A healthy post-bootstrap SabrStream must start reporting buffered
         // ranges. Without field 3 the server can keep returning data while the

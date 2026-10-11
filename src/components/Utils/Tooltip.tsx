@@ -507,16 +507,12 @@ export function Tooltip(props: TooltipProps): JSX.Element {
       }
     };
     const handlePointerEnter = () => show();
-    const handlePointerLeave = (event: PointerEvent) => {
+    const handlePointerLeave = (event: PointerEvent | FocusEvent) => {
       if (!isInTooltipContext(event.relatedTarget)) {
         hide();
       }
     };
-    const handleFocusOut = (event: FocusEvent) => {
-      if (!isInTooltipContext(event.relatedTarget)) {
-        hide();
-      }
-    };
+    const handleFocusOut = handlePointerLeave;
     const handleTouchPointerDown = (event: PointerEvent) => {
       if (event.pointerType === "touch") {
         show();
