@@ -19,12 +19,12 @@ export function AccountInfo(props: AccountInfoProps): JSX.Element {
             class="vot-account-info__avatar-img"
             src={props.avatarUrl}
             alt=""
-            onerror={(e) => {
+            onError={(e) => {
               e.currentTarget.parentElement?.classList.add(
                 "vot-account-info__avatar--failed",
               );
             }}
-          ></img>
+          />
         </vot-block>
         <vot-block class="vot-account-info__content">
           <vot-block class="vot-account-info__label">

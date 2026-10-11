@@ -1439,11 +1439,11 @@ async function fetchMediaRange(
     : new Error("Audio downloader. Media range failed");
 }
 
-async function* emitOrderedBuffers(
+function* emitOrderedBuffers(
   buffers: Uint8Array[],
   isLastBatch: boolean,
   pendingState: PendingState,
-): AsyncGenerator<AudioChunk> {
+): Generator<AudioChunk> {
   for (let bufferIndex = 0; bufferIndex < buffers.length; bufferIndex++) {
     const buffer = buffers[bufferIndex];
     pendingState.buffers.push(buffer);

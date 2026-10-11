@@ -61,14 +61,14 @@ export function Slider(props: SliderProps): JSX.Element {
         value={value()}
         step={finalProps.step}
         disabled={finalProps.disabled}
-        onpointerdown={(event) => {
+        onPointerDown={(event) => {
           pointerStart = {
             id: event.pointerId,
             x: event.clientX,
             y: event.clientY,
           };
         }}
-        onpointermove={(event) => {
+        onPointerMove={(event) => {
           if (!pointerStart || pointerStart.id !== event.pointerId) {
             return;
           }
@@ -82,15 +82,15 @@ export function Slider(props: SliderProps): JSX.Element {
             setDragging(true);
           }
         }}
-        onpointerup={() => {
+        onPointerUp={() => {
           pointerStart = undefined;
           setDragging(false);
         }}
-        onpointercancel={() => {
+        onPointerCancel={() => {
           pointerStart = undefined;
           setDragging(false);
         }}
-        oninput={(e) => {
+        onInput={(e) => {
           const newValue = e.target.valueAsNumber;
           setValue(newValue);
           finalProps.onInput?.(newValue);
