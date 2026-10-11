@@ -380,14 +380,15 @@ function collectYouTubeSabrTrackIds(targetWindow: WebAbrWindow): string[] {
   const runtimeIds = getYouTubeRuntimeAudioTracks(targetWindow)
     .map(getRuntimeAudioTrackId)
     .filter((id): id is string => Boolean(id));
-  if (runtimeIds.length > 0) return [...new Set(runtimeIds)].sort();
+  if (runtimeIds.length > 0)
+    return [...new Set(runtimeIds)].sort((a, b) => a.localeCompare(b));
   return [
     ...new Set(
       collectYouTubeSabrTrackDiscoveries(targetWindow).map(
         (entry) => entry.trackId,
       ),
     ),
-  ].sort();
+  ].sort((a, b) => a.localeCompare(b));
 }
 
 export function switchYouTubeSabrAudioTrack(

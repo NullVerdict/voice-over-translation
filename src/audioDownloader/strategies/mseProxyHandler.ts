@@ -490,7 +490,7 @@ function createAudioChunkStream(
           if (finished) return;
           if (totalSize === 0) {
             debug.error("Audio downloader. MSE empty stream", { videoId });
-            void onMseError(new Error("Audio downloader. Empty MSE stream"));
+            onMseError(new Error("Audio downloader. Empty MSE stream"));
           } else {
             debug.log("Audio downloader. MSE stream finished", {
               videoId,
@@ -520,7 +520,7 @@ function createAudioChunkStream(
                 videoId,
                 totalSize,
               });
-              void onMseError(new Error("Audio downloader. MSE source closed"));
+              onMseError(new Error("Audio downloader. MSE source closed"));
               return;
             }
 
@@ -564,12 +564,12 @@ function createAudioChunkStream(
                 try {
                   player.seekTo(bufferedEnd, true);
                 } catch (error) {
-                  void onMseError(error);
+                  onMseError(error);
                 }
               }, 1000);
             }
           } catch (error) {
-            void onMseError(error);
+            onMseError(error);
           }
         };
         let stopCapture = () => {};
@@ -592,7 +592,7 @@ function createAudioChunkStream(
             stopCapture = capture.listen(onCapturedEvent);
             if (finished) stopCapture();
           } catch (error) {
-            void onMseError(error);
+            onMseError(error);
           }
         });
         if (finished) removeCaptureListener();

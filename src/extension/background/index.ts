@@ -6,4 +6,4 @@ import { registerXhrPortListener } from "./xhr-handler";
 registerBackgroundStorageBridge();
 registerBackgroundNotifications();
 registerXhrPortListener();
-preseedDnrRules();
+void preseedDnrRules();

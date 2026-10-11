@@ -125,7 +125,9 @@ export const TrackReplacement: Story = {
     const observed: Element[] = [];
     const unobserved: Element[] = [];
     class TrackingResizeObserver implements ResizeObserver {
-      disconnect(): void {}
+      disconnect(): void {
+        // No-op: this story mock holds no observed targets to release.
+      }
       observe(target: Element): void {
         observed.push(target);
       }

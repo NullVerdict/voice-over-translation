@@ -77,7 +77,7 @@ export const SmallVideoLayout: Story = {
       />
     </vot-block>
   ),
-  play: async ({ canvasElement }) => {
+  play: ({ canvasElement }) => {
     const buttonOverlay = canvasElement.querySelector<HTMLElement>(
       ".vot-overlay__segmented-button",
     );

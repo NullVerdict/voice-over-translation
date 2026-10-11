@@ -644,7 +644,7 @@ export async function translateFunc(
       onTranslationWaiting: () => {
         cleanupPauseListener = pauseVideoForTranslation(this);
       },
-      onBeforeCache: async () => {
+      onBeforeCache: () => {
         const preferredSubtitleLanguage = this.getPreferredSubtitlesLanguage(
           videoData.detectedLanguage,
           videoData.responseLanguage,

@@ -227,7 +227,7 @@ async function* getAudioBridgeChunks(
   }
 }
 
-export async function getAudioFromBridge(
+export function getAudioFromBridge(
   { videoId, signal, sourceLanguage }: GetAudioFromAPIOptions,
   audioDownloadType: AudioBridgeStrategy,
 ) {

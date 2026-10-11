@@ -23,7 +23,7 @@ function resetLifecycleTranslation(
     host.videoData = undefined;
   }
 
-  host.stopTranslation();
+  void host.stopTranslation();
   host.resetSubtitlesWidget();
 }
 

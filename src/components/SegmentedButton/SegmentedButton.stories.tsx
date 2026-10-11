@@ -54,7 +54,7 @@ export const SegmentedButtonLongLabel: Story = {
       />
     </vot-block>
   ),
-  play: async ({ canvasElement }) => {
+  play: ({ canvasElement }) => {
     const container = canvasElement.querySelector<HTMLElement>(
       ".vot-overlay__segmented-button",
     )?.parentElement;

@@ -20,7 +20,7 @@ export class EventImpl<Args extends unknown[] = unknown[]> {
   dispatch(...args: Args): void {
     for (const handler of this.listeners) {
       try {
-        handler(...args);
+        void handler(...args);
       } catch (exception) {
         console.error("[VOT]", exception);
       }

@@ -1324,7 +1324,7 @@ async function fetchMediaRange(
     // If another failed range is already refreshing the signed media URL,
     // wait for that refresh before starting this retry. This keeps every retry
     // on the newest URL without restarting ranges that already succeeded.
-    if (attempt > 0 && urlState.refreshPromise) {
+    if (attempt > 0 && urlState.refreshPromise !== null) {
       await urlState.refreshPromise;
     }
     try {
