@@ -266,8 +266,8 @@ export const {
   insertNode(parent, node, anchor) {
     parent.insertBefore(node, anchor ?? null);
   },
-  removeNode(parent, node) {
-    parent.removeChild(node);
+  removeNode(_parent, node) {
+    (node as ChildNode).remove();
   },
   getParentNode(node) {
     return node.parentNode ?? undefined;

@@ -332,7 +332,7 @@ export async function resolveYtcfg(
     }
   }
   if (typeof data.INNERTUBE_API_KEY !== "string") {
-    throw new Error("Audio downloader. web ABR config is unavailable");
+    throw new TypeError("Audio downloader. web ABR config is unavailable");
   }
   debug.log("Audio downloader. web ABR config recovered", {
     source,
@@ -435,27 +435,29 @@ export function selectWebEmbeddedAudioFormat(
             getAudioFormatLanguage(format) === normalizedRequestedLanguage,
         )
       : [];
-  const requestedLanguageCandidates =
-    exactLanguageCandidates.length > 0
-      ? exactLanguageCandidates
-      : normalizedRequestedLanguage && normalizedRequestedLanguage !== "auto"
-        ? audioOnly.filter((format) =>
-            audioLanguageMatches(
-              getAudioFormatLanguage(format),
-              normalizedRequestedLanguage,
-            ),
-          )
-        : [];
+  let requestedLanguageCandidates: typeof audioOnly = exactLanguageCandidates;
+  if (
+    requestedLanguageCandidates.length === 0 &&
+    normalizedRequestedLanguage &&
+    normalizedRequestedLanguage !== "auto"
+  ) {
+    requestedLanguageCandidates = audioOnly.filter((format) =>
+      audioLanguageMatches(
+        getAudioFormatLanguage(format),
+        normalizedRequestedLanguage,
+      ),
+    );
+  }
 
   const defaultAudioOnly = audioOnly.filter(
     ({ audioTrack }) => audioTrack?.audioIsDefault === true,
   );
+  const fallbackTrackCandidates =
+    defaultAudioOnly.length > 0 ? defaultAudioOnly : audioOnly;
   const trackCandidates =
     requestedLanguageCandidates.length > 0
       ? requestedLanguageCandidates
-      : defaultAudioOnly.length > 0
-        ? defaultAudioOnly
-        : audioOnly;
+      : fallbackTrackCandidates;
   const nonDrcCandidates = trackCandidates.filter(
     (format) => !isDrcAudioFormat(format),
   );
@@ -1828,7 +1830,7 @@ export async function* getWebAbrAudioChunks(
   const config = await resolveYtcfg(targetWindow, signal);
   const apiKey = getConfigValue(config, "INNERTUBE_API_KEY");
   if (typeof apiKey !== "string") {
-    throw new Error("Audio downloader. web ABR config is unavailable");
+    throw new TypeError("Audio downloader. web ABR config is unavailable");
   }
 
   const playerCodes = new Map<string, Promise<string>>();
@@ -1921,14 +1923,21 @@ export async function* getWebAbrAudioChunks(
       clientVersion: fetchedConfig?.clientVersion,
     };
     // Studio cannot be fetched from the embed realm without CORS permission.
-    const candidateBody =
-      name === "web_embedded"
-        ? body
-        : name === "tv_downgraded"
-          ? buildTvDowngradedPlayerRequest(videoId, options)
-          : name === "web"
-            ? buildWebPlayerRequest(config, videoId, sts)
-            : buildWebCreatorPlayerRequest(videoId, options);
+    let candidateBody: Parameters<typeof postInnertubePlayer>[3];
+    let clientNameId: string;
+    if (name === "web_embedded") {
+      candidateBody = body;
+      clientNameId = "56";
+    } else if (name === "tv_downgraded") {
+      candidateBody = buildTvDowngradedPlayerRequest(videoId, options);
+      clientNameId = "7";
+    } else if (name === "web") {
+      candidateBody = buildWebPlayerRequest(config, videoId, sts);
+      clientNameId = "1";
+    } else {
+      candidateBody = buildWebCreatorPlayerRequest(videoId, options);
+      clientNameId = "62";
+    }
     const candidateContext = candidateBody.context as {
       client: Record<string, unknown>;
     };
@@ -1941,13 +1950,7 @@ export async function* getWebAbrAudioChunks(
         signal,
         fetchedConfig?.apiKey ?? apiKey,
         candidateBody,
-        name === "web_embedded"
-          ? "56"
-          : name === "tv_downgraded"
-            ? "7"
-            : name === "web"
-              ? "1"
-              : "62",
+        clientNameId,
         String(candidateContext.client.clientVersion ?? clientVersion),
         authenticated ? authenticatedAuth : {},
       );

@@ -350,16 +350,16 @@ export async function* trySabrAudioChunks(
       ? audioCandidates
       : [];
 
-  const selectedTrackAudioCandidates =
-    exactTrackAudioCandidates.length > 0
-      ? exactTrackAudioCandidates
-      : languageTrackAudioCandidates.length > 0
-        ? languageTrackAudioCandidates
-        : nativeBoundUnscopedAudioCandidates.length > 0
-          ? nativeBoundUnscopedAudioCandidates
-          : sabrAvailableTrackIds.length <= 1
-            ? audioCandidates
-            : [];
+  let selectedTrackAudioCandidates: typeof audioCandidates = [];
+  if (exactTrackAudioCandidates.length > 0) {
+    selectedTrackAudioCandidates = exactTrackAudioCandidates;
+  } else if (languageTrackAudioCandidates.length > 0) {
+    selectedTrackAudioCandidates = languageTrackAudioCandidates;
+  } else if (nativeBoundUnscopedAudioCandidates.length > 0) {
+    selectedTrackAudioCandidates = nativeBoundUnscopedAudioCandidates;
+  } else if (sabrAvailableTrackIds.length <= 1) {
+    selectedTrackAudioCandidates = audioCandidates;
+  }
 
   if (selectedTrackAudioCandidates.length === 0) {
     throw new Error(
@@ -586,12 +586,14 @@ export async function* trySabrAudioChunks(
     const requestInput = inputIsRequest ? (input as Request) : undefined;
     // Let SabrStream own the request URL/session sequence.  A native capture
     // belongs to another request pump and must not be grafted onto this one.
-    const requestUrl =
-      typeof input === "string"
-        ? input
-        : input instanceof URL
-          ? input.toString()
-          : input.url;
+    let requestUrl: string;
+    if (typeof input === "string") {
+      requestUrl = input;
+    } else if (input instanceof URL) {
+      requestUrl = input.toString();
+    } else {
+      requestUrl = input.url;
+    }
     const url = new URL(requestUrl, targetWindow.location.href);
     const isSabrRequest =
       url.hostname.endsWith("googlevideo.com") &&
@@ -637,6 +639,7 @@ export async function* trySabrAudioChunks(
       } else if (ArrayBuffer.isView(body)) {
         bytes = new Uint8Array(body.buffer, body.byteOffset, body.byteLength);
       } else if (BlobCtor !== undefined && body instanceof BlobCtor) {
+        // Blob bodies cannot be read synchronously here; leave them uninspected.
       }
 
       if (bytes) {
@@ -710,12 +713,12 @@ export async function* trySabrAudioChunks(
         const callbackGm = gmGlobal.GM_xmlhttpRequest;
         const promiseGm =
           gmGlobal.GM?.xmlHttpRequest ?? gmGlobal.GM?.xmlhttpRequest;
+        const boundPromiseGm =
+          typeof promiseGm === "function"
+            ? promiseGm.bind(gmGlobal.GM)
+            : undefined;
         const gm =
-          typeof callbackGm === "function"
-            ? callbackGm
-            : typeof promiseGm === "function"
-              ? promiseGm.bind(gmGlobal.GM)
-              : undefined;
+          typeof callbackGm === "function" ? callbackGm : boundPromiseGm;
         if (typeof gm !== "function") throw nativeError;
 
         let gmBody: string | ArrayBuffer | Blob | undefined;

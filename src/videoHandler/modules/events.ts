@@ -289,11 +289,11 @@ function bindGlobalDismiss(ctx: ExtraEventsContext): void {
   const eventContainer = self.getEventContainer();
   if (eventContainer) {
     const useWindowEvents = isIframe() && globalThis.window !== undefined;
+    const defaultInteractionTarget =
+      platformConfig.useDocumentInteractionTarget ? document : eventContainer;
     const interactionTarget = useWindowEvents
       ? globalThis.window
-      : platformConfig.useDocumentInteractionTarget
-        ? document
-        : eventContainer;
+      : defaultInteractionTarget;
 
     if (useWindowEvents) {
       addMany(

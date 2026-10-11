@@ -666,27 +666,29 @@ async function handleIframeRequest(
         isProgress: true,
       });
     };
-    const chunks: AsyncIterable<AudioChunk> =
-      audioDownloadType === SABR_STRATEGY
-        ? getSabrAudioChunks(
-            targetWindow,
-            videoId,
-            controller.signal,
-            getSourceLanguage(message),
-          )
-        : audioDownloadType === AudioDownloadType.WEB_ABR
-          ? getWebAbrAudioChunks(
-              targetWindow,
-              videoId,
-              controller.signal,
-              getSourceLanguage(message),
-            )
-          : createAudioChunkStream(
-              targetWindow,
-              videoId,
-              controller.signal,
-              postProgress,
-            );
+    let chunks: AsyncIterable<AudioChunk>;
+    if (audioDownloadType === SABR_STRATEGY) {
+      chunks = getSabrAudioChunks(
+        targetWindow,
+        videoId,
+        controller.signal,
+        getSourceLanguage(message),
+      );
+    } else if (audioDownloadType === AudioDownloadType.WEB_ABR) {
+      chunks = getWebAbrAudioChunks(
+        targetWindow,
+        videoId,
+        controller.signal,
+        getSourceLanguage(message),
+      );
+    } else {
+      chunks = createAudioChunkStream(
+        targetWindow,
+        videoId,
+        controller.signal,
+        postProgress,
+      );
+    }
     if (
       audioDownloadType === SABR_STRATEGY ||
       audioDownloadType === AudioDownloadType.WEB_ABR
