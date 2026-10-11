@@ -93,13 +93,17 @@ async function rollbackStaleAppliedSourceIfStillCurrent(
   }
 }
 
-export async function validateAudioUrl(
+export function validateAudioUrl(
   this: VideoHandler,
   audioUrl: string,
   actionContext?: ActionContext,
 ): Promise<string> {
-  if (this.isActionStale(actionContext)) return audioUrl;
-  return audioUrl;
+  try {
+    if (this.isActionStale(actionContext)) return Promise.resolve(audioUrl);
+    return Promise.resolve(audioUrl);
+  } catch (error) {
+    return Promise.reject(error);
+  }
 }
 
 export function scheduleTranslationRefresh(this: VideoHandler): void {

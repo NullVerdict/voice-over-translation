@@ -192,7 +192,7 @@ function cloneInnertubeContext(
     throw new Error(unavailableMessage);
   }
   const context = JSON.parse(JSON.stringify(rawContext)) as {
-    client?: Record<string, unknown>;
+    client?: Record<string, unknown> & { clientVersion?: string | number };
     thirdParty?: Record<string, unknown>;
   };
   context.client ??= {};

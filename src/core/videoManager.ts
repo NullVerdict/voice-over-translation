@@ -575,7 +575,15 @@ export class VOTVideoManager {
     return videoData;
   }
 
-  async videoValidator() {
+  videoValidator() {
+    try {
+      return Promise.resolve(this.videoValidatorSync());
+    } catch (error) {
+      return Promise.reject(error);
+    }
+  }
+
+  videoValidatorSync() {
     const videoData = this.videoHandler.videoData;
     const data = this.videoHandler.data;
     if (!videoData || !data) {
