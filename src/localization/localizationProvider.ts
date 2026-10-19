@@ -1,7 +1,7 @@
+import logger from "#utils/logger.ts";
 import { contentUrl } from "../config/config";
 import type { FlatPhrases, Locale, Phrase } from "../types/localization";
 import type { LocaleStorageKey } from "../types/storage";
-import debug from "../utils/debug";
 import { GM_fetch, getGMInfo } from "../utils/gm";
 import { lang } from "../utils/localization";
 import { votStorage } from "../utils/storage";
@@ -120,7 +120,7 @@ class LocalizationProvider {
   }
 
   async checkUpdates(force = false): Promise<false | null | string> {
-    debug.log("Check locale updates...");
+    logger.log("Check locale updates...");
     try {
       const runtimeLocaleVersion = getRuntimeLocaleVersion();
       if (!force) {
@@ -154,10 +154,7 @@ class LocalizationProvider {
       const currentHash = await votStorage.get<string>("localeHash", "");
       return currentHash === nextHash ? false : nextHash;
     } catch (err) {
-      console.error(
-        "[VOT] [localizationProvider] Failed to get locales hash:",
-        err,
-      );
+      logger.error("[localizationProvider] Failed to get locales hash:", err);
       return null;
     }
   }
@@ -184,7 +181,7 @@ class LocalizationProvider {
     }
 
     const timestamp = getTimestamp();
-    debug.log("Updating locale...");
+    logger.log("Updating locale...");
     try {
       const res = await GM_fetch(
         this.buildUrl(this.localesUrl, `/${this.lang}.json`, force),
@@ -202,7 +199,7 @@ class LocalizationProvider {
         votStorage.set("localeUpdatedAt", timestamp),
       ]);
     } catch (err) {
-      console.error("[VOT] [localizationProvider] Failed to get locale:", err);
+      logger.error("[localizationProvider] Failed to get locale:", err);
       this.setLocaleFromJsonString(await votStorage.get("localePhrases", ""));
     }
 
@@ -225,7 +222,7 @@ class LocalizationProvider {
 
       this.locale = toFlatObj(locale as Record<string, unknown>);
     } catch (err) {
-      console.error("[VOT] [localizationProvider]", err);
+      logger.error("[localizationProvider]", err);
       this.locale = {};
     }
 
@@ -253,8 +250,8 @@ class LocalizationProvider {
     }
 
     this.warnedMissingKeys.add(warningKey);
-    console.warn(
-      "[VOT] [localizationProvider] locale",
+    logger.warn(
+      "[localizationProvider] locale",
       locale,
       "doesn't contain key",
       key,

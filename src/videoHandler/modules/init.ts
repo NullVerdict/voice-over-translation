@@ -1,4 +1,6 @@
+import logger from "#utils/logger.ts";
 import { actualCompatVersion, m3u8ProxyHost } from "../../config/config";
+import { getDefaultSendErrorReports } from "../../modules/telemetry/consent";
 import { updateAccountFromStorage } from "../../stores/account";
 import { setLocale } from "../../stores/locale";
 import {
@@ -8,7 +10,6 @@ import {
 } from "../../stores/settings";
 import type { LanguageSelectKey } from "../../types/components/select";
 import { normalizeButtonPosition } from "../../ui/buttonPlacement";
-import debug from "../../utils/debug";
 import { IS_PROXY_ONLY_EXTENSION } from "../../utils/gm";
 import { updateConfig, votStorage } from "../../utils/storage";
 import { calculatedResLang } from "../../utils/utils";
@@ -21,7 +22,10 @@ export async function init(this: VideoHandler) {
 
   // Retrieve settings from storage.
   this.data = await votStorage.getValues({
-    ...createDefaultSettings(audioContextSupported),
+    ...createDefaultSettings(
+      audioContextSupported,
+      await getDefaultSendErrorReports(),
+    ),
     m3u8ProxyHost,
     translateProxyEnabledDefault: true,
     compatVersion: "",
@@ -67,13 +71,13 @@ export async function init(this: VideoHandler) {
 
   this.uiManager.data = this.data;
   // Translation volume starts from the user's saved default volume.
-  console.log("[VOT] data from db:", this.data);
+  logger.log("data from db:", this.data);
 
   // Enable translate proxy if extension isn't compatible with GM_xmlhttpRequest
   if (!this.data.translateProxyEnabled && IS_PROXY_ONLY_EXTENSION) {
     this.data.translateProxyEnabled = 1;
   }
-  debug.log("Extension compatibility passed...");
+  logger.log("Extension compatibility passed...");
 
   // Initialize UI elements and events.
   this.uiManager.initUI();
@@ -81,7 +85,7 @@ export async function init(this: VideoHandler) {
   this.uiManager.votOverlayView.overlayViewControls?.setButtonHidden(true);
 
   void this.ensureProxySettingsResolved().catch((err) => {
-    console.error("[VOT] Failed to initialize translation client:", err);
+    logger.error("Failed to initialize translation client:", err);
   });
 
   // Get video data and create player.

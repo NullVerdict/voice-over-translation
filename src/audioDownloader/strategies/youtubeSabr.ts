@@ -40,7 +40,7 @@ export async function* trySabrAudioChunks(
   signal: AbortSignal,
   sourceLanguage?: string,
 ): AsyncGenerator<AudioChunk> {
-  debug.log("[VOT][SABR][PRIMARY] entered trySabrAudioChunks", { videoId });
+  debug.log("[SABR][PRIMARY] entered trySabrAudioChunks", { videoId });
   WEB_ABR_RESOLVED_AUDIO_LANGUAGES.delete(videoId);
   const config = await resolveYtcfg(targetWindow, signal);
   const apiKey = getConfigValue(config, "INNERTUBE_API_KEY");
@@ -896,7 +896,7 @@ export async function* trySabrAudioChunks(
     buildIndex: 0,
     pageWindow,
   });
-  debug.log("[VOT][SABR][PURE_ONLY] SabrStream created", {
+  debug.log("[SABR][PURE_ONLY] SabrStream created", {
     videoId,
     sabrAudioTrackId,
     bootstrap: "playerResponse+SabrStream-generated-protobuf",
@@ -928,7 +928,7 @@ export async function* trySabrAudioChunks(
       maxRetries: 3,
       stallDetectionMs: 20_000,
     });
-    debug.log("[VOT][SABR][PURE_ONLY] SabrStream started", {
+    debug.log("[SABR][PURE_ONLY] SabrStream started", {
       videoId,
       sabrAudioTrackId,
     });
@@ -960,7 +960,7 @@ export async function* trySabrAudioChunks(
         ? Math.floor(configuredMinChunkSize)
         : 5_295_308;
 
-    console.log("[VOT][SABR] chunk config", {
+    debug.log("[SABR] chunk config", {
       configuredMinChunkSize: votConfig.minChunkSize,
       minChunkSize,
       usedFallback: minChunkSize !== configuredMinChunkSize,
@@ -1016,7 +1016,7 @@ export async function* trySabrAudioChunks(
             pendingSize = 0;
 
             if (readyChunk) {
-              console.log("[VOT][SABR] yielding chunk", {
+              debug.log("[SABR] yielding chunk", {
                 size: readyChunk.byteLength,
                 isLastChunk: false,
                 total,
@@ -1024,7 +1024,7 @@ export async function* trySabrAudioChunks(
                 aborted: signal.aborted,
               });
               yield { buffer: readyChunk, isLastChunk: false };
-              console.log("[VOT][SABR] resumed after yield", {
+              debug.log("[SABR] resumed after yield", {
                 total,
                 aborted: signal.aborted,
               });
@@ -1040,7 +1040,7 @@ export async function* trySabrAudioChunks(
         pendingSize = 0;
 
         if (readyChunk) {
-          console.log("[VOT][SABR] yielding chunk", {
+          debug.log("[SABR] yielding chunk", {
             size: readyChunk.byteLength,
             isLastChunk: false,
             total,
@@ -1048,7 +1048,7 @@ export async function* trySabrAudioChunks(
             aborted: signal.aborted,
           });
           yield { buffer: readyChunk, isLastChunk: false };
-          console.log("[VOT][SABR] resumed after yield", {
+          debug.log("[SABR] resumed after yield", {
             total,
             aborted: signal.aborted,
           });
@@ -1084,19 +1084,19 @@ export async function* trySabrAudioChunks(
         }
       }
 
-      console.log("[VOT][SABR] yielding final chunk", {
+      debug.log("[SABR] yielding final chunk", {
         size: readyChunk.byteLength,
         isLastChunk: true,
         total,
         aborted: signal.aborted,
       });
       yield { buffer: readyChunk, isLastChunk: true };
-      console.log("[VOT][SABR] resumed after final yield", {
+      debug.log("[SABR] resumed after final yield", {
         total,
         aborted: signal.aborted,
       });
     } catch (error) {
-      console.error("[VOT][SABR] audio reader failed", {
+      debug.error("[SABR] audio reader failed", {
         error,
         total,
         pendingSize,
@@ -1106,7 +1106,7 @@ export async function* trySabrAudioChunks(
       });
       throw error;
     } finally {
-      console.log("[VOT][SABR] releasing audio reader", {
+      debug.log("[SABR] releasing audio reader", {
         total,
         pendingSize,
         readyChunkSize: readyChunk?.byteLength ?? 0,

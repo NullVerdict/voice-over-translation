@@ -267,5 +267,12 @@
   "VOTLogin": "Login",
   "VOTAutoPauseOnTranslate": "Mettere in pausa il video fino a quando la traduzione è pronta",
   "VOTSmartDuckingStrength": "Forza adattiva di riduzione del volume",
-  "VOTRetryTranslation": "Riprova la traduzione"
+  "VOTRetryTranslation": "Riprova la traduzione",
+  "VOTVideoIsMusic": "Hai disabilitato la traduzione per i video musicali",
+  "DontTranslateByYTMusic": "Non tradurre video identificati come musica da YouTube Music",
+  "VOTMusicDetectDesc": "Il rilevamento della musica è disponibile solo su YouTube",
+  "sendErrorReports": "Invia segnalazioni di errori anonime",
+  "sendErrorReportsDescription": "Ci aiuta a trovare e correggere i bug. Vengono inviati solo i dettagli tecnici",
+  "VOTSubtitlesTranslationLanguage": "Traduzione di parole e frasi",
+  "VOTSameAsMenuLanguage": "Come la lingua del menu"
 }

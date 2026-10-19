@@ -4,6 +4,7 @@ import {
 } from "#extension/shared/xhr.ts";
 import { toErrorMessage } from "#utils/errors.ts";
 import { normalizeHttpMethod } from "#utils/http.ts";
+import logger from "#utils/logger.ts";
 import debug from "../../utils/debug";
 import {
   arrayBufferToBase64,
@@ -21,6 +22,7 @@ import {
   ensureDnrStripRuleForGooglevideo,
   isForbiddenToSetViaFetch,
 } from "./dnr-rules";
+import { isTelemetryBlocked } from "./telemetry-guard";
 
 type XhrStartMessage = {
   type: "start";
@@ -594,12 +596,16 @@ export function registerXhrPortListener(): void {
           : "follow";
 
       try {
+        if (await isTelemetryBlocked(url)) {
+          throw new Error("Blocked: data collection is not permitted");
+        }
+
         try {
           await ensureDnrStripRuleForGooglevideo(url, forbiddenHeaders);
           await ensureDnrOriginStripRuleForYoutubei(url, forbiddenHeaders);
           await ensureDnrHeaderRuleForYandex(url, forbiddenHeaders);
         } catch (e) {
-          console.warn(
+          logger.warn(
             "[VOT Extension] Failed to apply DNR header rules; requests may break:",
             e,
           );

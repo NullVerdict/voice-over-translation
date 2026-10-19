@@ -267,5 +267,12 @@
   "VOTLogin": "Oturum aç",
   "VOTAutoPauseOnTranslate": "Çeviri hazır olana kadar videoyu duraklatın",
   "VOTSmartDuckingStrength": "Uyarlanabilir ses azaltma gücü",
-  "VOTRetryTranslation": "Çeviriyi yeniden dene"
+  "VOTRetryTranslation": "Çeviriyi yeniden dene",
+  "VOTVideoIsMusic": "Müzik videoları için çeviriyi devre dışı bıraktınız",
+  "DontTranslateByYTMusic": "YouTube Müzik tarafından müzik olarak tanımlanan videoları çevirmeyin",
+  "VOTMusicDetectDesc": "Müzik algılama yalnızca YouTube'da kullanılabilir",
+  "sendErrorReports": "Anonim hata raporları gönder",
+  "sendErrorReportsDescription": "Hataları bulmamıza ve düzeltmemize yardımcı olur. Sadece teknik detaylar gönderilir",
+  "VOTSubtitlesTranslationLanguage": "Kelime ve cümle çeviri dili",
+  "VOTSameAsMenuLanguage": "Menü dili ile aynı"
 }

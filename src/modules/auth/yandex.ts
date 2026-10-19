@@ -1,7 +1,9 @@
 import { getUUID } from "@vot.js/shared/secure";
+import { captureException } from "#modules/telemetry/client.ts";
 import { setAccount, updateAccount } from "#stores/account.ts";
 import type { Account } from "#types/storage.ts";
 import { GM_fetch } from "#utils/gm.ts";
+import logger from "#utils/logger.ts";
 import { votStorage } from "#utils/storage.ts";
 import { base64UrlEncode } from "#utils/utils.ts";
 import {
@@ -34,6 +36,47 @@ async function createCodeChallenge(codeVerifier: string): Promise<string> {
   return base64UrlEncode(new Uint8Array(digest));
 }
 
+// Yandex refused the code or token (expired, revoked, already used): a normal
+// user state rather than a failure worth reporting.
+class AuthRejectedError extends Error {
+  override name = "AuthRejectedError";
+}
+
+class AuthResponseError extends Error {
+  override name = "AuthResponseError";
+  readonly status: number;
+
+  constructor(status: number, cause: unknown) {
+    super(`Unreadable Yandex auth response (HTTP ${status})`, { cause });
+    this.status = status;
+  }
+}
+
+async function readAuthJson<T>(res: Response): Promise<T> {
+  try {
+    return (await res.json()) as T;
+  } catch (err) {
+    throw new AuthResponseError(res.status, err);
+  }
+}
+
+// Auth errors may echo tokens or response bodies, so only a fixed message is sent.
+function reportAuthFailure(
+  error: unknown,
+  operation: string,
+  message: string,
+): void {
+  if (error instanceof AuthRejectedError) return;
+
+  captureException(error, {
+    source: "auth",
+    operation,
+    redactedMessage: message,
+    extra:
+      error instanceof AuthResponseError ? { status: error.status } : undefined,
+  });
+}
+
 const isTokenError = (data: unknown): data is TokenError => {
   return (
     typeof data === "object" &&
@@ -55,11 +98,11 @@ async function getOAuthTokenByCode(code: string): Promise<TokenInfo> {
       client_id: YANDEX_AUTH_CLIENT_ID,
       redirect_uri: YANDEX_AUTH_REDIRECT_URI,
       code_verifier: sessionStorage.getItem("votYandexCodeVerifier") || "",
-    }),
+    }).toString(),
   });
-  const data = (await res.json()) as TokenResponse;
+  const data = await readAuthJson<TokenResponse>(res);
   if (isTokenError(data)) {
-    throw new Error(
+    throw new AuthRejectedError(
       `Failed to fetch yandex OAuth token: ${data.error_description} (error: ${data.error})`,
     );
   }
@@ -83,9 +126,9 @@ async function getUserInfo(token: string): Promise<UserInfo> {
       Authorization: `OAuth ${token}`,
     },
   });
-  const data = (await res.json()) as UserInfoResponse;
+  const data = await readAuthJson<UserInfoResponse>(res);
   if (isAuthError(data)) {
-    throw new Error(
+    throw new AuthRejectedError(
       `[VOT] Failed to fetch yandex user info: ${data.message} (code: ${data.code})`,
     );
   }
@@ -114,26 +157,29 @@ export async function updateAccountInfo() {
     await votStorage.set<Account>("account", updatedAccount);
     updateAccount(updatedAccount);
   } catch (err) {
-    console.error("[VOT] Failed to fetch user info:", err);
+    logger.error("Failed to fetch user info:", err);
+    reportAuthFailure(
+      err,
+      "updateAccountInfo",
+      "Failed to refresh Yandex account info",
+    );
   } finally {
     setAccount("isRefreshing", false);
   }
 }
 
-export async function updateAccountByCallbackData(
-  data: AuthMessageData,
-): Promise<void> {
-  const { state, code } = data;
-  const storedState = sessionStorage.getItem("votYandexState");
-  if (!state || state !== storedState) {
-    throw new Error("[VOT] Invalid state value");
+async function exchangeCodeForAccount(code: string): Promise<void> {
+  let token: TokenInfo;
+  try {
+    token = await getOAuthTokenByCode(code);
+  } catch (err) {
+    reportAuthFailure(
+      err,
+      "exchangeCode",
+      "Failed to exchange Yandex auth code",
+    );
+    throw err;
   }
-
-  if (!code) {
-    throw new Error("[VOT] Invalid auth code response");
-  }
-
-  const token = await getOAuthTokenByCode(code);
   const expires = Date.now() + token.expires_in * 1000;
   const account: Account = {
     token: token.access_token,
@@ -147,6 +193,41 @@ export async function updateAccountByCallbackData(
   sessionStorage.removeItem("votYandexCodeVerifier");
 
   await updateAccountInfo();
+}
+
+// Every VideoHandler listens for the same callback message, and Yandex auth
+// codes are single-use, so all of them must share one exchange. The record is
+// kept after settling because a repeated code can never succeed again.
+let pendingCodeExchange: {
+  code: string;
+  state: string;
+  promise: Promise<void>;
+} | null = null;
+
+export async function updateAccountByCallbackData(
+  data: AuthMessageData,
+): Promise<void> {
+  const { state, code } = data;
+  if (
+    code &&
+    pendingCodeExchange?.code === code &&
+    pendingCodeExchange.state === state
+  ) {
+    return pendingCodeExchange.promise;
+  }
+
+  const storedState = sessionStorage.getItem("votYandexState");
+  if (!state || state !== storedState) {
+    throw new Error("[VOT] Invalid state value");
+  }
+
+  if (!code) {
+    throw new Error("[VOT] Invalid auth code response");
+  }
+
+  const promise = exchangeCodeForAccount(code);
+  pendingCodeExchange = { code, state, promise };
+  return promise;
 }
 
 export const createAuthLink = async (): Promise<string> => {

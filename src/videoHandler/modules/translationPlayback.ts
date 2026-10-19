@@ -3,6 +3,11 @@ import type { RequestLang, ResponseLang } from "@vot.js/shared/types/data";
 import { isTranslationDownloadHost } from "../../core/hostPolicies";
 import { notifyTranslationFailureIfNeeded } from "../../core/translationErrors";
 import { t } from "../../localization/localizationProvider";
+import { captureException } from "../../modules/telemetry/client";
+import {
+  getAudioFailureTags,
+  getTranslationTags,
+} from "../../modules/telemetry/context";
 import type { VideoData } from "../../types/videoHandler";
 import debug from "../../utils/debug";
 import { toErrorMessage } from "../../utils/errors";
@@ -283,7 +288,7 @@ export function proxifyAudio(this: VideoHandler, audioUrl: string): string {
     proxyWorkerHost: this.data?.proxyWorkerHost,
   });
   if (proxiedAudioUrl !== audioUrl) {
-    debug.log(`[VOT] Audio proxied via ${proxiedAudioUrl}`);
+    debug.log(`Audio proxied via ${proxiedAudioUrl}`);
   }
   return proxiedAudioUrl;
 }
@@ -296,7 +301,7 @@ export async function handleProxySettingsChanged(
   this: VideoHandler,
   reason = "proxySettingsChanged",
 ) {
-  debug.log(`[VOT] ${reason}: clearing translation/subtitles cache`);
+  debug.log(`${reason}: clearing translation/subtitles cache`);
   try {
     this.cacheManager.clear();
     this.activeTranslation = null;
@@ -425,6 +430,17 @@ export async function updateTranslation(
   if (applyResult.status === "error") {
     debug.log("this.audioPlayer.init() error", applyResult.error);
     await rollbackStaleAppliedSourceIfStillCurrent(this, appliedSourceUrl);
+    captureException(applyResult.error, {
+      source: "audio",
+      operation: "loadTranslationAudio",
+      dedupeKey: this.videoData?.videoId,
+      // The message can embed the (proxied) audio url.
+      redactedMessage: "Translation audio failed to load",
+      tags: {
+        ...getTranslationTags(this),
+        ...getAudioFailureTags(applyResult.error, "playback"),
+      },
+    });
     const msg = toErrorMessage(applyResult.error);
     this.transformBtn("error", msg);
     return;
@@ -696,6 +712,12 @@ export async function translateFunc(
   try {
     return await translationPromise;
   } catch (err) {
+    captureException(err, {
+      source: "playback",
+      operation: "translateFunc",
+      dedupeKey: VIDEO_ID,
+      tags: getTranslationTags(this, { from: requestLang, to: responseLang }),
+    });
     this.hadAsyncWait = notifyTranslationFailureIfNeeded({
       aborted: this.actionsAbortController.signal.aborted,
       translateApiErrorsEnabled: Boolean(this.data?.translateAPIErrors),

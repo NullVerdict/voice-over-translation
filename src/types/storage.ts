@@ -3,6 +3,7 @@ import type {
   DetectService,
   TranslateTextService,
 } from "#modules/translateText/types.ts";
+import type { LangOverride } from "../localization/localizationProvider";
 import type { RawHotkey } from "../modules/hotkeys/types";
 import type { SubtitleFontFamily, SubtitleFormat } from "../types/subtitles";
 import type { LanguageSelectKey } from "./components/select";
@@ -31,6 +32,7 @@ export const storageKeys = [
   "autoPauseOnTranslate",
   "autoSubtitles",
   "dontTranslateLanguages",
+  "dontTranslateByYTMusic",
   "enabledAutoVolume",
   "enabledSmartDucking",
   "autoVolume",
@@ -49,11 +51,13 @@ export const storageKeys = [
   "subtitlesDownloadFormat",
   "responseLanguage",
   "responseLanguageSubtitles",
+  "subtitlesTranslationLanguage",
   "defaultVolume",
   "onlyBypassMediaCSP",
   "newAudioPlayer",
   "showPiPButton",
   "translateAPIErrors",
+  "sendErrorReports",
   "translationService",
   "detectService",
   "translationHotkey",
@@ -96,6 +100,7 @@ export type StorageData = {
   autoPauseOnTranslate: boolean;
   autoSubtitles: boolean;
   dontTranslateLanguages: LanguageSelectKey[];
+  dontTranslateByYTMusic: boolean;
   enabledAutoVolume: boolean;
   /**
    * Smart Auto-Volume ducking: only lower original video volume while translated
@@ -134,11 +139,13 @@ export type StorageData = {
   subtitlesDownloadFormat: SubtitleFormat;
   responseLanguage: ResponseLang;
   responseLanguageSubtitles: ResponseLanguageSubtitles;
+  subtitlesTranslationLanguage: LangOverride;
   defaultVolume: number;
   onlyBypassMediaCSP: boolean;
   newAudioPlayer: boolean;
   showPiPButton: boolean;
   translateAPIErrors: boolean;
+  sendErrorReports: boolean;
   translationService: TranslateTextService;
   detectService: DetectService;
   // hotkey block

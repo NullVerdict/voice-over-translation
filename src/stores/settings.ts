@@ -14,6 +14,7 @@ import {
   DEFAULT_SMART_DUCKING_STRENGTH,
   PROXY_WORKER_HOST,
 } from "../config/config";
+import type { LangOverride } from "../localization/localizationProvider";
 import type { RawHotkey } from "../modules/hotkeys/types";
 import type { LanguageSelectKey } from "../types/components/select";
 import type { Position } from "../types/components/votButton";
@@ -36,6 +37,7 @@ export type SettingsStore = {
   autoPauseOnTranslate: boolean;
   autoSubtitles: boolean;
   dontTranslateLanguages: LanguageSelectKey[];
+  dontTranslateByYTMusic: boolean;
   enabledAutoVolume: boolean;
   autoVolume: number;
   enabledSmartDucking: boolean;
@@ -50,6 +52,7 @@ export type SettingsStore = {
   detectService: DetectService;
   // other
   translateAPIErrors: boolean;
+  sendErrorReports: boolean;
   newAudioPlayer: boolean;
   onlyBypassMediaCSP: boolean;
   showPiPButton: boolean;
@@ -63,6 +66,7 @@ export type SettingsStore = {
   pipHotkey: RawHotkey;
   // subtitles
   responseLanguageSubtitles: ResponseLanguageSubtitles;
+  subtitlesTranslationLanguage: LangOverride;
   highlightWords: boolean;
   subtitlesSmartLayout: boolean;
   subtitlesDownloadFormat: SubtitleFormat;
@@ -74,6 +78,8 @@ export type SettingsStore = {
 
 export function createDefaultSettings(
   audioContextSupported = false,
+  sendErrorReports = typeof VOT_BUILD_VARIANT === "undefined" ||
+    VOT_BUILD_VARIANT !== "firefox",
 ): SettingsStore {
   return {
     // menu
@@ -85,6 +91,7 @@ export function createDefaultSettings(
     autoPauseOnTranslate: false,
     autoSubtitles: false,
     dontTranslateLanguages: [calculatedResLang],
+    dontTranslateByYTMusic: false,
     enabledAutoVolume: true,
     autoVolume: DEFAULT_AUTO_VOLUME,
     enabledSmartDucking: true,
@@ -100,6 +107,7 @@ export function createDefaultSettings(
     detectService: DEFAULT_DETECT_SERVICE,
     // other
     translateAPIErrors: true,
+    sendErrorReports,
     newAudioPlayer: audioContextSupported,
     onlyBypassMediaCSP: audioContextSupported,
     showPiPButton: false,
@@ -113,6 +121,7 @@ export function createDefaultSettings(
     pipHotkey: null,
     // subtitles
     responseLanguageSubtitles: AUTO_SUBTITLE_LANGUAGE_VALUE,
+    subtitlesTranslationLanguage: "auto",
     subtitlesDownloadFormat: "srt",
     subtitlesFontFamily: "default-sans",
     highlightWords: false,

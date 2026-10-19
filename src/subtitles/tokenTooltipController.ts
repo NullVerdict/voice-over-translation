@@ -1,10 +1,12 @@
 import { DEFAULT_TRANSLATION_SERVICE } from "#modules/translateText/consts.ts";
 import { translate } from "#modules/translateText/service.ts";
+import logger from "#utils/logger.ts";
 import {
   mountSubtitleTokenTooltip,
   type SubtitleTokenTooltipHandle,
 } from "../components/SubtitlesWidget/SubtitleTokenTooltip";
 import { localizationProvider, t } from "../localization/localizationProvider";
+import { settings } from "../stores/settings";
 import {
   createShadowMount,
   destroyShadowMount,
@@ -45,6 +47,7 @@ export class TokenTooltipController {
   private target?: HTMLElement;
   private translationRequestId = 0;
   private translatedContext = "";
+  private translationLanguage = "";
 
   constructor(options: TokenTooltipControllerOptions) {
     this.getContext = options.getContext;
@@ -110,7 +113,13 @@ export class TokenTooltipController {
       this.release();
       return;
     }
-    if (this.toggleCurrentTarget(target, event)) return;
+    const toLang = this.getTranslationLanguage();
+    if (this.translationLanguage !== toLang) {
+      this.resetTranslationContext();
+      this.translationLanguage = toLang;
+    } else if (this.toggleCurrentTarget(target, event)) {
+      return;
+    }
 
     this.release();
     const requestId = this.translationRequestId;
@@ -118,7 +127,11 @@ export class TokenTooltipController {
     if (!text) return;
     try {
       const service = await this.getTranslationService();
-      if (requestId !== this.translationRequestId) return;
+      if (
+        requestId !== this.translationRequestId ||
+        toLang !== this.getTranslationLanguage()
+      )
+        return;
       const context = this.getContext();
       target.classList.add("selected");
       const tooltip = this.createTooltip(target, {
@@ -130,13 +143,18 @@ export class TokenTooltipController {
       this.target = target;
       tooltip.show();
       const tokenText = context.tokenText;
-      const translated = await this.translateTokens(text, context);
-      if (this.shouldSkipUpdate(requestId, tooltip, target, tokenText)) return;
+      const translated = await this.translateTokens(text, context, toLang);
+      if (this.shouldSkipUpdate(requestId, tooltip, target, tokenText, toLang))
+        return;
       this.translatedContext = translated[0];
       tooltip.setTranslation(translated[1], translated[0]);
     } catch (error) {
-      if (requestId !== this.translationRequestId) return;
-      console.error("[VOT] Failed to translate subtitle token:", error);
+      if (
+        requestId !== this.translationRequestId ||
+        toLang !== this.getTranslationLanguage()
+      )
+        return;
+      logger.error("Failed to translate subtitle token:", error);
       if (this.tooltip && this.target === target) {
         const { tokenText } = this.getContext();
         this.tooltip.setTranslation(
@@ -149,12 +167,20 @@ export class TokenTooltipController {
     }
   };
 
+  private getTranslationLanguage(): string {
+    const language = settings.subtitlesTranslationLanguage;
+    return language !== "auto" &&
+      localizationProvider.getAvailableLangs().includes(language)
+      ? language
+      : localizationProvider.lang;
+  }
+
   private async translateTokens(
     text: string,
     context: TokenTooltipContext,
+    toLang: string,
   ): Promise<[string, string]> {
     const fromLang = context.subtitleLang ?? "";
-    const toLang = localizationProvider.lang;
     if (this.translatedContext) {
       const translated = await this.translateText(text, fromLang, toLang);
       return [
@@ -283,9 +309,11 @@ export class TokenTooltipController {
     tooltip: SubtitleTokenTooltipHandle,
     target: HTMLElement,
     tokenText: string,
+    toLang: string,
   ): boolean {
     return (
       requestId !== this.translationRequestId ||
+      toLang !== this.getTranslationLanguage() ||
       tokenText !== this.getContext().tokenText ||
       this.tooltip !== tooltip ||
       this.target !== target ||

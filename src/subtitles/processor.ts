@@ -1,4 +1,7 @@
-﻿import YoutubeHelper from "@vot.js/ext/helpers/youtube";
+import YoutubeHelper from "@vot.js/ext/helpers/youtube";
+import logger from "#utils/logger.ts";
+import { captureException } from "../modules/telemetry/client";
+import type { Tags } from "../modules/telemetry/event";
 import type {
   ProcessedSubtitles,
   SubtitleDescriptor,
@@ -735,17 +738,26 @@ const buildLineTokens = (
   return applySourceWordTimings(nextTokens, sourceTimedWords);
 };
 
+const isTextSubtitleFormat = (
+  format: SubtitleFormat,
+): format is "srt" | "vtt" | "ass" =>
+  format === "vtt" || format === "srt" || format === "ass";
+
 const fetchRawSubtitles = async (
   url: string,
   format: SubtitleFormat,
 ): Promise<unknown> => {
   const response = await GM_fetch(url, { timeout: 7000 });
-  if (format === "vtt" || format === "srt" || format === "ass") {
-    const text = await response.text();
-    return parseSubtitleText(text, format);
-  }
-  return response.json();
+  return isTextSubtitleFormat(format) ? response.text() : response.json();
 };
+
+const parseRawSubtitles = (
+  rawSubtitles: unknown,
+  format: SubtitleFormat,
+): unknown =>
+  isTextSubtitleFormat(format)
+    ? parseSubtitleText(rawSubtitles as string, format)
+    : rawSubtitles;
 
 const normalizeFetchedSubtitles = (
   rawSubtitles: unknown,
@@ -813,6 +825,11 @@ const buildYandexSubtitles = (
   return subtitles;
 };
 
+export type SubtitlesErrorContext = {
+  dedupeKey?: string;
+  tags?: Tags;
+};
+
 /**
  * Thrown when the Yandex subtitles request fails (network error, timeout, etc).
  *
@@ -861,7 +878,7 @@ export const SubtitlesProcessor = {
   ): ProcessedSubtitles {
     const events = subtitles.events ?? [];
     if (!events.length) {
-      console.error("[VOT] Invalid YouTube subtitles format:", subtitles);
+      logger.error("Invalid YouTube subtitles format:", subtitles);
       return { format: "json", subtitles: [] };
     }
 
@@ -924,6 +941,7 @@ export const SubtitlesProcessor = {
 
   async fetchSubtitles(
     descriptorInput: SubtitleDescriptor,
+    errorContext: SubtitlesErrorContext = {},
   ): Promise<ProcessedSubtitles> {
     const descriptor = parseSubtitleDescriptor(descriptorInput);
 
@@ -938,18 +956,33 @@ export const SubtitlesProcessor = {
       url = appendYoutubePoTokenParams(url);
     }
 
+    let operation = "fetchSubtitles";
     try {
       const rawSubtitles = await fetchRawSubtitles(url, format);
-      const normalized = normalizeFetchedSubtitles(rawSubtitles, descriptor);
+      operation = "parseSubtitles";
+      const normalized = normalizeFetchedSubtitles(
+        parseRawSubtitles(rawSubtitles, format),
+        descriptor,
+      );
       const subtitlesWithTokens = processFetchedSubtitles(
         normalized,
         descriptor,
       );
 
-      debug.log("[VOT] Processed subtitles:", subtitlesWithTokens);
+      debug.log("Processed subtitles:", subtitlesWithTokens);
       return subtitlesWithTokens;
     } catch (error) {
-      console.error("[VOT] Failed to process subtitles:", error);
+      logger.error("Failed to process subtitles:", error);
+      captureException(error, {
+        source: "subtitles",
+        operation,
+        dedupeKey: errorContext.dedupeKey,
+        tags: {
+          ...errorContext.tags,
+          subtitles_source: source,
+          subtitles_format: format,
+        },
+      });
       return { format: "json", subtitles: [] };
     }
   },
@@ -986,9 +1019,9 @@ export const SubtitlesProcessor = {
       ]);
 
       const res = response as SubtitlesResponsePayload;
-      debug.log("[VOT] Subtitles response:", res);
+      debug.log("Subtitles response:", res);
       if (res.waiting) {
-        console.error("[VOT] Failed to get Yandex subtitles");
+        logger.error("Failed to get Yandex subtitles");
       }
 
       const yandexSubs = buildYandexSubtitles(res);
@@ -1000,7 +1033,7 @@ export const SubtitlesProcessor = {
       if (error instanceof Error && error.message === "Timeout") {
         message = "Failed to get Yandex subtitles: timeout";
       }
-      console.error(`[VOT] ${message}`, error);
+      logger.error(message, error);
       throw new SubtitlesRequestError(
         message,
         sortSubtitles(extraSubtitles, requestLang),

@@ -267,5 +267,12 @@
   "VOTLogin": "Σύνδεση",
   "VOTAutoPauseOnTranslate": "Παύση βίντεο μέχρι να είναι έτοιμη η μετάφραση",
   "VOTSmartDuckingStrength": "Προσαρμοστική δύναμη μείωσης όγκου",
-  "VOTRetryTranslation": "Επανάληψη μετάφρασης"
+  "VOTRetryTranslation": "Επανάληψη μετάφρασης",
+  "VOTVideoIsMusic": "Έχετε απενεργοποιήσει τη μετάφραση για μουσικά βίντεο",
+  "DontTranslateByYTMusic": "Μην μεταφράζετε βίντεο που αναγνωρίζονται ως μουσική από τη μουσική του YouTube",
+  "VOTMusicDetectDesc": "Η ανίχνευση μουσικής είναι διαθέσιμη μόνο στο YouTube",
+  "sendErrorReports": "Αποστολή ανώνυμων αναφορών σφαλμάτων",
+  "sendErrorReportsDescription": "Μας βοηθά να βρούμε και να διορθώσουμε σφάλματα. Αποστέλλονται μόνο τεχνικές λεπτομέρειες",
+  "VOTSubtitlesTranslationLanguage": "Γλώσσα μετάφρασης λέξεων και φράσεων",
+  "VOTSameAsMenuLanguage": "Ίδια με τη γλώσσα μενού"
 }

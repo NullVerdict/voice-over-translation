@@ -86,7 +86,6 @@ export type Phrase =
   | "audioNotReceived"
   | "VOTYouTubeSignInSuggested"
   | "VOTFailedDownloadAudio"
-  | "VOTRetryTranslation"
   | "audioFormatNotSupported"
   | "VOTAutoTranslate"
   | "VOTAutoPauseOnTranslate"
@@ -328,7 +327,15 @@ export type Phrase =
   | "VOTMenu"
   | "VOTDownloadTranslation"
   | "VOTClose"
-  | "VOTSmartDuckingStrength";
+  | "VOTSmartDuckingStrength"
+  | "VOTRetryTranslation"
+  | "VOTVideoIsMusic"
+  | "DontTranslateByYTMusic"
+  | "VOTMusicDetectDesc"
+  | "sendErrorReports"
+  | "sendErrorReportsDescription"
+  | "VOTSubtitlesTranslationLanguage"
+  | "VOTSameAsMenuLanguage";
 
 export type Phrases = {
   recommended: string;
@@ -351,7 +358,6 @@ export type Phrases = {
   audioNotReceived: string;
   VOTYouTubeSignInSuggested: string;
   VOTFailedDownloadAudio: string;
-  VOTRetryTranslation: string;
   audioFormatNotSupported: string;
   VOTAutoTranslate: string;
   VOTAutoPauseOnTranslate: string;
@@ -600,6 +606,14 @@ export type Phrases = {
   VOTDownloadTranslation: string;
   VOTClose: string;
   VOTSmartDuckingStrength: string;
+  VOTRetryTranslation: string;
+  VOTVideoIsMusic: string;
+  DontTranslateByYTMusic: string;
+  VOTMusicDetectDesc: string;
+  sendErrorReports: string;
+  sendErrorReportsDescription: string;
+  VOTSubtitlesTranslationLanguage: string;
+  VOTSameAsMenuLanguage: string;
 };
 
 export type FlatPhrases = Record<Phrase, string>;

@@ -267,5 +267,12 @@
   "VOTLogin": "Login",
   "VOTAutoPauseOnTranslate": "Jeda video hingga terjemahan siap",
   "VOTSmartDuckingStrength": "Kekuatan pengurangan volume adaptif",
-  "VOTRetryTranslation": "Coba terjemahkan lagi"
+  "VOTRetryTranslation": "Coba terjemahkan lagi",
+  "VOTVideoIsMusic": "Anda telah menonaktifkan terjemahan untuk video musik",
+  "DontTranslateByYTMusic": "Jangan menerjemahkan video yang diidentifikasi sebagai musik oleh YouTube Music",
+  "VOTMusicDetectDesc": "Deteksi musik hanya tersedia di YouTube",
+  "sendErrorReports": "Kirim laporan kesalahan anonim",
+  "sendErrorReportsDescription": "Membantu kami menemukan dan memperbaiki bug. Hanya detail teknis yang dikirim",
+  "VOTSubtitlesTranslationLanguage": "Bahasa terjemahan kata dan frase",
+  "VOTSameAsMenuLanguage": "Sama seperti bahasa menu"
 }

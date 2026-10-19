@@ -267,5 +267,12 @@
   "VOTLogin": "Prihlásenie",
   "VOTAutoPauseOnTranslate": "Pause video until translation is ready",
   "VOTSmartDuckingStrength": "Adaptívna sila na zníženie objemu",
-  "VOTRetryTranslation": "Skúsiť preklad znova"
+  "VOTRetryTranslation": "Skúsiť preklad znova",
+  "VOTVideoIsMusic": "Zakázali ste preklad hudobných videí",
+  "DontTranslateByYTMusic": "Neprekladajte videá označené ako hudba v službe YouTube Music",
+  "VOTMusicDetectDesc": "Detekcia hudby je k dispozícii iba na YouTube",
+  "sendErrorReports": "Posielanie anonymných hlásení o chybách",
+  "sendErrorReportsDescription": "Pomáha nám nájsť a opraviť chyby. Odosielajú sa iba technické podrobnosti",
+  "VOTSubtitlesTranslationLanguage": "Jazyk prekladu slov a fráz",
+  "VOTSameAsMenuLanguage": "Rovnaké ako jazyk menu"
 }

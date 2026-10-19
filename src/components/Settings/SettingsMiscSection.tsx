@@ -9,6 +9,7 @@ import { SettingsSection } from "./SettingsSection";
 
 export type SettingsMiscSectionProps = {
   onChangeTranslateAPIErrors?: (checked: boolean) => void;
+  onChangeSendErrorReports?: (checked: boolean) => void;
   onChangeNewAudioPlayer?: (checked: boolean) => void;
   onChangeOnlyBypassMediaCSP?: (checked: boolean) => void;
   isAudioContextSupported?: boolean;
@@ -34,6 +35,15 @@ export function SettingsMiscSection(
         onChange={(checked) => {
           setSettings("translateAPIErrors", checked);
           finalProps.onChangeTranslateAPIErrors?.(checked);
+        }}
+      />
+      <Switch
+        heading={t("sendErrorReports")}
+        description={t("sendErrorReportsDescription")}
+        checked={settings.sendErrorReports}
+        onChange={(checked) => {
+          setSettings("sendErrorReports", checked);
+          finalProps.onChangeSendErrorReports?.(checked);
         }}
       />
       <Switch

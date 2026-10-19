@@ -327,6 +327,7 @@ export class SettingsController {
         },
         translation: {
           isAudioContextSupported: this.videoHandler?.isAudioContextSupported,
+          isCanDetectMusic: this.videoHandler.site.host === "youtube",
           onAutoTranslateChange: this.createPersistedSettingHandler({
             storageKey: "autoTranslate",
             dispatch: (checked) =>
@@ -342,6 +343,9 @@ export class SettingsController {
           }),
           onDontTranslateLanguagesChange: this.createPersistedSettingHandler({
             storageKey: "dontTranslateLanguages",
+          }),
+          onDontTranslateByYTMusicChange: this.createPersistedSettingHandler({
+            storageKey: "dontTranslateByYTMusic",
           }),
           onEnabledAutoVolumeChange: this.createPersistedSettingHandler({
             storageKey: "enabledAutoVolume",
@@ -402,6 +406,10 @@ export class SettingsController {
               dispatch: (item) =>
                 this.events["select:responseLanguageSubtitles"].dispatch(item),
             })(option.value as ResponseLanguageSubtitles),
+          onSubtitlesTranslationLanguageSelect:
+            this.createPersistedSettingHandler({
+              storageKey: "subtitlesTranslationLanguage",
+            }),
           onSubtitlesDownloadFormatSelect: (option) =>
             this.createPersistedSettingHandler({
               storageKey: "subtitlesDownloadFormat",
@@ -500,6 +508,9 @@ export class SettingsController {
         misc: {
           onChangeTranslateAPIErrors: this.createPersistedSettingHandler({
             storageKey: "translateAPIErrors",
+          }),
+          onChangeSendErrorReports: this.createPersistedSettingHandler({
+            storageKey: "sendErrorReports",
           }),
           isAudioContextSupported: this.videoHandler?.isAudioContextSupported,
           needBypassCSP: this.videoHandler.site.needBypassCSP,

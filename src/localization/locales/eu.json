@@ -267,5 +267,12 @@
   "VOTLogin": "Saioa hasi",
   "VOTAutoPauseOnTranslate": "Pausatu bideoa itzulpena prest dagoen arte",
   "VOTSmartDuckingStrength": "Bolumena murrizteko erresistentzia egokitzailea",
-  "VOTRetryTranslation": "Saiatu itzulpena berriro"
+  "VOTRetryTranslation": "Saiatu itzulpena berriro",
+  "VOTVideoIsMusic": "Musika bideoen itzulpena desgaitu duzu",
+  "DontTranslateByYTMusic": "Ez itzuli youtube Music-ek identifikatutako bideoak",
+  "VOTMusicDetectDesc": "Musika Detekzioa Youtuben bakarrik dago eskuragarri",
+  "sendErrorReports": "Bidali errore-txosten anonimoak",
+  "sendErrorReportsDescription": "Bugs aurkitu eta konpontzen laguntzen digu. Xehetasun teknikoak bakarrik bidaltzen dira",
+  "VOTSubtitlesTranslationLanguage": "Hitzen eta esaldien itzulpen hizkuntza",
+  "VOTSameAsMenuLanguage": "Menu hizkuntza bezala"
 }
