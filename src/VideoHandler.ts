@@ -801,21 +801,29 @@ export class VideoHandler {
     const originalGetSession = this.votClient.provider.getSession.bind(
       this.votClient.provider,
     );
-    this.votClient.provider.getSession = async (
-      module: SessionModule,
-    ): Promise<ClientSession> => {
-      let session: ClientSession;
-      try {
-        session = await originalGetSession(module);
-      } catch (err) {
-        this.reportSessionFailure(err, module, transportHost);
-        throw err;
+    // Dedupe concurrent session requests per module so parallel
+    const inFlightSessions = new Map<SessionModule, Promise<ClientSession>>();
+    const provider = this.votClient.provider;
+    provider.getSession = (module: SessionModule): Promise<ClientSession> => {
+      const pending = inFlightSessions.get(module);
+      if (pending) {
+        return pending;
       }
-      await this.votSessionStorage.persist(
-        transportHost,
-        this.votClient.provider.sessions,
-      );
-      return session;
+      const request = (async () => {
+        let session: ClientSession;
+        try {
+          session = await originalGetSession(module);
+        } catch (err) {
+          this.reportSessionFailure(err, module, transportHost);
+          throw err;
+        }
+        await this.votSessionStorage.persist(transportHost, provider.sessions);
+        return session;
+      })().finally(() => {
+        inFlightSessions.delete(module);
+      });
+      inFlightSessions.set(module, request);
+      return request;
     };
 
     return this;

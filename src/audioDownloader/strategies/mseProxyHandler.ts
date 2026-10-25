@@ -113,9 +113,7 @@ async function getEncryptedEmbedConfig(
       /"encryptedEmbedConfig"\s*:\s*("[^"]+")/,
     );
     return match ? `{"enc":${match[1]}}` : undefined;
-  } catch {
-    return;
-  }
+  } catch {}
 }
 
 type CapturedEvent =

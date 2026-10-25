@@ -41,6 +41,11 @@ export function Slider(props: SliderProps): JSX.Element {
     return clamp(raw, 0, 1);
   };
 
+  const stopDragging = () => {
+    pointerStart = undefined;
+    setDragging(false);
+  };
+
   effect(() => {
     setValue(clampVal(finalProps.value));
   });
@@ -82,14 +87,8 @@ export function Slider(props: SliderProps): JSX.Element {
             setDragging(true);
           }
         }}
-        onpointerup={() => {
-          pointerStart = undefined;
-          setDragging(false);
-        }}
-        onpointercancel={() => {
-          pointerStart = undefined;
-          setDragging(false);
-        }}
+        onpointerup={stopDragging}
+        onpointercancel={stopDragging}
         oninput={(e) => {
           const newValue = e.target.valueAsNumber;
           setValue(newValue);

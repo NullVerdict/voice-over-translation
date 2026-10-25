@@ -324,7 +324,7 @@ export async function refreshTranslationAudio(
     this.videoData.translationHelp,
   );
   try {
-    const translateRes = await requestApplyAndCacheTranslation(this, {
+    await requestApplyAndCacheTranslation(this, {
       videoData: this.videoData,
       requestLang: this.translateFromLang,
       responseLang: this.translateToLang,
@@ -340,7 +340,6 @@ export async function refreshTranslationAudio(
       cacheRequestLang: this.translateFromLang,
       cacheResponseLang: this.translateToLang,
     });
-    if (!translateRes) return;
   } finally {
     this.isRefreshingTranslation = false;
   }

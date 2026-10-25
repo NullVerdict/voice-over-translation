@@ -262,6 +262,7 @@ export function buildManifestChrome({
       "notifications",
       "activeTab",
       "declarativeNetRequestWithHostAccess",
+      "scripting",
     ],
     host_permissions: hostPermissions,
     background: pathStrategy?.background ?? {

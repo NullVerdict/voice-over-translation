@@ -105,7 +105,7 @@ export function base64ToArrayBuffer(b64: string): ArrayBuffer {
  * Shared helpers for serializing request bodies across the extension layers.
  *
  * Why this exists:
- * - `postMessage` + extension messaging only support JSON-serializable data.
+ * - Chromium extension messaging uses JSON; page postMessage uses structured clone.
  * - GM_xmlhttpRequest users often pass ArrayBuffer/TypedArray/Blob bodies.
  * - Firefox may pass values across compartments where `instanceof` checks throw.
  */

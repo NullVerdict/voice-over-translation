@@ -1,14 +1,5 @@
-/**
- * IIFE entry point for CRXJS Chrome builds.
- *
- * CRXJS emits `.iife.ts` files as standalone bundles with imports inlined
- * and no loader wrapper. Chrome runs this file directly at document_start.
- * Because it is synchronous, GM polyfills are guaranteed to be on
- * globalThis before any subsequent MAIN-world content script evaluates.
- *
- * The async handshake (GM_info metadata) is fire-and-forget — it does
- * not block polyfill availability.
- */
+// CRXJS inlines this entry into a synchronous document_start IIFE so GM
+// globals exist before MAIN-world scripts run. The handshake stays async.
 import { bootstrapExtensionPrelude } from "./prelude/index";
 
 bootstrapExtensionPrelude();

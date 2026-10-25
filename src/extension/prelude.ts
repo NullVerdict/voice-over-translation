@@ -1,3 +1,2 @@
-// Re-export from new subdirectory structure.
-// This file exists so CRXJS can resolve the entry point at the expected path.
+// Keep the entry path CRXJS expects.
 export * from "./prelude/index";

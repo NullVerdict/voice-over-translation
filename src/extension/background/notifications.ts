@@ -77,32 +77,21 @@ function isFirefoxRuntime(): boolean {
   );
 }
 
-function resolveNotificationIconUrl(): string {
+function createBridgeNotificationOptions(
+  details: GmNotificationDetails,
+): Record<string, unknown> {
   const isFirefox = isFirefoxRuntime();
   const iconPath = isFirefox
     ? FIREFOX_NOTIFICATION_ICON_PATH
     : CHROME_NOTIFICATION_ICON_PATH;
 
-  // Firefox examples use a fully-qualified moz-extension:// URL, while Chrome's
-  // notification API explicitly allows paths relative to the packaged .crx.
-  // The two build pipelines package icons in different locations:
-  //   - Firefox: icons/icon-128.png
-  //   - Chrome/CRXJS: src/extension/icons/icon-128.png
-  // Keep the path runtime-specific so a Firefox fix does not break Chrome.
-  if (isFirefox && ext?.runtime?.getURL) {
-    return ext.runtime.getURL(iconPath);
-  }
-  return iconPath;
-}
-
-function createBridgeNotificationOptions(
-  details: GmNotificationDetails,
-): Record<string, unknown> {
-  const isFirefox = isFirefoxRuntime();
-
   const options: Record<string, unknown> = {
     type: "basic",
-    iconUrl: resolveNotificationIconUrl(),
+    // Build pipelines package icons differently; Firefox needs an absolute URL.
+    iconUrl:
+      isFirefox && ext?.runtime?.getURL
+        ? ext.runtime.getURL(iconPath)
+        : iconPath,
     title: details.title || EXT_NAME_FALLBACK,
     message: details.text,
   };

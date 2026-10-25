@@ -954,8 +954,7 @@ export async function* trySabrAudioChunks(
     sabrPrototype.__votNativeAbrStatePatched = true;
   }
 
-  let stream: SabrStream;
-  stream = new SabrStream({
+  const stream = new SabrStream({
     fetch: sabrDiagnosticFetch,
     poToken: sabrPoToken,
     serverAbrStreamingUrl,

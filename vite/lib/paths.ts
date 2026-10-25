@@ -49,7 +49,7 @@ export const sharedCssOptions = {
 };
 
 export const sharedBuildOptions = {
-  target: "baseline-widely-available" as const,
+  target: ["chrome106", "firefox106"],
   modulePreload: { polyfill: false },
   copyPublicDir: false,
   cssMinify: "lightningcss" as const,

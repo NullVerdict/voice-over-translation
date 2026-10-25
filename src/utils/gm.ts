@@ -337,7 +337,6 @@ async function executeCallbackGmXhr(
       fetchOptions.signal.addEventListener("abort", onAbort, { once: true });
       if (fetchOptions.signal.aborted) {
         onAbort();
-        return;
       }
     }
   });
@@ -534,33 +533,7 @@ export async function GM_fetch(
         host: host ?? "unknown",
         reason: forceGmXhr ? "forced" : "host-policy",
       });
-      try {
-        return await gmXhrFetch(urlStr, timeout, fetchOptions);
-      } catch (err) {
-        if (isAbortError(err)) throw err;
-        if (forceGmXhr || shouldUseGmXhr(host, urlStr)) throw err;
-        debug.warn(
-          "[GM_fetch] all GM approaches failed, falling back to native fetch",
-          {
-            url: urlStr,
-            method,
-            host: host ?? "unknown",
-            error: getErrorMessage(err) || "Unknown error",
-          },
-        );
-        const { signal, cleanup } = createTimeoutSignal(
-          timeout,
-          fetchOptions.signal,
-        );
-        try {
-          return await fetch(url, {
-            ...fetchOptions,
-            signal,
-          });
-        } finally {
-          cleanup();
-        }
-      }
+      return await gmXhrFetch(urlStr, timeout, fetchOptions);
     }
 
     const { signal, cleanup } = createTimeoutSignal(

@@ -1,6 +1,7 @@
 import { createAbortableDelay } from "../../utils/abort";
 import debug from "../../utils/debug";
 import type { AudioChunk } from "./audioChunks";
+import { getQueuedAudioChunks } from "./audioDownloadQueue";
 import type { WebAbrWindow } from "./webAbr";
 import { trySabrAudioChunks } from "./youtubeSabr";
 
@@ -80,31 +81,11 @@ export async function* getSabrAudioChunks(
   signal: AbortSignal,
   sourceLanguage?: string,
 ): AsyncGenerator<AudioChunk> {
-  const queueKey = String(videoId);
-  const previous = SABR_DOWNLOAD_QUEUE.get(queueKey) ?? Promise.resolve();
-  const hadPrevious = SABR_DOWNLOAD_QUEUE.has(queueKey);
-  let releaseCurrent: (() => void) | undefined;
-  const current = new Promise<void>((resolve) => {
-    releaseCurrent = resolve;
-  });
-  SABR_DOWNLOAD_QUEUE.set(queueKey, current);
-  debug.log("Audio downloader. SABR queued", {
+  yield* getQueuedAudioChunks(
+    SABR_DOWNLOAD_QUEUE,
+    "SABR",
     videoId,
-    hasPrevious: hadPrevious,
-  });
-  try {
-    await previous;
-    signal.throwIfAborted();
-    yield* getSabrAudioChunksImpl(
-      targetWindow,
-      videoId,
-      signal,
-      sourceLanguage,
-    );
-  } finally {
-    releaseCurrent?.();
-    if (SABR_DOWNLOAD_QUEUE.get(queueKey) === current)
-      SABR_DOWNLOAD_QUEUE.delete(queueKey);
-    debug.log("Audio downloader. SABR queue released", { videoId });
-  }
+    signal,
+    () => getSabrAudioChunksImpl(targetWindow, videoId, signal, sourceLanguage),
+  );
 }
