@@ -37,7 +37,7 @@ export type WebEmbeddedFormat = {
   url?: string;
   mimeType?: string;
   bitrate?: number;
-  averageBitrate?: number;
+  averageBitrate?: number | string;
   contentLength?: string | number;
   lastModified?: string;
   signatureCipher?: string;

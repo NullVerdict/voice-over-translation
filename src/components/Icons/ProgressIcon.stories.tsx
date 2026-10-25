@@ -6,7 +6,7 @@ import { ProgressIcon } from "./ProgressIcon";
 const PROGRESS_STEP = 0.1;
 const PROGRESS_INTERVAL_MS = 10;
 
-export function startProgressAnimation(
+function startProgressAnimation(
   progress: Accessor<number>,
   setProgress: Setter<number>,
   onComplete?: () => void,
