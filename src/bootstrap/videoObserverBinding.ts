@@ -80,6 +80,9 @@ export function bindObserverListeners(
   const videoContainers = new WeakMap<HTMLVideoElement, HTMLElement>();
   const pendingVideoByContainer = new WeakMap<HTMLElement, HTMLVideoElement>();
 
+  const canInitializeVideo = (video: HTMLVideoElement): boolean =>
+    video.isConnected && !videosWrappers.has(video);
+
   const clearContainerOwner = (
     video: HTMLVideoElement,
   ): HTMLElement | undefined => {
@@ -193,7 +196,7 @@ export function bindObserverListeners(
         reportInitError(err, "activateRuntime");
         return;
       }
-      if (!video.isConnected || videosWrappers.has(video)) return;
+      if (!canInitializeVideo(video)) return;
 
       const match = getMatchedSiteAndContainer(video);
       if (!match) {
@@ -216,7 +219,7 @@ export function bindObserverListeners(
         clearContainerOwner(activeVideoForContainer);
       }
 
-      if (!video.isConnected || videosWrappers.has(video)) return;
+      if (!canInitializeVideo(video)) return;
       const videoHandler = createVideoHandler(
         video,
         container,

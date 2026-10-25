@@ -401,6 +401,27 @@ async function executePromiseGmXhr(
   }
 }
 
+function throwGmFetchFailure(
+  urlStr: string,
+  method: string,
+  attempts: GmFetchAttempt[],
+): never {
+  debug.warn("[GM_fetch] none of the GM approaches worked");
+  const lastCategory = attempts.at(-1)?.category;
+  const failure = new Error("All GM approaches failed", {
+    cause: lastCategory ? new Error(lastCategory) : undefined,
+  });
+  try {
+    gmFetchFailureHandler?.({
+      error: failure,
+      host: getRequestHost(urlStr),
+      method,
+      attempts,
+    });
+  } catch {}
+  throw failure;
+}
+
 async function gmXhrFetch(
   urlStr: string,
   timeout: number,
@@ -441,16 +462,11 @@ async function gmXhrFetch(
         error: getGmXhrErrorMessage(error),
       });
     }
-  }
-
-  if (!callbackGmXhr) {
+  } else {
     attempts.push({ approach: "GM_xmlhttpRequest", category: "unavailable" });
   }
 
   const promiseGmXhr = getPromiseGmXhr();
-  if (!promiseGmXhr) {
-    attempts.push({ approach: "GM.xmlHttpRequest", category: "unavailable" });
-  }
   if (promiseGmXhr) {
     debug.log("[GM_fetch] attempting promise-style GM.xmlHttpRequest");
     try {
@@ -474,22 +490,11 @@ async function gmXhrFetch(
         error: getGmXhrErrorMessage(error),
       });
     }
+  } else {
+    attempts.push({ approach: "GM.xmlHttpRequest", category: "unavailable" });
   }
 
-  debug.warn("[GM_fetch] none of the GM approaches worked");
-  const lastCategory = attempts.at(-1)?.category;
-  const failure = new Error("All GM approaches failed", {
-    cause: lastCategory ? new Error(lastCategory) : undefined,
-  });
-  try {
-    gmFetchFailureHandler?.({
-      error: failure,
-      host: getRequestHost(urlStr),
-      method,
-      attempts,
-    });
-  } catch {}
-  throw failure;
+  throwGmFetchFailure(urlStr, method, attempts);
 }
 
 export async function GM_fetch(

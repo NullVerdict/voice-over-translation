@@ -1,3 +1,4 @@
+import debug from "../utils/debug";
 import { preseedDnrRules } from "./background/dnr-rules";
 import { registerBackgroundNotifications } from "./background/notifications";
 import { registerContentScriptReinjection } from "./background/reinject";
@@ -10,4 +11,6 @@ registerBackgroundTelemetryConsent();
 registerBackgroundNotifications();
 registerXhrPortListener();
 registerContentScriptReinjection();
-preseedDnrRules();
+preseedDnrRules().catch((error) => {
+  debug.warn("[VOT EXT][background] Failed to initialize DNR rules", error);
+});

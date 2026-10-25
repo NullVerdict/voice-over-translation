@@ -265,13 +265,11 @@ function collectLocalDependencies(
 export async function collectUsedUserscriptGrantsFromEntry(
   entryFilePath: string,
 ): Promise<string[]> {
-  const pendingFiles = [path.resolve(entryFilePath)];
   const visitedFiles = new Set<string>();
   const detectedGrants = new Set<string>();
 
-  while (pendingFiles.length > 0) {
-    const currentFilePath = pendingFiles.pop();
-    if (!currentFilePath || visitedFiles.has(currentFilePath)) continue;
+  async function visitFile(currentFilePath: string): Promise<void> {
+    if (visitedFiles.has(currentFilePath)) return;
 
     visitedFiles.add(currentFilePath);
 
@@ -280,7 +278,7 @@ export async function collectUsedUserscriptGrantsFromEntry(
       !analyzableCodeExtensions.has(ext) ||
       currentFilePath.endsWith(".d.ts")
     ) {
-      continue;
+      return;
     }
 
     const source = await fsPromises.readFile(currentFilePath, "utf8");
@@ -294,16 +292,12 @@ export async function collectUsedUserscriptGrantsFromEntry(
 
     visitGrantNodes(parsed, detectedGrants);
 
-    for (const dependencyPath of collectLocalDependencies(
-      currentFilePath,
-      parsed,
-    )) {
-      if (!visitedFiles.has(dependencyPath)) {
-        pendingFiles.push(dependencyPath);
-      }
-    }
+    await Promise.all(
+      collectLocalDependencies(currentFilePath, parsed).map(visitFile),
+    );
   }
 
+  await visitFile(path.resolve(entryFilePath));
   return sortGrantSet(detectedGrants);
 }
 

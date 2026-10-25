@@ -20,7 +20,15 @@ export function toSabrFormat(
   const bitrate = Number(format.bitrate ?? format.averageBitrate);
   const approxDurationMs = Number(format.approxDurationMs);
   const lastModified = String(format.lastModified ?? "");
-  if (!(itag > 0) || !(bitrate > 0) || !(approxDurationMs > 0) || !lastModified)
+  if (
+    Number.isNaN(itag) ||
+    itag <= 0 ||
+    Number.isNaN(bitrate) ||
+    bitrate <= 0 ||
+    Number.isNaN(approxDurationMs) ||
+    approxDurationMs <= 0 ||
+    !lastModified
+  )
     return;
   const language = getAudioFormatLanguage(format) || undefined;
   return {
@@ -646,7 +654,7 @@ export function assertYouTubeAudioIsUsefulForVot(
           audioLanguageMatches(sabrTrackLanguage(id), requested),
         )
       : undefined;
-  const supportedAlternate = runtimeTrackIds.find(isVotSupportedSabrTrack);
+  const supportedAlternate = runtimeTrackIds.some(isVotSupportedSabrTrack);
 
   if (!isVotSupportedAudioLanguage(actual)) {
     // A concrete requested language may only be satisfied by that language.

@@ -192,9 +192,10 @@ export async function buildExtensionBundles({
 
   await ensureCleanDir(OUT_TEMP_DIR);
 
-  for (const entry of extensionEntries) {
+  await extensionEntries.reduce(async (previousBuild, entry) => {
+    await previousBuild;
     await buildEntry(entry, define);
-  }
+  }, Promise.resolve());
 }
 
 async function copyExtensionFiles(targetDir: string): Promise<void> {

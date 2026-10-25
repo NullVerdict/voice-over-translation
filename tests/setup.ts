@@ -6,7 +6,7 @@ Object.assign(globalThis, {
   VOT_AUTHORS: "test",
 });
 
-if (typeof globalThis.localStorage === "undefined") {
+if (globalThis.localStorage === undefined) {
   Object.defineProperty(globalThis, "localStorage", {
     configurable: true,
     value: memoryStorage(),

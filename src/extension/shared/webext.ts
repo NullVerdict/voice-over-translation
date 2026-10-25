@@ -120,11 +120,9 @@ export function assertExtensionContext(): void {
 
 function normalizeError(error: unknown): unknown {
   if (error instanceof ExtensionContextInvalidatedError) return error;
-  return isRuntimeGone()
-    ? new ExtensionContextInvalidatedError(
-        error instanceof Error ? error.message : undefined,
-      )
-    : error;
+  if (!isRuntimeGone()) return error;
+  const message = error instanceof Error ? error.message : undefined;
+  return new ExtensionContextInvalidatedError(message);
 }
 
 function sleep(ms: number): Promise<void> {

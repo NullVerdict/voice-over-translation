@@ -742,8 +742,10 @@ export class VideoHandler {
 
   /** Initializes the VOT client. */
   async initVOTClient() {
-    while (this.votClientInitPromise) {
-      await this.votClientInitPromise.catch(() => undefined);
+    const pendingInit = this.votClientInitPromise;
+    if (pendingInit !== undefined) {
+      await pendingInit.catch(() => undefined);
+      return this.initVOTClient();
     }
 
     const proxyKey = this.getVOTClientProxyKey();
@@ -806,7 +808,7 @@ export class VideoHandler {
     const provider = this.votClient.provider;
     provider.getSession = (module: SessionModule): Promise<ClientSession> => {
       const pending = inFlightSessions.get(module);
-      if (pending) {
+      if (pending !== undefined) {
         return pending;
       }
       const request = (async () => {

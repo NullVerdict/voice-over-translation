@@ -40,7 +40,7 @@ function toInstanceId(value: unknown): string | null {
 }
 
 function notifyStateListeners(): void {
-  for (const listener of [...stateListeners]) {
+  for (const listener of stateListeners) {
     try {
       listener();
     } catch {

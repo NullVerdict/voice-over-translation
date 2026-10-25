@@ -157,6 +157,4 @@ export async function bootstrapContentScript(): Promise<void> {
 // to exist by the time this MAIN-world content script evaluates at
 // document_end.  In Firefox builds the bridge injects prelude.module.js
 // before content.module.js.  No polling or readiness check needed.
-void (async () => {
-  await bootstrapContentScript();
-})();
+void bootstrapContentScript();

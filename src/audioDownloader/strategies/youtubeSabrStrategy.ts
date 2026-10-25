@@ -1,5 +1,6 @@
 import { createAbortableDelay } from "../../utils/abort";
 import debug from "../../utils/debug";
+import { toErrorMessage } from "../../utils/errors";
 import type { AudioChunk } from "./audioChunks";
 import { getQueuedAudioChunks } from "./audioDownloadQueue";
 import type { WebAbrWindow } from "./webAbr";
@@ -10,7 +11,7 @@ const SABR_RETRY_DELAY_MS = 750;
 const SABR_DOWNLOAD_QUEUE = new Map<string, Promise<void>>();
 
 function isDeterministicSabrError(error: unknown): boolean {
-  const message = error instanceof Error ? error.message : String(error);
+  const message = toErrorMessage(error);
   return (
     message.includes("SABR could not resolve requested audio language") ||
     message.includes("SABR found no VOT-supported audio track") ||
@@ -61,7 +62,7 @@ async function* getSabrAudioChunksImpl(
         attempt,
         bufferedChunks: chunks.length,
         bufferedBytes: bytes,
-        error: error instanceof Error ? error.message : String(error),
+        error: toErrorMessage(error),
       });
       if (attempt < SABR_MAX_ATTEMPTS && !isDeterministicSabrError(error)) {
         await createAbortableDelay(SABR_RETRY_DELAY_MS, signal);
@@ -72,7 +73,7 @@ async function* getSabrAudioChunksImpl(
   }
   throw lastError instanceof Error
     ? lastError
-    : new Error(String(lastError ?? "Audio downloader. SABR failed"));
+    : new Error(toErrorMessage(lastError, "Audio downloader. SABR failed"));
 }
 
 export async function* getSabrAudioChunks(

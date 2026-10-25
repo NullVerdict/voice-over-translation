@@ -98,13 +98,13 @@ async function rollbackStaleAppliedSourceIfStillCurrent(
   }
 }
 
-export async function validateAudioUrl(
+export function validateAudioUrl(
   this: VideoHandler,
   audioUrl: string,
   actionContext?: ActionContext,
 ): Promise<string> {
-  if (this.isActionStale(actionContext)) return audioUrl;
-  return audioUrl;
+  if (this.isActionStale(actionContext)) return Promise.resolve(audioUrl);
+  return Promise.resolve(audioUrl);
 }
 
 export function scheduleTranslationRefresh(this: VideoHandler): void {
@@ -727,7 +727,7 @@ export async function translateFunc(
       onTranslationWaiting: () => {
         cleanupPauseListener = pauseVideoForTranslation(this);
       },
-      onBeforeCache: async () => {
+      onBeforeCache: () => {
         const preferredSubtitleLanguage = this.getPreferredSubtitlesLanguage(
           videoData.detectedLanguage,
           videoData.responseLanguage,

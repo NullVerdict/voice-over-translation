@@ -552,7 +552,7 @@ export function rejectBridgeXhr(
 export function failAllBridgeXhrs(reason = "bridge retired"): void {
   if (!xhrPorts.size) return;
   const message = formatBridgeRestartError(`Bridge retired (${reason})`);
-  for (const [requestId, st] of [...xhrPorts]) {
+  for (const [requestId, st] of xhrPorts) {
     postBridgeXhrError(requestId, st.url, message);
   }
 }

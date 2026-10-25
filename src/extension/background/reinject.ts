@@ -119,12 +119,16 @@ export async function reinjectContentScripts(): Promise<void> {
     number,
     { tab: TabLike & { id: number }; entries: ManifestContentScript[] }
   >();
-  for (const entry of contentScripts) {
-    if (!entry?.js?.length) continue;
-    const [tabs, excludedTabs] = await Promise.all([
-      queryTabs(api, entry.matches),
-      queryTabs(api, entry.exclude_matches),
-    ]);
+  const queries = contentScripts
+    .filter((entry) => entry?.js?.length)
+    .map(async (entry) => {
+      const [tabs, excludedTabs] = await Promise.all([
+        queryTabs(api, entry.matches),
+        queryTabs(api, entry.exclude_matches),
+      ]);
+      return { entry, tabs, excludedTabs };
+    });
+  for (const { entry, tabs, excludedTabs } of await Promise.all(queries)) {
     const excluded = new Set(excludedTabs.map((tab) => tab.id));
     for (const tab of tabs) {
       if (!isInjectableTab(tab) || excluded.has(tab.id)) continue;
@@ -139,9 +143,9 @@ export async function reinjectContentScripts(): Promise<void> {
   const rest = items.filter((item) => !item.tab.active);
 
   // Active tabs first (the user is most likely looking at them).
-  for (const { tab, entries } of active) {
-    await injectIntoTab(api, tab.id, entries);
-  }
+  await Promise.all(
+    active.map(({ tab, entries }) => injectIntoTab(api, tab.id, entries)),
+  );
   await Promise.allSettled(
     rest.map(({ tab, entries }) => injectIntoTab(api, tab.id, entries)),
   );
@@ -158,7 +162,7 @@ export function registerContentScriptReinjection(): void {
     if (typedPort.name !== LIFECYCLE_PORT_NAME) return;
     lifecyclePorts.add(typedPort);
     typedPort.onDisconnect?.addListener?.(() => {
-      void lastErrorMessage(); // silence "Unchecked runtime.lastError"
+      lastErrorMessage(); // silence "Unchecked runtime.lastError"
       lifecyclePorts.delete(typedPort);
     });
   });

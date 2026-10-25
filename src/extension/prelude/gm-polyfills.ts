@@ -170,11 +170,13 @@ export function armXhrFallbackWatchdog(
   state: XhrCallbackState,
 ): void {
   clearXhrTimeout(state);
-  const timeoutMs = state.acknowledged
-    ? state.timeoutMs > 0 && Number.isFinite(state.timeoutMs)
-      ? state.timeoutMs + XHR_FALLBACK_TIMEOUT_GRACE_MS
-      : 0
-    : BRIDGE_REQUEST_TIMEOUT_MS;
+  let timeoutMs = BRIDGE_REQUEST_TIMEOUT_MS;
+  if (state.acknowledged) {
+    timeoutMs = 0;
+    if (state.timeoutMs > 0 && Number.isFinite(state.timeoutMs)) {
+      timeoutMs = state.timeoutMs + XHR_FALLBACK_TIMEOUT_GRACE_MS;
+    }
+  }
   if (state.settled || timeoutMs <= 0) return;
 
   state.timeoutId = globalThis.setTimeout(() => {

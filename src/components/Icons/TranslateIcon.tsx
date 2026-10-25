@@ -6,7 +6,13 @@ export type TranslateIconProps = {
 
 export function TranslateIcon(props: TranslateIconProps): JSX.Element {
   return (
-    <svg width="1em" height="1em" viewBox="0 0 24 24" fill="currentColor">
+    <svg
+      aria-hidden="true"
+      width="1em"
+      height="1em"
+      viewBox="0 0 24 24"
+      fill="currentColor"
+    >
       <Show
         when={props.loading}
         fallback={

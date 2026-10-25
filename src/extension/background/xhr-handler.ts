@@ -550,11 +550,9 @@ export function registerXhrPortListener(): void {
         details.anonymous || details.withCredentials === false
           ? "omit"
           : "include";
-      const cache: RequestCache | undefined = details.nocache
-        ? "no-store"
-        : details.revalidate
-          ? "no-cache"
-          : undefined;
+      let cache: RequestCache | undefined;
+      if (details.nocache) cache = "no-store";
+      else if (details.revalidate) cache = "no-cache";
       const redirect: RequestRedirect =
         details.redirect === "error" || details.redirect === "manual"
           ? details.redirect
